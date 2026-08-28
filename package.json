@@ -1,0 +1,13 @@
+{
+  "name": "automacao-validador-hangares-sbjd",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Automação de validação de tickets de hangares via WhatsApp (OCR + Playwright + n8n)",
+  "scripts": {
+    "validate": "node scripts/validate-ticket.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "playwright": "^1.47.0"
+  }
+}

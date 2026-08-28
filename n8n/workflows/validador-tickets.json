@@ -1,0 +1,270 @@
+{
+  "id": "validador-tickets-hangares-sbjd",
+  "name": "Validador de Tickets - Hangares SBJD",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## ⚠️ Placeholder de entrada\n\nEste Webhook simula a chegada de uma mensagem do WhatsApp, só para testar o resto do fluxo. Quando o nó real de WhatsApp (Baileys/Evolution API) estiver instalado no n8n, substitua este Webhook por ele.\n\nBody esperado (JSON) enquanto o OCR não existe:\n```\n{\n  \"grupoId\": \"...\",\n  \"opcao\": 1 | 2 | 3,\n  \"ticket\": \"011903092521\",\n  \"placa\": \"ABC1234\",       // opcional, só usado se opcao=3\n  \"dataEmissaoIso\": \"...\",  // opcional\n  \"horasAdicionais\": 0,      // opcional\n  \"diasAdicionais\": 0        // opcional\n}\n```",
+        "height": 460,
+        "width": 380
+      },
+      "id": "note-webhook",
+      "name": "Nota - Webhook placeholder",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-480, -260]
+    },
+    {
+      "parameters": {
+        "content": "## ⚠️ OCR ainda não existe\n\nEm produção, antes do nó \"Identificar Hangar\", precisa entrar um passo que:\n1. Pega a imagem anexada na mensagem do WhatsApp\n2. Roda OCR (Google Cloud Vision / Claude / GPT vision)\n3. Extrai `ticket` (12 dígitos) e `dataEmissaoIso` (converter de DD/MM/AA para ISO)\n4. Se a confiança for baixa, NÃO segue — responde pedindo reenvio da foto\n\nVer docs/perguntas-abertas.md, seção \"Formato real do ticket\".",
+        "height": 320,
+        "width": 380
+      },
+      "id": "note-ocr",
+      "name": "Nota - OCR pendente",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-480, 240]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ticket-hangar",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook",
+      "name": "Mensagem WhatsApp (placeholder)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-80, -60]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Mapa \"ID do grupo do WhatsApp\" -> \"id do hangar\" (usado em config/hangares.json).\n// Ao cadastrar um novo hangar: adicionar uma linha aqui E uma entrada em config/hangares.json.\nconst GRUPO_PARA_HANGAR = {\n  // 'SEU_ID_DO_GRUPO_SOLOJET@g.us': 'solojet',\n  // 'SEU_ID_DO_GRUPO_AIBM@g.us': 'aibm',\n};\n\nconst body = $input.item.json.body || $input.item.json;\nconst grupoId = body.grupoId;\nconst hangarId = GRUPO_PARA_HANGAR[grupoId] || body.hangarId; // fallback p/ testes manuais\n\nif (!hangarId) {\n  throw new Error(`Grupo \"${grupoId}\" não está cadastrado em GRUPO_PARA_HANGAR nem foi enviado hangarId diretamente.`);\n}\n\nreturn {\n  json: {\n    ...body,\n    hangarId,\n  },\n};"
+      },
+      "id": "identificar-hangar",
+      "name": "Identificar Hangar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [140, -60]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "cond-opcao-validar",
+              "leftValue": "={{ $json.opcao }}",
+              "rightValue": 3,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "opcao-validar",
+      "name": "Opção 3 (Validar)?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [380, -60]
+    },
+    {
+      "parameters": {
+        "command": "=node \"/Users/rodrigobmmathias/Automacao Validador hangares SBJD /scripts/validate-ticket.js\" {{$json.hangarId}} {{$json.ticket}} {{$json.placa || \"\"}} {{$json.dataEmissaoIso || \"\"}} {{$json.horasAdicionais || 0}} {{$json.diasAdicionais || 0}}"
+      },
+      "id": "validar-ticket",
+      "name": "Validar Ticket",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [620, -180]
+    },
+    {
+      "parameters": {
+        "command": "=node \"/Users/rodrigobmmathias/Automacao Validador hangares SBJD /scripts/consultar-ticket.js\" {{$json.hangarId}} {{$json.ticket}}"
+      },
+      "id": "consultar-ticket",
+      "name": "Consultar Ticket",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [620, 60]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Os scripts imprimem UM json por linha em stdout (console.log). Pega a última linha não-vazia.\nconst stdout = $input.item.json.stdout || '';\nconst linhas = stdout.trim().split('\\n').filter(Boolean);\nconst ultimaLinha = linhas[linhas.length - 1];\n\nlet resultado;\nif (!ultimaLinha) {\n  resultado = {\n    status: 'erro',\n    mensagem: 'O script não retornou nenhuma saída (stdout vazio).',\n    mensagemWhatsapp: '⚠️ Erro interno ao processar o ticket. Nossa equipe foi avisada.',\n    notificarAdmin: true,\n  };\n} else {\n  try {\n    resultado = JSON.parse(ultimaLinha);\n  } catch (erro) {\n    resultado = {\n      status: 'erro',\n      mensagem: `Não consegui interpretar a saída do script: ${ultimaLinha}`,\n      mensagemWhatsapp: '⚠️ Erro interno ao processar o ticket. Nossa equipe foi avisada.',\n      notificarAdmin: true,\n    };\n  }\n}\n\nif (!resultado.mensagemWhatsapp) {\n  resultado.mensagemWhatsapp = '⚠️ Não conseguimos processar essa solicitação. Nossa equipe foi avisada.';\n  resultado.notificarAdmin = true;\n}\n\nreturn { json: resultado };"
+      },
+      "id": "parse-resultado",
+      "name": "Parse Resultado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [860, -60]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { mensagem: $json.mensagemWhatsapp } }}",
+        "options": {}
+      },
+      "id": "responder-cliente",
+      "name": "Responder Cliente (placeholder)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1100, -160]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "cond-notificar-admin",
+              "leftValue": "={{ $json.notificarAdmin }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-notificar-admin",
+      "name": "Notificar Admin?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1100, 40]
+    },
+    {
+      "parameters": {
+        "content": "## ⚠️ Substituir pelo envio real\n\nEstes dois nós \"placeholder\" precisam virar nós de envio de mensagem no WhatsApp de verdade (Baileys/Evolution API):\n\n- **Responder Cliente**: manda `mensagemWhatsapp` de volta pro MESMO grupo de onde a mensagem original chegou.\n- **Notificar Admin**: manda a mesma mensagem (ou uma versão técnica) pro `grupoAdministracao` configurado em config/hangares.json.",
+        "height": 300,
+        "width": 380
+      },
+      "id": "note-responder",
+      "name": "Nota - Substituir respostas",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [1100, 260]
+    },
+    {
+      "parameters": {},
+      "id": "notificar-admin",
+      "name": "Notificar Admin (placeholder)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1340, 40]
+    }
+  ],
+  "connections": {
+    "Mensagem WhatsApp (placeholder)": {
+      "main": [
+        [
+          {
+            "node": "Identificar Hangar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Identificar Hangar": {
+      "main": [
+        [
+          {
+            "node": "Opção 3 (Validar)?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Opção 3 (Validar)?": {
+      "main": [
+        [
+          {
+            "node": "Validar Ticket",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Consultar Ticket",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar Ticket": {
+      "main": [
+        [
+          {
+            "node": "Parse Resultado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Consultar Ticket": {
+      "main": [
+        [
+          {
+            "node": "Parse Resultado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Resultado": {
+      "main": [
+        [
+          {
+            "node": "Responder Cliente (placeholder)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Notificar Admin?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notificar Admin?": {
+      "main": [
+        [
+          {
+            "node": "Notificar Admin (placeholder)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "validador-hangares-sbjd"
+  }
+}

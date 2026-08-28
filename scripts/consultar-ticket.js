@@ -1,0 +1,143 @@
+#!/usr/bin/env node
+// Uso: node scripts/consultar-ticket.js <hangarId> <numeroTicket>
+// Consulta um ticket SEM validar: abre o modal do ticket (mesmo modal usado
+// para validar), lê Entrada/Tolerância, fecha o modal sem confirmar nada, e
+// checa na lista de tickets validados da tela se ele já foi confirmado.
+// Não mexe em placa, vagas ou sliders — é só leitura.
+//
+// Pensado para responder as opções "consultar se foi validado" e "consultar
+// se está com validade ativa" do menu do bot no WhatsApp (a terceira opção,
+// "validar o ticket", usa scripts/validate-ticket.js).
+
+const { chromium } = require('playwright');
+const { carregarConfig, buscarHangar, login } = require('./lib/hangar');
+
+async function consultarTicket(hangarId, ticket) {
+  const config = carregarConfig();
+  const hangar = buscarHangar(config, hangarId);
+
+  if (!hangar.validadorUrl) {
+    throw new Error(`URL do validador não definida para o hangar "${hangarId}". Preencha config/hangares.json.`);
+  }
+
+  const seletores = hangar.seletores || {};
+  for (const campo of ['campoUsuario', 'campoSenha', 'botaoLogin', 'campoTicket', 'modalDialog']) {
+    if (!seletores[campo]) {
+      throw new Error(`Seletor "${campo}" não definido para o hangar "${hangarId}". Preencha config/hangares.json depois de inspecionar o site real.`);
+    }
+  }
+
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    await login(page, hangar);
+
+    await page.fill(seletores.campoTicket, ticket);
+    await page.keyboard.press('Enter');
+    const modalAbriu = await page
+      .waitForSelector(seletores.modalDialog, { state: 'visible', timeout: 10000 })
+      .then(() => true)
+      .catch(() => false);
+
+    if (!modalAbriu) {
+      return {
+        status: 'ticket_nao_encontrado',
+        hangar: hangarId,
+        ticket,
+        mensagemWhatsapp: `⚠️ Ticket ${ticket} não encontrado — verifique o número e tente novamente.`,
+      };
+    }
+
+    // Campos "Entrada" e "Tolerância" são os dois primeiros <input> do modal
+    // (somente leitura) — não têm id fixo, então lemos pela ordem dentro do
+    // formulário, que é estável desde que o layout do modal não mude.
+    const camposReadonly = page.locator(`${seletores.modalDialog} .modal-body input`);
+    const entradaTexto = await camposReadonly.nth(0).inputValue().catch(() => '');
+    const toleranciaTexto = await camposReadonly.nth(1).inputValue().catch(() => '');
+
+    // Ticket já validado? Confere na lista de cards da tela principal
+    // (fica atrás do modal, mas ainda presente no DOM). IMPORTANTE: a
+    // "Tolerância" mostrada no MODAL é um valor de referência para uma NOVA
+    // extensão (Entrada + 15min por padrão), não o prazo real já concedido —
+    // confirmado comparando com o card, que tinha uma tolerância bem maior.
+    // Por isso, para ticket já validado, usamos a tolerância do CARD, não a
+    // do modal.
+    const cardDoTicket = page.locator('.card-ticket-validados article').filter({ hasText: ticket });
+    const jaValidado = await cardDoTicket.count().then((n) => n > 0).catch(() => false);
+
+    let toleranciaReal = toleranciaTexto;
+    if (jaValidado) {
+      const textoCard = await cardDoTicket.first().textContent().catch(() => '');
+      const matchTolerancia = (textoCard || '').match(/Toler[âa]ncia:\s*([\d/]+\s+[\d:]+)/i);
+      if (matchTolerancia) {
+        toleranciaReal = matchTolerancia[1];
+      }
+    }
+
+    if (seletores.botaoFecharModal) {
+      await page.click(seletores.botaoFecharModal).catch(() => {});
+    }
+
+    const tolerancia = parseDataBr(toleranciaReal);
+    const ativo = tolerancia ? tolerancia.getTime() > Date.now() : null;
+
+    let mensagemWhatsapp;
+    if (jaValidado && ativo) {
+      mensagemWhatsapp = `✅ Ticket ${ticket} já foi validado e está com validade ativa até ${toleranciaReal}.`;
+    } else if (jaValidado && ativo === false) {
+      mensagemWhatsapp = `⚠️ Ticket ${ticket} foi validado, mas a validade já expirou (venceu em ${toleranciaReal}).`;
+    } else if (!jaValidado && ativo === false) {
+      mensagemWhatsapp = `⚠️ Ticket ${ticket} ainda não foi validado e o prazo de tolerância de 15 minutos já venceu (${toleranciaReal}).`;
+    } else {
+      // Todo ticket impresso já sai com 15min de tolerância — dentro desse
+      // período, não é preciso validar.
+      mensagemWhatsapp = `ℹ️ Ticket ${ticket} está dentro da tolerância de 15 minutos da emissão — ainda não precisa validar. Tolerância vai até ${toleranciaReal}.`;
+    }
+
+    return {
+      status: 'consulta_ok',
+      hangar: hangarId,
+      ticket,
+      entrada: entradaTexto,
+      tolerancia: toleranciaReal,
+      jaValidado,
+      ativo,
+      mensagemWhatsapp,
+    };
+  } finally {
+    await browser.close();
+  }
+}
+
+// Converte "18/11/2025 13:37:47" (formato visto no ValidPark) para Date.
+function parseDataBr(texto) {
+  const match = (texto || '').match(/(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2}):(\d{2})/);
+  if (!match) return null;
+  const [, dia, mes, ano, hora, min, seg] = match;
+  return new Date(`${ano}-${mes}-${dia}T${hora}:${min}:${seg}`);
+}
+
+async function main() {
+  const [hangarId, ticket] = process.argv.slice(2);
+  if (!hangarId || !ticket) {
+    console.error('Uso: node scripts/consultar-ticket.js <hangarId> <numeroTicket>');
+    process.exit(1);
+  }
+
+  try {
+    const resultado = await consultarTicket(hangarId, ticket);
+    console.log(JSON.stringify(resultado));
+  } catch (erro) {
+    console.log(JSON.stringify({
+      status: 'erro',
+      hangar: hangarId,
+      ticket,
+      mensagem: erro.message,
+      mensagemWhatsapp: `⚠️ Não conseguimos consultar o ticket ${ticket} no momento. Nossa equipe foi avisada.`,
+      notificarAdmin: true,
+    }));
+    process.exit(1);
+  }
+}
+
+main();
