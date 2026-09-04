@@ -109,25 +109,59 @@ decide entre consultar ou validar → roda o script certo via "Execute
 Command" → interpreta o JSON de resultado → responde o cliente e,
 se necessário, avisa o grupo de administração.
 
-**O que já está pronto e testado:**
-- A estrutura do workflow foi validada via `n8n import:workflow` (aceita sem
-  erros — nós e conexões corretos).
-- A lógica dos dois nós de código ("Identificar Hangar" e "Parse Resultado")
-  foi testada isoladamente fora do n8n, incluindo casos de borda (grupo
-  desconhecido, stdout vazio, saída inválida) — todos passaram.
-- Os comandos dos nós "Execute Command" são os mesmos que já rodamos
-  manualmente o tempo todo nesta sessão.
+**✅ Testado de ponta a ponta de verdade**, rodando no servidor AWS
+(18.191.250.76), via HTTP real (não só dentro do editor do n8n):
 
-**O que ainda falta, e por quê eu não fiz sozinho:**
-- **Rodar de ponta a ponta pela interface do n8n** — a primeira tela do n8n
-  pede pra criar uma conta local (email/senha). Não crio contas nem insiro
-  senhas em telas, mesmo sendo só uma conta local do próprio software — é uma
-  restrição fixa minha. Você precisa abrir **http://localhost:5678** você
-  mesmo, criar essa conta (invente um e-mail/senha, é só local, não precisa
-  ser real), importar o `n8n/workflows/validador-tickets.json` pela interface
-  (menu **⋯ → Import from File**), e dar uma olhada rápida nos dois nós "IF"
-  (condições) — a UI é o jeito mais confiável de confirmar visualmente que as
-  condições ficaram do jeito certo.
+```bash
+# consultar (opção 1/2 do menu) — ticket já validado, tolerância expirada:
+curl -X POST http://18.191.250.76:5678/webhook/validador-tickets-hangares-sbjd/webhookwhatsapp/ticket-hangar \
+  -H "Content-Type: application/json" \
+  -d '{"hangarId": "solojet", "opcao": 1, "ticket": "011811132237"}'
+# → {"mensagem":"⚠️ Ticket 011811132237 foi validado, mas a validade já expirou..."}
+
+# validar (opção 3) — ticket inexistente, sem efeito colateral:
+curl -X POST http://18.191.250.76:5678/webhook/validador-tickets-hangares-sbjd/webhookwhatsapp/ticket-hangar \
+  -H "Content-Type: application/json" \
+  -d '{"hangarId": "solojet", "opcao": 3, "ticket": "000000000000", "placa": "AAA0000"}'
+# → {"mensagem":"⚠️ Ticket 000000000000 não encontrado — verifique o número..."}
+```
+
+### Bugs reais encontrados e corrigidos no processo
+
+Colocar esse workflow pra funcionar de verdade (não só abrir sem erro) expôs
+vários problemas que só apareceram testando de ponta a ponta:
+
+1. **n8n 2.x (a versão "latest" instalada por padrão) tem um bug real de
+   ativação de webhook** — o banco de dados confirma o registro, os logs
+   dizem "Activated workflow", mas a rota nunca fica acessível de verdade.
+   Solução: fixamos a versão em **n8n 1.123.77** (linha estável 1.x), que não
+   tem esse problema. `npm install -g n8n@1.123.77` em vez de `npm install -g
+   n8n` (que pega a "latest", hoje 2.x).
+2. **Ativar um workflow via banco de dados direto não é suficiente** — o
+   registro real do webhook (tabela `webhook_entity`) só acontece quando o
+   n8n processa a ativação de verdade. O jeito confiável sem precisar abrir a
+   interface: `n8n update:workflow --id=<id> --active=true` (isso só marca a
+   flag; **precisa reiniciar o serviço** depois pra ele de fato registrar o
+   webhook no restart).
+3. **O caminho da URL do webhook não é só o `path` configurado** — o n8n
+   monta a URL como `/webhook/{idDoWorkflow}/{nomeDoNoEmMinusculas}/{path}`.
+   Por isso demos nome simples ao nó Webhook (`WebhookWhatsApp`, sem espaços
+   nem parênteses) — nomes com espaço/caracteres especiais viram `%20` etc.
+   na URL e podem não bater com o que o n8n espera internamente.
+4. **Os nós "Execute Command" tinham o caminho do Mac local** (`/Users/...`)
+   em vez do caminho real no servidor (`/home/ubuntu/validador-hangares/...`)
+   — ficou assim de quando montamos o workflow testando localmente, e nunca
+   foi atualizado ao migrar pro servidor.
+5. **Parâmetros opcionais vazios na expressão do "Execute Command" sem aspas
+   quebravam a ordem dos argumentos** — `{{$json.dataEmissaoIso || ""}}`
+   quando vazio produzia uma string vazia SEM aspas no comando do shell, que
+   o shell simplesmente descarta (não conta como argumento) — isso empurrava
+   todos os parâmetros seguintes uma posição pra trás. Corrigido envolvendo
+   cada argumento em aspas duplas na própria expressão:
+   `"{{$json.dataEmissaoIso || ''}}"`.
+
+### O que ainda falta
+
 - **Trocar o nó Webhook pelo nó real de WhatsApp** (Baileys/Evolution API,
   ainda não escolhido/instalado).
 - **Adicionar o passo de OCR** antes de "Identificar Hangar" (ver nota
@@ -136,14 +170,29 @@ se necessário, avisa o grupo de administração.
   com os IDs reais dos grupos do WhatsApp (Solojet, AIBM, administração).
 - **Trocar os dois nós "placeholder"** (Responder Cliente / Notificar Admin)
   pelos nós reais de envio de mensagem, quando o WhatsApp estiver conectado.
+- Os caminhos dos scripts no "Execute Command" estão fixos pro servidor AWS
+  atual (`/home/ubuntu/validador-hangares/...`) — se o projeto mudar de
+  servidor, precisa atualizar isso no workflow.
 
-**⚠️ Importante — nó "Execute Command" vem desabilitado por padrão no n8n 2.x**
-(por segurança, já que ele deixa rodar comandos no sistema — mas é exatamente
-o nó que este workflow usa pra chamar os scripts). Sem a variável
-`NODES_EXCLUDE=[]`, o workflow dá erro **"Unrecognized node type:
-n8n-nodes-base.executeCommand"**.
+**⚠️ Nó "Execute Command" vem desabilitado por padrão no n8n** (por
+segurança — mas é exatamente o nó que este workflow usa pra chamar os
+scripts). Sem a variável `NODES_EXCLUDE=[]`, dá erro **"Unrecognized node
+type: n8n-nodes-base.executeCommand"**.
 
-**Para rodar o n8n localmente (sem Docker):**
+**Como o n8n está rodando hoje (servidor AWS, systemd):**
+
+```bash
+sudo systemctl status n8n      # ver status
+sudo systemctl restart n8n     # reiniciar (necessário depois de ativar um workflow)
+sudo journalctl -u n8n -f      # acompanhar logs ao vivo
+```
+
+Serviço em `/etc/systemd/system/n8n.service`, com `NODES_EXCLUDE=[]`,
+`N8N_USER_FOLDER=/home/ubuntu/validador-hangares/n8n/data` e
+`N8N_SECURE_COOKIE=false` (necessário por estarmos em HTTP puro, sem
+domínio/certificado ainda).
+
+**Para rodar localmente (sem Docker), se precisar testar fora do servidor:**
 
 ```bash
 export NVM_DIR="$HOME/.nvm"
@@ -152,9 +201,10 @@ cd "/Users/rodrigobmmathias/Automacao Validador hangares SBJD "
 NODES_EXCLUDE='[]' N8N_USER_FOLDER="$(pwd)/n8n/data" npx n8n start
 ```
 
-Acessar http://localhost:5678. (O `docker-compose.yml` continua sendo a
-referência para quando for hospedar num VPS de produção 24/7 — lembrar de
-adicionar `NODES_EXCLUDE=[]` nas variáveis de ambiente dele também.)
+(O `docker-compose.yml` continua sendo a referência para hospedagem em
+container — lembrar de adicionar `NODES_EXCLUDE=[]` nas variáveis dele
+também, e considerar pinar `n8nio/n8n:1.123.77` em vez de `:latest` dado o
+bug encontrado na versão 2.x.)
 
 ## Próximos passos (ver briefing, seção 6)
 

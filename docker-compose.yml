@@ -1,6 +1,8 @@
 services:
   n8n:
-    image: docker.n8n.io/n8nio/n8n:latest
+    # Fixado em 1.123.77 (não ":latest") — a série 2.x tem um bug real de
+    # ativação de webhook, descoberto testando este projeto (ver README).
+    image: docker.n8n.io/n8nio/n8n:1.123.77
     restart: unless-stopped
     ports:
       - "5678:5678"

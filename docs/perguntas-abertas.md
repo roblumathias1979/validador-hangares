@@ -8,6 +8,28 @@ Copiado da seção 7 do briefing. Preencher antes de tentar rodar o fluxo real.
 - [ ] Quem será o responsável por acompanhar a manutenção após a entrega?
 - [ ] Existe um número de WhatsApp dedicado disponível para o bot, ou será necessário providenciar um?
 
+## ✅ Deploy no servidor AWS — workflow do n8n testado de ponta a ponta
+
+O servidor (EC2, IP `18.191.250.76`, Ubuntu, 2 vCPU / ~900MB RAM) está no ar
+com n8n rodando como serviço systemd (reinicia sozinho). O workflow
+`n8n/workflows/validador-tickets.json` foi testado de verdade via HTTP real
+(não só dentro do editor) — ver [README.md](../README.md), seção "Workflow
+do n8n", para os comandos de teste e a lista de bugs reais encontrados e
+corrigidos (versão do n8n, caminho da URL do webhook, caminhos hardcoded do
+Mac local, e um bug de quoting que embaralhava argumentos vazios no Execute
+Command).
+
+- [x] Casos testados com sucesso via `curl` direto no webhook de produção:
+      consultar ticket já validado (opção 1) e validar ticket inexistente
+      (opção 3) — ambos retornaram a mensagem certa.
+- [ ] **Ainda não testado**: o caminho de sucesso real de validação (opção 3
+      com ticket + placa válidos) via n8n — evitamos de propósito, porque
+      validar de verdade ocupa uma vaga real no pátio do Solojet. Testar
+      quando fizer sentido operacionalmente.
+- [ ] RAM do servidor é apertada (~900MB) — funcionou nos testes, mas ainda
+      não foi testado sob carga real (WhatsApp conectado + Playwright rodando
+      ao mesmo tempo). Se travar, considerar upgrade pra t3.small (2GB).
+
 ## Específico do hangar Solojet (necessário para a PoC)
 
 - [x] URL do site validador — `https://validpark.technext.com.br/login`

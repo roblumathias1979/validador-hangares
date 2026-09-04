@@ -34,7 +34,7 @@
         "options": {}
       },
       "id": "webhook",
-      "name": "Mensagem WhatsApp (placeholder)",
+      "name": "WebhookWhatsApp",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
       "position": [-80, -60]
@@ -80,7 +80,7 @@
     },
     {
       "parameters": {
-        "command": "=node \"/Users/rodrigobmmathias/Automacao Validador hangares SBJD /scripts/validate-ticket.js\" {{$json.hangarId}} {{$json.ticket}} {{$json.placa || \"\"}} {{$json.dataEmissaoIso || \"\"}} {{$json.horasAdicionais || 0}} {{$json.diasAdicionais || 0}}"
+        "command": "=node \"/home/ubuntu/validador-hangares/scripts/validate-ticket.js\" \"{{$json.hangarId}}\" \"{{$json.ticket}}\" \"{{$json.placa || ''}}\" \"{{$json.dataEmissaoIso || ''}}\" \"{{$json.horasAdicionais || 0}}\" \"{{$json.diasAdicionais || 0}}\""
       },
       "id": "validar-ticket",
       "name": "Validar Ticket",
@@ -90,7 +90,7 @@
     },
     {
       "parameters": {
-        "command": "=node \"/Users/rodrigobmmathias/Automacao Validador hangares SBJD /scripts/consultar-ticket.js\" {{$json.hangarId}} {{$json.ticket}}"
+        "command": "=node \"/home/ubuntu/validador-hangares/scripts/consultar-ticket.js\" {{$json.hangarId}} {{$json.ticket}}"
       },
       "id": "consultar-ticket",
       "name": "Consultar Ticket",
@@ -172,7 +172,7 @@
     }
   ],
   "connections": {
-    "Mensagem WhatsApp (placeholder)": {
+    "WebhookWhatsApp": {
       "main": [
         [
           {
