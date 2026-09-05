@@ -34,12 +34,37 @@ async function consultarTicket(hangarId, ticket) {
 
     await page.fill(seletores.campoTicket, ticket);
     await page.keyboard.press('Enter');
-    const modalAbriu = await page
-      .waitForSelector(seletores.modalDialog, { state: 'visible', timeout: 10000 })
-      .then(() => true)
-      .catch(() => false);
 
-    if (!modalAbriu) {
+    // Além do modal (ticket existe, ainda não usado), o site pode responder
+    // com um toast "Este ticket já foi utilizado!" — SEM abrir o modal. Isso
+    // acontece mesmo para tickets de outros hangares (o número do ticket é
+    // de um totem compartilhado do aeroporto, não exclusivo deste hangar),
+    // então não aparece na lista '.card-ticket-validados' deste hangar.
+    const resultadoBusca = await Promise.race([
+      page.waitForSelector(seletores.modalDialog, { state: 'visible', timeout: 10000 })
+        .then(() => ({ tipo: 'modal' })),
+      seletores.areaErroToast
+        ? page.waitForSelector(seletores.areaErroToast, { state: 'visible', timeout: 10000 })
+            .then(async (el) => ({ tipo: 'toast', texto: (await el.textContent() || '').trim() }))
+        : new Promise(() => {}),
+    ]).catch(() => ({ tipo: 'nenhum' }));
+
+    if (resultadoBusca.tipo === 'toast') {
+      const jaUtilizado = /j[áa]\s+foi\s+utilizado/i.test(resultadoBusca.texto);
+      return {
+        status: 'consulta_ok',
+        hangar: hangarId,
+        ticket,
+        jaValidado: jaUtilizado ? true : null,
+        ativo: jaUtilizado ? false : null,
+        mensagem: resultadoBusca.texto,
+        mensagemWhatsapp: jaUtilizado
+          ? `⚠️ Ticket ${ticket} já foi utilizado anteriormente (validado por este ou outro hangar).`
+          : `⚠️ Não conseguimos consultar o ticket ${ticket}: ${resultadoBusca.texto}`,
+      };
+    }
+
+    if (resultadoBusca.tipo !== 'modal') {
       return {
         status: 'ticket_nao_encontrado',
         hangar: hangarId,

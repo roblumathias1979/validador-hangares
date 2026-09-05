@@ -130,15 +130,36 @@ async function validarTicket(hangarId, ticket, placa, dataEmissaoIso, horasAdici
     // seguir e deixar o próprio site recusar do que travar tudo por causa
     // de uma mudança de texto na tela.
 
-    // Digitar o ticket abre um modal pedindo a placa do veículo.
+    // Digitar o ticket abre um modal pedindo a placa do veículo — ou, se o
+    // ticket já foi usado (mesmo por outro hangar, já que o número vem de um
+    // totem compartilhado do aeroporto), mostra um toast em vez do modal.
     await page.fill(seletores.campoTicket, ticket);
     await page.keyboard.press('Enter');
-    const modalAbriu = await page
-      .waitForSelector(seletores.modalDialog, { state: 'visible', timeout: 10000 })
-      .then(() => true)
-      .catch(() => false);
 
-    if (!modalAbriu) {
+    const resultadoBusca = await Promise.race([
+      page.waitForSelector(seletores.modalDialog, { state: 'visible', timeout: 10000 })
+        .then(() => ({ tipo: 'modal' })),
+      seletores.areaErroToast
+        ? page.waitForSelector(seletores.areaErroToast, { state: 'visible', timeout: 10000 })
+            .then(async (el) => ({ tipo: 'toast', texto: (await el.textContent() || '').trim() }))
+        : new Promise(() => {}),
+    ]).catch(() => ({ tipo: 'nenhum' }));
+
+    if (resultadoBusca.tipo === 'toast') {
+      const jaUtilizado = /j[áa]\s+foi\s+utilizado/i.test(resultadoBusca.texto);
+      return {
+        status: jaUtilizado ? 'ticket_ja_utilizado' : 'erro_validacao',
+        hangar: hangarId,
+        ticket,
+        mensagem: resultadoBusca.texto,
+        mensagemWhatsapp: jaUtilizado
+          ? `⚠️ Ticket ${ticket} já foi utilizado anteriormente — não pode ser validado de novo.`
+          : `⚠️ Não foi possível validar o ticket ${ticket}: ${resultadoBusca.texto}`,
+        notificarAdmin: false,
+      };
+    }
+
+    if (resultadoBusca.tipo !== 'modal') {
       return {
         status: 'ticket_nao_encontrado',
         hangar: hangarId,

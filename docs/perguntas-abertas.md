@@ -106,6 +106,35 @@ extrair o número do ticket, não a data de emissão).
       quando o ticket ainda não foi validado e está dentro dos 15min, a
       mensagem já avisa que não precisa validar ainda.
 
+### ✅ Descoberta: tickets são de um totem compartilhado entre hangares
+
+O número do ticket **não pertence exclusivamente ao Solojet** — é emitido por
+um totem do aeroporto e pode ser validado por qualquer hangar. Isso foi
+confirmado testando com um ticket real (`010409183948`) que já tinha sido
+usado: o ValidPark mostra um **toast "Este ticket já foi utilizado!"** em vez
+de abrir o modal — e isso acontece mesmo que o ticket nunca apareça na lista
+`.card-ticket-validados` **deste** hangar (porque pode ter sido validado por
+outro).
+
+Isso é um status **diferente** de "não encontrado" (`ticket_nao_encontrado`)
+— antes os dois casos ficavam misturados, porque em ambos o modal não abre.
+Corrigido em [scripts/consultar-ticket.js](../scripts/consultar-ticket.js) e
+[scripts/validate-ticket.js](../scripts/validate-ticket.js): agora, ao digitar
+o ticket, o script espera por **modal OU toast**, e distingue:
+
+- `ticket_ja_utilizado` (validate) / `jaValidado: true` (consultar) — toast
+  com "já foi utilizado"
+- `ticket_nao_encontrado` — nem modal nem toast aparecem (timeout)
+- `erro_validacao` — toast com outro texto (ex: mensagem de erro diferente)
+
+Mensagem de WhatsApp para `ticket_ja_utilizado`:
+`⚠️ Ticket {ticket} já foi utilizado anteriormente — não pode ser validado de novo.`
+
+- [ ] Confirmar se isso significa que a placa também não é mais necessária
+      (já que o ticket já foi "resolvido" por outro hangar) — hoje o bot só
+      informa que já foi usado, sem checar/comparar a placa de quem está
+      perguntando agora.
+
 ### ⚠️ Nova regra de negócio: checar vagas disponíveis antes de validar
 
 Validar um ticket **ocupa uma vaga no pátio até o veículo sair** — se não
@@ -130,6 +159,7 @@ deve avisar o grupo de administração — ver briefing seção 3.6).
 |---|---|---|
 | `validado` | ✅ Ticket {ticket} validado com sucesso. Placa: {placa}. | não |
 | `ticket_nao_encontrado` | ⚠️ Ticket {ticket} não encontrado — verifique o número e tente novamente. | não |
+| `ticket_ja_utilizado` (ticket já usado, mesmo que por outro hangar) | ⚠️ Ticket {ticket} já foi utilizado anteriormente — não pode ser validado de novo. | não |
 | `formato_invalido` | ⚠️ Não consegui reconhecer o número do ticket direito. Pode reenviar a foto ou digitar o número manualmente? | não |
 | `valor_invalido` (extensão de tolerância acima de 24h/20d) | ⚠️ Não é possível estender o ticket {ticket} por esse tempo — o máximo permitido é 24 horas ou 20 dias. | não |
 | `fora_do_prazo` | ⚠️ Ticket {ticket} está fora do prazo de 2 horas da emissão para validação. | não |
