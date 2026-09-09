@@ -22,6 +22,14 @@ const { carregarConfig, buscarHangar, login } = require('./lib/hangar');
 const SLIDER_MAX_HORAS = 24;
 const SLIDER_MAX_DIAS = 20;
 
+// Contador de vagas do pátio, que o site renderiza como
+// "Total de vagas: 90 | Disponiveis: 30". Atenção: o site escreve
+// "Disponiveis" SEM acento — o [íi] cobre as duas grafias caso mudem.
+// Uma constante só para que a espera e a leitura do número não possam
+// divergir de padrão (ver COMO_ESPERAR_VAGAS abaixo).
+const REGEX_VAGAS_DISPONIVEIS = /Dispon[íi]veis:\s*(\d+)/i;
+const TIMEOUT_VAGAS_MS = 15000;
+
 function validarFormatoTicket(hangar, ticket) {
   const regexStr = hangar.formatoTicket && hangar.formatoTicket.regex;
   if (!regexStr) return true; // formato ainda não definido — não bloquear
@@ -111,8 +119,26 @@ async function validarTicket(hangarId, ticket, placa, dataEmissaoIso, horasAdici
 
     // Validar um ticket ocupa uma vaga até o veículo sair — não adianta
     // validar se não há vaga disponível no pátio.
-    const vagasTexto = await page.textContent(seletores.areaVagasDisponiveis);
-    const vagasMatch = (vagasTexto || '').match(/Dispon[íi]veis:\s*(\d+)/i);
+    //
+    // COMO_ESPERAR_VAGAS: o site preenche esse contador de forma ASSÍNCRONA,
+    // depois do login. Ler logo após o login (como era feito aqui antes)
+    // devolvia string vazia em ~2 de 3 execuções — o regex não batia, o
+    // `if (vagasMatch)` abaixo era pulado e a proteção de pátio cheio ficava
+    // silenciosamente desligada, ou seja, o bot validaria sem vaga. Por isso
+    // esperamos o elemento existir E já conter o número antes de ler.
+    // O `.filter({ hasText })` também cobre o caso do elemento ser
+    // re-renderizado (observado: `count()` dá 0 no instante seguinte ao login).
+    await page
+      .locator(seletores.areaVagasDisponiveis)
+      .filter({ hasText: REGEX_VAGAS_DISPONIVEIS })
+      .first()
+      .waitFor({ timeout: TIMEOUT_VAGAS_MS })
+      .catch(() => {}); // timeout: cai no tratamento de "não bateu", logo abaixo
+
+    const vagasTexto = await page
+      .textContent(seletores.areaVagasDisponiveis)
+      .catch(() => null);
+    const vagasMatch = (vagasTexto || '').match(REGEX_VAGAS_DISPONIVEIS);
     if (vagasMatch) {
       const vagasDisponiveis = Number(vagasMatch[1]);
       if (vagasDisponiveis <= 0) {
@@ -126,9 +152,11 @@ async function validarTicket(hangarId, ticket, placa, dataEmissaoIso, horasAdici
         };
       }
     }
-    // Se o texto não bateu com o padrão esperado, não bloqueia — melhor
-    // seguir e deixar o próprio site recusar do que travar tudo por causa
-    // de uma mudança de texto na tela.
+    // Se, mesmo depois da espera, o texto não bateu com o padrão, não
+    // bloqueia — melhor seguir do que travar tudo por causa de uma mudança
+    // de texto na tela. Diferente de antes, agora isso só acontece se o
+    // formato realmente mudar (ou o site demorar mais de TIMEOUT_VAGAS_MS),
+    // não por corrida de carregamento.
 
     // Digitar o ticket abre um modal pedindo a placa do veículo — ou, se o
     // ticket já foi usado (mesmo por outro hangar, já que o número vem de um
