@@ -35,7 +35,7 @@ inexistente. Duas descobertas mudaram o escopo do briefing original:
    venceria em minutos.
 
 Segundo hangar identificado: **AIBM** (só cadastrado como esqueleto em
-`config/hangares.example.json` ainda — falta URL, credenciais e seletores).
+`config/hangares.json` ainda — falta URL, credenciais e seletores).
 Diferente do Solojet, o AIBM teve muita fraude no pátio e por isso precisa de
 uma etapa extra: o cliente manda também uma foto do veículo estacionado no
 hangar, e o bot compara visualmente com fotos de referência do local antes de
@@ -51,10 +51,12 @@ mandando screenshots do DevTools; os testes atuais já rodam o fluxo real.
 
 ## Estrutura
 
-- `config/hangares.example.json` — template da tabela de hangares (grupo, URL do
-  validador, referência às variáveis de ambiente com as credenciais, seletores
-  da página, formato do ticket). Copiar para `config/hangares.json` (gitignored)
-  e preencher.
+- `config/hangares.json` — tabela de hangares (grupo, URL do validador,
+  referência às variáveis de ambiente com as credenciais, seletores da página,
+  formato do ticket). **Versionado de propósito**: não guarda senha nenhuma, só
+  o *nome* das variáveis de ambiente que as guardam. Ficava no `.gitignore` até
+  09/09/2026, e isso causou deriva silenciosa — produção rodou com seletores de
+  slider já sabidamente quebrados. Não recrie um arquivo `.example` para ele.
 - `.env.example` — variáveis de ambiente (n8n, OCR, credenciais por hangar).
   Copiar para `.env` (gitignored).
 - `docker-compose.yml` — sobe o n8n self-hosted localmente.
@@ -81,8 +83,8 @@ mandando screenshots do DevTools; os testes atuais já rodam o fluxo real.
 ```bash
 npm install
 npx playwright install chromium
-cp config/hangares.example.json config/hangares.json
-# preencher .env com SOLOJET_USUARIO e SOLOJET_SENHA reais
+# config/hangares.json já vem no repositório — nada a copiar
+# preencher .env com SOLOJET_USUARIO e SOLOJET_SENHA reais (ver .env.example)
 node scripts/validate-ticket.js solojet 011610095435 ABC1234
 
 # com a checagem de prazo de 2h (dataEmissaoIso é opcional):

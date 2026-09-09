@@ -6,7 +6,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '..', '.env') });
 function carregarConfig() {
   const configPath = path.join(__dirname, '..', '..', 'config', 'hangares.json');
   if (!fs.existsSync(configPath)) {
-    throw new Error(`Arquivo de configuração não encontrado: ${configPath}. Copie config/hangares.example.json para config/hangares.json e preencha.`);
+    throw new Error(`Arquivo de configuração não encontrado: ${configPath}. Esse arquivo é versionado no repositório — se está faltando, o checkout está incompleto ou o arquivo foi apagado localmente (recupere com: git checkout -- config/hangares.json).`);
   }
   return JSON.parse(fs.readFileSync(configPath, 'utf-8'));
 }
