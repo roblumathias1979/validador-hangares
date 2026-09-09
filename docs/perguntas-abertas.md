@@ -166,6 +166,65 @@ resultado final não bateu com o que mandamos.
       em 0 concede só a tolerância padrão (~15min), que vence com o carro
       ainda no pátio — a pergunta ao cliente não é opcional nesse caminho.
 
+### ✅ Corrigido: falso negativo reportava falha em validação bem-sucedida
+
+Descoberto em 09/09/2026 na **primeira validação real feita a partir do
+MacBook** (ticket `010909141913`, placa ABC5432, +5 dias): o site validou
+corretamente — tolerância foi de 09/09 14:34:22 para 14/09 14:34:22, com
+"Validado por: BOT_SOLOJET" no card, confirmado por print da tela — mas o
+`validate-ticket.js` retornou `erro_validacao` com mensagem vazia. O cliente
+receberia "não foi possível validar" para um ticket já validado.
+
+Causa: depois de clicar em VALIDAR, a detecção era um `Promise.race` entre
+três seletores, e **dois dos três sinais são traiçoeiros**:
+
+1. **O toast serve para sucesso E para erro** (mesmo `.Toastify__toast`).
+   O código tratava "apareceu um toast" como erro — ou seja, reportaria
+   falha justamente quando a validação dava certo.
+2. **O campo de erro inline fica "visível" mesmo no sucesso**, contendo só um
+   caractere zero-width. Já sabíamos disso no caso de recusa por falta de
+   tolerância, mas **acontece no sucesso também** — e foi ele que ganhou a
+   corrida, produzindo o falso negativo com mensagem vazia.
+3. O modal fechar indica sucesso, mas numa corrida perde para os outros dois.
+
+Correção: não há mais corrida entre seletores. Espera-se o toast — o único
+sinal que diz O QUE aconteceu — e o resultado é classificado **pelo
+conteúdo**, com o erro inline valendo só se tiver texto legível de verdade e
+o modal fechado como última reserva. A decisão foi extraída para
+`classificarResultadoValidacao()`, exportada e coberta por 8 casos de teste
+que rodam sem tocar o site, incluindo o caso exato deste falso negativo.
+
+Dois status novos saíram daí: `ticket_ja_utilizado` (que antes não tinha
+mensagem no mapa, resultando em `mensagemWhatsapp: undefined` se acontecesse
+depois de o modal abrir) e `tolerancia_obrigatoria`, para a recusa por
+tolerância vencida — que agora pede ao cliente quanto tempo ele vai ficar,
+casando com a decisão de perguntar em vez de usar valor fixo.
+
+### ✅ Confirmado: o número do ticket carrega a data/hora de emissão
+
+O número segue o formato `01` + `DDMM` + `HHMMSS`. Confirmado com 7 amostras
+(4 delas lidas dos cards do ValidPark em 09/09/2026): a hora codificada no
+número fica de 8 a 12 segundos ANTES do campo "Entrada" do card, o que faz
+sentido se `Entrada` é registrada logo depois da impressão.
+
+| Número | Decodificado | Entrada real | Δ |
+| --- | --- | --- | --- |
+| `011903092521` | 19/03 09:25:21 | (impresso no ticket: 09:25:21) | 0s |
+| `010909124732` | 09/09 12:47:32 | 12:47:40 | 8s |
+| `010909134836` | 09/09 13:48:36 | 13:48:48 | 12s |
+| `010909135126` | 09/09 13:51:26 | 13:51:36 | 10s |
+| `010909141913` | 09/09 14:19:13 | 14:19:22 | 9s |
+| `011811132237` | 18/11 13:22:37 | 13:22:47 | 10s |
+
+**Consequência prática: o OCR não precisa extrair a data de emissão** — basta
+o número, e a data sai dele. Isso simplifica bastante o passo de OCR, que era
+apontado como requisito novo em relação ao briefing original.
+
+⚠️ Ressalva: **o ano não está no número**. Precisa ser inferido, com cuidado
+na virada de ano (um ticket de 31/12 consultado em 01/01 não é do ano
+corrente). A regra de 2h de prazo limita o dano, mas a inferência precisa
+existir.
+
 ### ⚠️ Limitação conhecida: `jaValidado` pode não detectar tickets recentes
 
 O `consultar-ticket.js` procura o ticket na lista `.card-ticket-validados`
