@@ -200,6 +200,43 @@ depois de o modal abrir) e `tolerancia_obrigatoria`, para a recusa por
 tolerância vencida — que agora pede ao cliente quanto tempo ele vai ficar,
 casando com a decisão de perguntar em vez de usar valor fixo.
 
+### ⚠️ CORRIGIDO: o site exige tolerância > 0 em TODA validação
+
+Acreditávamos que a exigência de `horasAdicionais`/`diasAdicionais` > 0
+aparecia **só** quando a tolerância padrão de 15min do ticket já tinha
+vencido. **Isso está errado.**
+
+Testado em 09/09/2026 com o ticket `010909143054`, emitido **45 segundos
+antes** da tentativa, tolerância gratuita válida até 14:46:04: validar com os
+dois sliders em 0 foi **recusado** com o mesmo toast
+`OPS! Digite uma tolêrancia para validar o ticket!`. Em seguida, o mesmo
+ticket com **1 hora** foi aceito — tolerância resultante 15:46:04, ou seja
+`entrada + 15min + 1h`.
+
+**Consequência de desenho, e ela é importante:** o bot **nunca** consegue
+validar sem antes saber quanto tempo o cliente vai ficar. Perguntar não é um
+refinamento para o caso da tolerância vencida — é obrigatório em todos os
+caminhos de validação. Isso reforça a decisão já tomada de perguntar ao
+cliente, e elimina a alternativa de "validar direto com um padrão 0".
+
+Um valor padrão de reserva continua fazendo sentido para quando o cliente não
+responde ou responde algo ininterpretável — mas ele não pode ser 0.
+
+De onde vinha o erro: a exigência foi descoberta testando justamente um ticket
+com a tolerância vencida, e a correlação foi tomada como causa. Nenhum teste
+anterior tentou validar um ticket recém-emitido com os sliders em 0.
+
+### ✅ Caminho de sucesso confirmado com a classificação nova
+
+Ticket `010909143054`, placa `AAA0000`, +1h: `status: validado`, mensagem lida
+do toast verde `Ticket 010909143054 validado com sucesso!!`, e a consulta
+seguinte confirmou `jaValidado: true`, `ativo: true`, tolerância 15:46:04.
+
+Esse é o teste que fechava a lacuna deixada pela correção do falso negativo:
+**antes da correção, este caso exato teria retornado `erro_validacao`.**
+Cobertura dos caminhos de `validate-ticket.js` agora completa, com a única
+exceção de `sem_vagas`, que exigiria o pátio de fato cheio.
+
 ### ✅ Confirmado: o número do ticket carrega a data/hora de emissão
 
 O número segue o formato `01` + `DDMM` + `HHMMSS`. Confirmado com 7 amostras

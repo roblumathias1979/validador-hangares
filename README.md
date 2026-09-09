@@ -135,8 +135,11 @@ curl -X POST http://18.191.250.76:5678/webhook/validador-tickets-hangares-sbjd/w
 toast verde "Ticket validado com sucesso!!" no site. Ver
 [docs/perguntas-abertas.md](docs/perguntas-abertas.md) para o bug do slider
 que foi corrigido nesse processo (usava `ArrowRight`, que nunca funcionava de
-verdade) e a descoberta de que **tickets com a tolerância de 15min já
-vencida exigem horas/dias adicionais > 0 pra validar**.
+verdade). ⚠️ **Corrigido em 09/09/2026:** acreditava-se que só tickets com a
+tolerância de 15min já vencida exigiam horas/dias adicionais > 0. Na verdade
+**o site exige isso em toda validação** — um ticket emitido 45 segundos antes
+foi recusado igual. Ou seja, o bot **nunca** valida sem antes perguntar ao
+cliente quanto tempo ele vai ficar.
 
 ### Bugs reais encontrados e corrigidos no processo
 

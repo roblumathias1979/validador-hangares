@@ -311,9 +311,13 @@ async function validarTicket(hangarId, ticket, placa, dataEmissaoIso, horasAdici
         : `✅ Ticket ${ticket} validado com sucesso. Placa: ${placa}.`,
       erro_validacao: `⚠️ Não foi possível validar o ticket ${ticket}: ${resultado.mensagem}. Confira a placa e tente novamente.`,
       ticket_ja_utilizado: `⚠️ Ticket ${ticket} já foi utilizado anteriormente — não pode ser validado de novo.`,
-      // A tolerância gratuita venceu, então o site exige horas/dias > 0. Casa
-      // com a decisão de perguntar ao cliente quanto tempo ele vai ficar.
-      tolerancia_obrigatoria: `⚠️ A tolerância gratuita do ticket ${ticket} já venceu, então preciso saber quanto tempo você ainda vai ficar para conseguir validar. Pode me dizer?`,
+      // O ValidPark exige horas/dias > 0 para QUALQUER validação — não só
+      // para ticket com tolerância vencida, como se acreditava até
+      // 09/09/2026 (ver docs/perguntas-abertas.md). Confirmado testando um
+      // ticket emitido 45s antes: recusou com os sliders em 0. Por isso a
+      // mensagem não afirma que algo venceu; ela só pede o tempo, que o bot
+      // precisa perguntar ao cliente em todos os casos.
+      tolerancia_obrigatoria: `⚠️ Para validar o ticket ${ticket} preciso saber quanto tempo você ainda vai ficar com o veículo no hangar — o sistema não valida sem essa informação. Pode me dizer?`,
       indeterminado: `⚠️ Não conseguimos confirmar a validação do ticket ${ticket}. Nossa equipe foi avisada e vai verificar manualmente.`,
     };
 
