@@ -2,6 +2,26 @@
 
 Copiado da seção 7 do briefing. Preencher antes de tentar rodar o fluxo real.
 
+## 🐛 Bug real corrigido (09/09/2026): fuso horário no `consultar-ticket.js`
+
+`parseDataBr()` construía o `Date` a partir do texto do ValidPark
+("18/11/2025 13:37:47", hora de São Paulo) **sem offset de fuso horário**.
+Sem isso, o `Date` do JavaScript é interpretado no fuso do processo Node —
+no servidor, isso é **UTC**, 3h à frente de São Paulo. Resultado: qualquer
+ticket bem recente aparecia como "tolerância já vencida" mesmo quando ainda
+estava dentro dos 15 minutos de verdade (descoberto testando um ticket
+emitido 7 minutos antes, que deveria mostrar `ativo: true`).
+
+**Corrigido**: adicionado `-03:00` explícito na string antes de criar o
+`Date`. Testado e confirmado (o mesmo ticket, depois de corrigido, mostrou
+que já tinha sido validado por outro pátio nesse meio tempo — resultado
+diferente, mas correto).
+
+**Impacto**: esse bug pode ter afetado qualquer resposta de `ativo`/"prazo
+já venceu" para tickets consultados poucas horas após a emissão durante
+toda a sessão até agora — vale desconfiar de conclusões antigas sobre
+"tolerância vencida" tiradas antes dessa correção.
+
 - [ ] Quantos hangares no total, e quais são os grupos/URLs/credenciais de cada um? Segundo hangar identificado: **AIBM** (ver seção própria abaixo) — ainda faltam URL do validador, credenciais e grupo do WhatsApp dele.
 - [x] Qual o formato exato do número de ticket — ver seção "Formato real do ticket (foto confirmada)" abaixo.
 - [x] O que o bot deve responder em cada tipo de resultado — ver tabela completa na seção "Mensagens do bot" abaixo.

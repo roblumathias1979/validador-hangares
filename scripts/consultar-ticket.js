@@ -134,12 +134,16 @@ async function consultarTicket(hangarId, ticket) {
   }
 }
 
-// Converte "18/11/2025 13:37:47" (formato visto no ValidPark) para Date.
+// Converte "18/11/2025 13:37:47" (formato visto no ValidPark, hora de
+// São Paulo) para Date. IMPORTANTE: precisa do offset -03:00 explícito —
+// sem ele, o Date fica sujeito ao fuso horário do processo Node (no
+// servidor, isso é UTC), o que desloca tudo em 3h e faz tickets recentes
+// parecerem vencidos quando na verdade ainda estão dentro da tolerância.
 function parseDataBr(texto) {
   const match = (texto || '').match(/(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2}):(\d{2})/);
   if (!match) return null;
   const [, dia, mes, ano, hora, min, seg] = match;
-  return new Date(`${ano}-${mes}-${dia}T${hora}:${min}:${seg}`);
+  return new Date(`${ano}-${mes}-${dia}T${hora}:${min}:${seg}-03:00`);
 }
 
 async function main() {
