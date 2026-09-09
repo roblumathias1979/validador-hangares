@@ -1,6 +1,10 @@
 node_modules/
 .env
-config/hangares.json
+# config/hangares.json é VERSIONADO de propósito (desde 09/09/2026): ele não
+# guarda segredo algum — só o NOME das variáveis de ambiente que têm as
+# credenciais (ver .env). Mantê-lo fora do git causava deriva silenciosa entre
+# as máquinas e o servidor: produção rodava com os seletores antigos dos
+# sliders, já documentados como não funcionais, e sem regex de ticket.
 n8n/data/
 logs/*.log
 .DS_Store

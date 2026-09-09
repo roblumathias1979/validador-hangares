@@ -1,0 +1,65 @@
+{
+  "_comentario": "Copie este arquivo para hangares.json e preencha com os dados reais. Nunca coloque senhas aqui — apenas o NOME da variável de ambiente que guarda a senha (ver .env.example).",
+  "hangares": [
+    {
+      "id": "solojet",
+      "hangar": "Solojet",
+      "grupoWhatsapp": "Grupo Solojet",
+      "grupoWhatsappId": "",
+      "validadorUrl": "https://validpark.technext.com.br/login",
+      "usuarioEnvVar": "SOLOJET_USUARIO",
+      "senhaEnvVar": "SOLOJET_SENHA",
+      "seletores": {
+        "campoUsuario": "input[name=\"username\"]",
+        "campoSenha": "input[name=\"senha\"]",
+        "botaoLogin": "button[type=\"submit\"]",
+        "campoTicket": "#standard-basic",
+        "modalDialog": ".modal-dialog",
+        "campoPlaca": "#outlined-error-helper-text",
+        "botaoValidar": ".modal-footer .buttons button[type=\"submit\"]",
+        "botaoFecharModal": ".modal-footer .buttons button[type=\"button\"]",
+        "areaErroInline": "#outlined-error-helper-text-helper-text",
+        "areaErroToast": ".Toastify__toast",
+        "areaVagasDisponiveis": ".qtd-veiculo-patio",
+        "sliderHorasThumb": "input[type=\"range\"][aria-label=\"horas\"]",
+        "sliderDiasThumb": "input[type=\"range\"][aria-label=\"dias\"]"
+      },
+      "_observacao_sliders": "Usado para estender a tolerância de um ticket (seja novo ou já ativo). CONFIRMADO com validação real (08/09/2026): o `<input type=\"range\">` real fica escondido (clip-path) dentro do `<span class=\"MuiSlider-thumb\">` visível, com aria-valuenow/aria-label='horas'|'dias' NELE, não no span. Focar o thumb e apertar ArrowRight NÃO funciona (testado, valor nunca muda). O que funciona: `.fill(String(quantidade))` direto no input[type=range]. Limites CONFIRMADOS: máximo de 24 horas e 20 dias (constantes SLIDER_MAX_HORAS/SLIDER_MAX_DIAS em scripts/validate-ticket.js). IMPORTANTE — CORRIGIDO em 09/09/2026: o site EXIGE horasAdicionais/diasAdicionais > 0 para QUALQUER validação, sempre (toast 'OPS! Digite uma tolêrancia para validar o ticket!' se tentar com os dois em 0). Antes acreditávamos que essa exigência valia só quando a tolerância padrão de 15min já tinha vencido — errado: um ticket emitido 45 SEGUNDOS antes, com a tolerância gratuita longe de vencer, foi recusado do mesmo jeito. Consequência: o bot NUNCA consegue validar sem antes saber quanto tempo o cliente vai ficar; perguntar não é opcional em nenhum caminho.",
+      "_observacao_vagas": "Validar um ticket ocupa uma vaga até o veículo sair — o script lê o texto de '.qtd-veiculo-patio' (formato 'Total de vagas: 90 | Disponíveis: 82') e não tenta validar se 'Disponíveis' estiver em 0. Seletor do container confirmado por inspeção; a extração do número é feita via regex no texto, não por um seletor de elemento específico do número (mais resiliente a mudanças de estrutura interna).",
+      "_observacao_fluxo": "Ao digitar o ticket em #standard-basic, abre um modal (.modal-dialog) com Entrada/Tolerância (somente leitura) + campo 'Placa' obrigatório (#outlined-error-helper-text) + sliders de tolerância + botão VALIDAR (button[type=submit] dentro de .modal-footer .buttons). Sucesso CONFIRMADO DUAS VEZES com validação real: toast verde 'Ticket {ticket} validado com sucesso!!' via .Toastify__toast. IMPORTANTE — é SEMPRE obrigatório mexer nos sliders (ver _observacao_sliders), em qualquer validação, ou o site recusa com toast 'OPS! Digite uma tolêrancia para validar o ticket!' (corrigido em 09/09/2026: não é só quando a tolerância de 15min venceu, como se pensava) (nesse caso o campo areaErroInline fica 'visível' mas com um caractere invisível/zero-width, não texto legível — o erro real está no toast, não no inline). ATENÇÃO (09/09/2026): esse campo fica visível com zero-width TAMBÉM NO SUCESSO, e o toast é o MESMO elemento para sucesso e erro — por isso validate-ticket.js não decide por 'qual seletor apareceu' e sim pelo TEXTO do toast (ver classificarResultadoValidacao). Tratar 'apareceu toast' ou 'inline visível' como erro gera falso negativo em validação bem-sucedida, o que já aconteceu de verdade.",
+      "formatoTicket": {
+        "regex": "^\\d{12}$",
+        "descricao": "12 dígitos numéricos, impresso como 'Ticket/Seq: 011903092521' no ticket real (#1Park, aeroporto de Jundiaí/VOA-SP)."
+      },
+      "formatoDataEmissao": {
+        "descricao": "Impresso como 'Data/Hora: 19/03/26 09:25:21' — formato DD/MM/AA HH:MM:SS (ano com 2 dígitos!). O OCR precisa converter para ISO 8601 (assumindo século 20xx) antes de passar como dataEmissaoIso para os scripts.",
+        "exemplo_impresso": "19/03/26 09:25:21",
+        "exemplo_iso": "2026-03-19T09:25:21-03:00"
+      },
+      "placaGenerica": "AAA0000",
+      "_observacao_placa": "Por enquanto a placa não vem na foto do ticket — o bot deve perguntar ao cliente no WhatsApp. Se o cliente não souber/informar algo genérico, o bot segue com a validação usando essa placa genérica (não deve travar o cliente por falta desse dado). CONFIRMADO pelo usuário: esse valor de placa genérica já foi testado contra o site real e é aceito pela validação de formato do ValidPark. Quando o OCR passar a extrair a placa da própria foto, esse campo deixa de ser necessário.",
+      "prazoValidacaoHoras": 2,
+      "_observacao_prazo": "Regra de negócio adicional (não é uma validação do próprio ValidPark, que tem sua própria janela de 'Tolerância' bem maior): o bot só deve tentar validar um ticket se a hora de EMISSÃO impressa na foto do ticket estiver a no máximo `prazoValidacaoHoras` horas do momento atual. A data de emissão precisa ser extraída pelo OCR (além do número do ticket) — isso é um requisito novo em relação ao briefing original (seção 3.3), que só previa extrair o número.",
+      "grupoAdministracao": ""
+    },
+    {
+      "id": "aibm",
+      "hangar": "AIBM",
+      "grupoWhatsapp": "",
+      "grupoWhatsappId": "",
+      "validadorUrl": "",
+      "usuarioEnvVar": "AIBM_USUARIO",
+      "senhaEnvVar": "AIBM_SENHA",
+      "seletores": {},
+      "formatoTicket": {
+        "regex": "",
+        "descricao": "ainda não confirmado para este hangar — verificar se usa o mesmo validador ValidPark do Solojet ou outro sistema"
+      },
+      "placaGenerica": "",
+      "prazoValidacaoHoras": null,
+      "exigeFotoVeiculoNoLocal": true,
+      "_observacao_fraude": "Hangar específico com histórico de fraude no pátio. Requisito exclusivo deste hangar (não se aplica ao Solojet nem aos demais): antes de validar o ticket, o cliente também precisa mandar uma foto do veículo estacionado NO HANGAR (não só a foto do ticket). O objetivo é confirmar visualmente que o carro está de fato no local — não é uma prova técnica à prova de fraude (o WhatsApp remove metadados de GPS das fotos), é uma checagem de bom senso comparando o fundo da foto com fotos de referência do pátio/fachada do hangar. Confirmado que dá pra ler a placa direto da foto do veículo também (testado com foto de exemplo: Haval cinza, placa UQB2A42, estacionado sob estrutura de telhado metálico azul com parede branca de azulejo). Aguardando foto da FACHADA do hangar (o usuário disse que manda no dia seguinte) para servir de referência visual da comparação de local.",
+      "grupoAdministracao": ""
+    }
+  ]
+}
