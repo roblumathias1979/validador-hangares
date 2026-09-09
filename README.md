@@ -59,6 +59,9 @@ mandando screenshots do DevTools; os testes atuais já rodam o fluxo real.
   slider já sabidamente quebrados. Não recrie um arquivo `.example` para ele.
 - `.env.example` — variáveis de ambiente (n8n, OCR, credenciais por hangar).
   Copiar para `.env` (gitignored).
+- `scripts/identificar-hangar.js` — descobre de qual hangar é uma mensagem a
+  partir do grupo de WhatsApp de onde ela veio (ver "Um número, vários
+  hangares" abaixo).
 - `docker-compose.yml` — sobe o n8n self-hosted localmente.
 - `scripts/validate-ticket.js` — script Node/Playwright que loga no validador
   de um hangar, digita o ticket (abre um modal pedindo a placa do veículo) e
@@ -106,6 +109,62 @@ node scripts/consultar-ticket.js solojet 011811132237
 Testado com sucesso: ticket já validado (`011811132237`) retorna
 `jaValidado: true`, `ativo: false` (tolerância real do card, não a do modal),
 e ticket inexistente (`000000000000`) retorna `ticket_nao_encontrado`.
+
+## Um número, vários hangares
+
+O número de WhatsApp que recebe os tickets é **o mesmo para todos os
+hangares**. O que separa um hangar do outro é o **grupo** de onde a mensagem
+veio, e é ele que decide **qual login do ValidPark** será usado — cada hangar
+tem o seu.
+
+Como fica montado, para cada hangar, em `config/hangares.json`:
+
+| Campo | Para quê |
+| --- | --- |
+| `grupoWhatsappId` | o grupo que identifica o hangar (ex: `1234@g.us`) |
+| `usuarioEnvVar` / `senhaEnvVar` | *nome* das variáveis do `.env` com o login daquele hangar |
+| `grupoAdministracao` | grupo que recebe os avisos quando algo precisa de gente |
+
+O `.env` guarda o par de credenciais de cada hangar
+(`SOLOJET_USUARIO`/`SOLOJET_SENHA`, `AIBM_USUARIO`/`AIBM_SENHA`, ...). O
+`login()` em `scripts/lib/hangar.js` lê `process.env[hangar.usuarioEnvVar]`,
+então **suportar mais um hangar não exige mudança de código** — só uma entrada
+no config e um par de variáveis no `.env`.
+
+**Cadastrar um hangar novo é mexer em UM lugar:** `config/hangares.json`. A
+tabela grupo → hangar era duplicada dentro do nó "Identificar Hangar" do
+workflow, com o comentário mandando manter as duas em sincronia à mão. Isso foi
+removido em 09/09/2026 — o nó agora chama `scripts/identificar-hangar.js`, que
+lê o config.
+
+```bash
+# qual hangar é este grupo?
+node scripts/identificar-hangar.js "1234@g.us"
+
+# atalho de teste manual, sem grupo (é o que os curls deste README usam):
+node scripts/identificar-hangar.js "" solojet
+```
+
+O script devolve `hangar_identificado` com o campo `origem` dizendo se veio do
+grupo ou do atalho manual, ou `hangar_nao_identificado` com `notificarAdmin:
+true` — grupo desconhecido é problema de configuração, que o cliente não tem
+como resolver.
+
+### ⚠️ Isso ainda não é seguro, e precisa ser antes de ir ao ar
+
+O nó Webhook **não tem autenticação** (`"options": {}`), e o script aceita um
+`hangarId` direto no corpo da requisição como atalho de teste. Somando as duas
+coisas: quem descobrir a URL do webhook pode **escolher em qual hangar validar
+um ticket**, usando o login daquele hangar e ocupando vaga do pátio dele. Com
+um hangar isso era um risco contido; com vários, é validação cruzada entre
+clientes diferentes.
+
+Antes de plugar o WhatsApp de verdade, é preciso: ativar autenticação no nó
+Webhook (header/token), e restringir ou remover o atalho `hangarId` direto.
+
+**Pendente:** preencher `grupoWhatsappId` de cada hangar com os IDs reais dos
+grupos — hoje estão vazios, e sem eles a identificação por grupo não tem como
+funcionar.
 
 ## Workflow do n8n
 

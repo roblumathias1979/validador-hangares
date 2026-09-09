@@ -200,6 +200,74 @@ depois de o modal abrir) e `tolerancia_obrigatoria`, para a recusa por
 tolerância vencida — que agora pede ao cliente quanto tempo ele vai ficar,
 casando com a decisão de perguntar em vez de usar valor fixo.
 
+### ✅ Um número de WhatsApp, vários hangares — roteamento por grupo
+
+Requisito confirmado em 09/09/2026: **um único número** recebe os tickets de
+todos os hangares, **cada hangar tem seu grupo** de WhatsApp, e **cada hangar
+tem seu login** no ValidPark.
+
+A arquitetura já suportava isso — `config/hangares.json` sempre teve
+`grupoWhatsappId`, `usuarioEnvVar` e `senhaEnvVar` por hangar, e o `login()`
+resolve as credenciais por hangar em tempo de execução. Suportar um hangar novo
+não exige mudança de código: uma entrada no config e um par de variáveis no
+`.env`.
+
+O que estava errado era a **duplicação**: a tabela grupo → hangar vivia também
+dentro do nó "Identificar Hangar" do workflow, num objeto `GRUPO_PARA_HANGAR`
+escrito à mão, cujo próprio comentário mandava "adicionar uma linha aqui E uma
+entrada em config/hangares.json". Removida: o nó agora chama
+`scripts/identificar-hangar.js`, que lê o config. Cadastrar hangar é mexer em um
+lugar só.
+
+Casos de borda cobertos por teste no resolvedor (`buscarHangarPorGrupo`):
+grupo com espaços em volta, grupo desconhecido, `grupoId` vazio, o mesmo grupo
+cadastrado em dois hangares, e — importante — **hangar com `grupoWhatsappId`
+vazio não pode casar** com um `grupoId` vazio, que era o comportamento
+acidental de uma comparação ingênua.
+
+- [ ] **Preencher `grupoWhatsappId` de cada hangar** com os IDs reais dos
+      grupos (Solojet, AIBM, administração). Hoje estão vazios, então a
+      identificação por grupo ainda não funciona de fato — só o atalho manual.
+- [ ] **Decidir o que responder quando o grupo não é identificado.** O Code
+      node hoje lança erro, mantendo o comportamento anterior, e o cliente não
+      recebe nada. O script já devolve `mensagemWhatsapp` e
+      `notificarAdmin: true` prontos; falta ligar isso ao nó de resposta.
+
+### 🔴 SEGURANÇA: o webhook não tem autenticação, e o hangar é escolhível de fora
+
+Descoberto ao montar o roteamento por grupo. Duas coisas que juntas viram um
+problema real:
+
+1. O nó Webhook do workflow está com `"options": {}` — **sem autenticação
+   nenhuma**. Qualquer um que saiba a URL pode chamar.
+2. O `hangarId` pode vir direto no corpo da requisição, como atalho de teste
+   manual (é o que os exemplos de curl do README usam).
+
+Somando: quem descobrir a URL **escolhe em qual hangar validar um ticket**,
+usando o login daquele hangar e ocupando vaga do pátio dele. Com um hangar só
+isso já era ruim; com vários, é validação cruzada entre clientes de hangares
+diferentes, e cada validação tem efeito financeiro.
+
+Agravante: a porta 5678 está exposta na internet (o README documenta chamadas
+via `http://18.191.250.76:5678/...`), em HTTP puro, sem TLS.
+
+**Antes de plugar o WhatsApp de verdade:** ativar autenticação no nó Webhook,
+restringir ou remover o atalho `hangarId`, e considerar fechar a 5678 para o
+mundo (deixando só o provedor de WhatsApp alcançá-la).
+
+### ⚠️ A conferir: como o "Execute Command" trata código de saída != 0
+
+`identificar-hangar.js` sai com **0 mesmo em falha**, de propósito: o `status`
+no json é que carrega o resultado, e quem decide é o nó seguinte. Isso evita
+depender de como o nó "Execute Command" trata código de saída não-zero —
+comportamento que este projeto nunca verificou.
+
+`validate-ticket.js` e `consultar-ticket.js` ainda fazem `process.exit(1)` no
+caminho de erro. **Se o Execute Command falhar o nó nesse caso, o "Parse
+Resultado" não roda e a `mensagemWhatsapp` de erro nunca chega ao cliente** —
+justamente nos casos em que ele mais precisa de resposta. Vale testar e, se
+confirmado, alinhar os dois scripts com a saída 0.
+
 ### ⚠️ CORRIGIDO: o site exige tolerância > 0 em TODA validação
 
 Acreditávamos que a exigência de `horasAdicionais`/`diasAdicionais` > 0

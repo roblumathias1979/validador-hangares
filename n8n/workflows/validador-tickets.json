@@ -12,7 +12,23 @@
       "name": "Nota - Webhook placeholder",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [-480, -260]
+      "position": [
+        -480,
+        -260
+      ]
+    },
+    {
+      "parameters": {
+        "command": "=node \"/home/ubuntu/validador-hangares/scripts/identificar-hangar.js\" \"{{ ($json.body || $json).grupoId || '' }}\" \"{{ ($json.body || $json).hangarId || '' }}\""
+      },
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        80,
+        -60
+      ],
+      "id": "resolver-hangar-por-grupo",
+      "name": "Resolver Hangar"
     },
     {
       "parameters": {
@@ -24,7 +40,10 @@
       "name": "Nota - OCR pendente",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [-480, 240]
+      "position": [
+        -480,
+        240
+      ]
     },
     {
       "parameters": {
@@ -37,17 +56,23 @@
       "name": "WebhookWhatsApp",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [-80, -60]
+      "position": [
+        -80,
+        -60
+      ]
     },
     {
       "parameters": {
-        "jsCode": "// Mapa \"ID do grupo do WhatsApp\" -> \"id do hangar\" (usado em config/hangares.json).\n// Ao cadastrar um novo hangar: adicionar uma linha aqui E uma entrada em config/hangares.json.\nconst GRUPO_PARA_HANGAR = {\n  // 'SEU_ID_DO_GRUPO_SOLOJET@g.us': 'solojet',\n  // 'SEU_ID_DO_GRUPO_AIBM@g.us': 'aibm',\n};\n\nconst body = $input.item.json.body || $input.item.json;\nconst grupoId = body.grupoId;\nconst hangarId = GRUPO_PARA_HANGAR[grupoId] || body.hangarId; // fallback p/ testes manuais\n\nif (!hangarId) {\n  throw new Error(`Grupo \"${grupoId}\" não está cadastrado em GRUPO_PARA_HANGAR nem foi enviado hangarId diretamente.`);\n}\n\nreturn {\n  json: {\n    ...body,\n    hangarId,\n  },\n};"
+        "jsCode": "// O nó anterior (\"Resolver Hangar\") rodou scripts/identificar-hangar.js, que\n// lê o mapeamento grupo de WhatsApp -> hangar de config/hangares.json.\n//\n// Antes essa tabela era um objeto GRUPO_PARA_HANGAR escrito à mão AQUI, e o\n// comentário mandava \"adicionar uma linha aqui E uma entrada em\n// config/hangares.json\". Duas fontes para a mesma verdade — foi exatamente\n// esse tipo de duplicação que deixou produção rodando com seletores de slider\n// quebrados por semanas. Agora cadastrar um hangar é mexer em UM lugar só:\n// config/hangares.json (campo grupoWhatsappId).\nconst stdout = $input.item.json.stdout || '';\nconst linhas = stdout.trim().split('\\n').filter(Boolean);\nconst ultimaLinha = linhas[linhas.length - 1];\n\nif (!ultimaLinha) {\n  throw new Error('identificar-hangar.js não retornou nada em stdout.');\n}\n\nconst resultado = JSON.parse(ultimaLinha);\n\n// O Execute Command devolve só o stdout do script, então a mensagem original\n// do WhatsApp (ticket, opcao, placa...) precisa ser buscada no nó do webhook.\nconst webhook = $('WebhookWhatsApp').item.json;\nconst body = webhook.body || webhook;\n\nif (resultado.status !== 'hangar_identificado') {\n  throw new Error(resultado.mensagem || `Não foi possível identificar o hangar do grupo \"${body.grupoId}\".`);\n}\n\nreturn {\n  json: {\n    ...body,\n    hangarId: resultado.hangarId,\n    // guardado para auditoria: diz se o hangar veio do grupo de WhatsApp ou\n    // do atalho de teste manual (hangarId direto no corpo da requisição)\n    hangarOrigem: resultado.origem,\n  },\n};\n"
       },
       "id": "identificar-hangar",
       "name": "Identificar Hangar",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [140, -60]
+      "position": [
+        300,
+        -60
+      ]
     },
     {
       "parameters": {
@@ -76,7 +101,10 @@
       "name": "Opção 3 (Validar)?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [380, -60]
+      "position": [
+        520,
+        -60
+      ]
     },
     {
       "parameters": {
@@ -86,7 +114,10 @@
       "name": "Validar Ticket",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
-      "position": [620, -180]
+      "position": [
+        760,
+        -180
+      ]
     },
     {
       "parameters": {
@@ -96,7 +127,10 @@
       "name": "Consultar Ticket",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
-      "position": [620, 60]
+      "position": [
+        760,
+        60
+      ]
     },
     {
       "parameters": {
@@ -106,7 +140,10 @@
       "name": "Parse Resultado",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [860, -60]
+      "position": [
+        1000,
+        -60
+      ]
     },
     {
       "parameters": {
@@ -118,7 +155,10 @@
       "name": "Responder Cliente (placeholder)",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [1100, -160]
+      "position": [
+        1240,
+        -160
+      ]
     },
     {
       "parameters": {
@@ -148,7 +188,10 @@
       "name": "Notificar Admin?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [1100, 40]
+      "position": [
+        1240,
+        40
+      ]
     },
     {
       "parameters": {
@@ -160,7 +203,10 @@
       "name": "Nota - Substituir respostas",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [1100, 260]
+      "position": [
+        1100,
+        260
+      ]
     },
     {
       "parameters": {},
@@ -168,7 +214,10 @@
       "name": "Notificar Admin (placeholder)",
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
-      "position": [1340, 40]
+      "position": [
+        1480,
+        40
+      ]
     }
   ],
   "connections": {
@@ -176,7 +225,7 @@
       "main": [
         [
           {
-            "node": "Identificar Hangar",
+            "node": "Resolver Hangar",
             "type": "main",
             "index": 0
           }
@@ -260,6 +309,17 @@
           }
         ],
         []
+      ]
+    },
+    "Resolver Hangar": {
+      "main": [
+        [
+          {
+            "node": "Identificar Hangar",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     }
   },
