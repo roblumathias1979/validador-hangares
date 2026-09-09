@@ -44,16 +44,16 @@ function dentroDoPrazo(hangar, dataEmissaoIso) {
   };
 }
 
-async function ajustarSlider(page, seletorThumb, quantidade) {
+async function ajustarSlider(page, seletorInputRange, quantidade) {
   if (!quantidade) return;
-  if (!seletorThumb) {
+  if (!seletorInputRange) {
     throw new Error('Seletor do slider não configurado, mas horas/dias adicionais foram solicitados.');
   }
-  const thumb = page.locator(seletorThumb);
-  await thumb.focus();
-  for (let i = 0; i < quantidade; i += 1) {
-    await page.keyboard.press('ArrowRight');
-  }
+  // O slider é um MUI Slider com um <input type="range"> real por baixo do
+  // thumb visível. Focar o thumb e apertar seta (ArrowRight) NÃO funciona —
+  // testado e confirmado que o valor nunca muda (aria-valuenow fica em 0).
+  // .fill() no próprio input funciona (confirmado com uma validação real).
+  await page.locator(seletorInputRange).fill(String(quantidade));
 }
 
 async function validarTicket(hangarId, ticket, placa, dataEmissaoIso, horasAdicionais = 0, diasAdicionais = 0) {

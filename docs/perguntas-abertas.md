@@ -22,13 +22,53 @@ Command).
 - [x] Casos testados com sucesso via `curl` direto no webhook de produção:
       consultar ticket já validado (opção 1) e validar ticket inexistente
       (opção 3) — ambos retornaram a mensagem certa.
-- [ ] **Ainda não testado**: o caminho de sucesso real de validação (opção 3
-      com ticket + placa válidos) via n8n — evitamos de propósito, porque
-      validar de verdade ocupa uma vaga real no pátio do Solojet. Testar
-      quando fizer sentido operacionalmente.
+- [x] **Caminho de sucesso real de validação testado (08/09/2026)** com um
+      ticket de verdade (`010809201717`), placa genérica `AAA0000` — toast
+      verde "Ticket validado com sucesso!!" confirmado. ⚠️ Efeito colateral
+      real: esse ticket de um cliente de verdade ficou registrado no sistema
+      com a placa genérica, não a placa real do carro dele.
 - [ ] RAM do servidor é apertada (~900MB) — funcionou nos testes, mas ainda
       não foi testado sob carga real (WhatsApp conectado + Playwright rodando
       ao mesmo tempo). Se travar, considerar upgrade pra t3.small (2GB).
+
+### ⚠️ Bug real corrigido: sliders "+ Horas"/"+ Dias" nunca funcionavam de verdade
+
+Testando a validação real, descobrimos que o método antigo pra mexer nos
+sliders (focar o thumb visível e apertar `ArrowRight`) **nunca funcionou** —
+o valor ficava sempre em 0 (`aria-valuenow=0`), mesmo que o código não desse
+erro. O motivo: o `<input type="range">` de verdade fica escondido dentro do
+`<span>` visível do thumb (via `clip-path`), com os atributos de
+acessibilidade (`aria-valuenow`, `aria-label="horas"`/`"dias"`) **nele**, não
+no `<span>` que o script estava selecionando.
+
+**Corrigido**: agora o script usa `.fill(String(quantidade))` direto no
+`input[type="range"][aria-label="horas"|"dias"]`. Confirmado funcionando com
+uma validação real (adicionou 2h de tolerância e validou com sucesso).
+
+**Descoberta importante relacionada**: quando a tolerância padrão de 15min
+de um ticket **já venceu**, o ValidPark **exige** que pelo menos um dos
+sliders seja movido (horasAdicionais ou diasAdicionais > 0) — tentar validar
+com os dois em 0 dá erro `"OPS! Digite uma tolêrancia para validar o
+ticket!"`. Isso significa que, na prática, o fluxo "15min–2h: precisa
+validar" (ver linha do tempo confirmada acima) **também precisa sempre
+mandar algum valor de horasAdicionais/diasAdicionais**, não só quando o
+cliente pede pra estender.
+
+- [ ] Definir a regra: quando o bot for validar um ticket dentro da janela
+      15min–2h (primeira validação, não extensão), que valor padrão de
+      horasAdicionais/diasAdicionais deve mandar automaticamente? (ex:
+      sempre 1h por padrão, ou perguntar ao cliente quanto tempo mais precisa)
+
+### ⚠️ Limitação conhecida: `jaValidado` pode não detectar tickets recentes
+
+O `consultar-ticket.js` procura o ticket na lista `.card-ticket-validados`
+da tela — mas essa lista mostra só os ~21 mais recentes, e é **compartilhada
+entre hangares** (mesmo totem). Confirmado na prática: um ticket validado há
+poucos minutos já não aparecia mais na lista (provavelmente porque outros
+hangares validaram vários tickets nesse meio tempo). Ou seja, `jaValidado:
+false` não é garantia de que o ticket não foi validado — só garante que não
+está entre os ~21 mais recentes visíveis. Não identificamos um jeito melhor
+de checar isso na interface do ValidPark até agora.
 
 ## Específico do hangar Solojet (necessário para a PoC)
 

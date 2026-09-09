@@ -126,6 +126,14 @@ curl -X POST http://18.191.250.76:5678/webhook/validador-tickets-hangares-sbjd/w
 # → {"mensagem":"⚠️ Ticket 000000000000 não encontrado — verifique o número..."}
 ```
 
+**✅ Caminho de sucesso real também confirmado** (08/09/2026, ticket real
+`010809201717`, placa genérica `AAA0000`, +2h de tolerância via slider) —
+toast verde "Ticket validado com sucesso!!" no site. Ver
+[docs/perguntas-abertas.md](docs/perguntas-abertas.md) para o bug do slider
+que foi corrigido nesse processo (usava `ArrowRight`, que nunca funcionava de
+verdade) e a descoberta de que **tickets com a tolerância de 15min já
+vencida exigem horas/dias adicionais > 0 pra validar**.
+
 ### Bugs reais encontrados e corrigidos no processo
 
 Colocar esse workflow pra funcionar de verdade (não só abrir sem erro) expôs
