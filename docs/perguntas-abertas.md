@@ -31,33 +31,68 @@ Command).
       não foi testado sob carga real (WhatsApp conectado + Playwright rodando
       ao mesmo tempo). Se travar, considerar upgrade pra t3.small (2GB).
 
-### ⚠️ Bug real corrigido: sliders "+ Horas"/"+ Dias" nunca funcionavam de verdade
+### 🐛 Bug real AINDA NÃO RESOLVIDO: sliders "+ Horas"/"+ Dias"
 
-Testando a validação real, descobrimos que o método antigo pra mexer nos
-sliders (focar o thumb visível e apertar `ArrowRight`) **nunca funcionou** —
-o valor ficava sempre em 0 (`aria-valuenow=0`), mesmo que o código não desse
-erro. O motivo: o `<input type="range">` de verdade fica escondido dentro do
-`<span>` visível do thumb (via `clip-path`), com os atributos de
-acessibilidade (`aria-valuenow`, `aria-label="horas"`/`"dias"`) **nele**, não
-no `<span>` que o script estava selecionando.
+Testando a validação de um ticket com a tolerância de 15min já vencida
+(exige mexer nos sliders — ver abaixo), percorremos 3 métodos diferentes:
 
-**Corrigido**: agora o script usa `.fill(String(quantidade))` direto no
-`input[type="range"][aria-label="horas"|"dias"]`. Confirmado funcionando com
-uma validação real (adicionou 2h de tolerância e validou com sucesso).
+1. **Focar o thumb visível e apertar `ArrowRight`** — nunca funcionou, o
+   valor ficava sempre em 0 (`aria-valuenow=0`). O `<input type="range">`
+   real fica escondido dentro do `<span>` do thumb (via `clip-path`), com os
+   atributos de acessibilidade nele, não no `<span>` selecionado antes.
+2. **`.fill(String(quantidade))` direto no `input[type="range"]`** —
+   atualiza o `aria-valuenow` corretamente, e o site chega a mostrar um toast
+   verde de sucesso ao clicar VALIDAR — **mas isso é enganoso**: confirmamos
+   depois (consultando de novo e o usuário conferindo no site de verdade) que
+   a validação **não persistiu**.
+3. **Arrastar o slider de verdade com o mouse** (`mouse.down` → `mouse.move`
+   em steps → `mouse.up`, simulando um usuário real) — **mesmo resultado**:
+   toast de sucesso, mas não persiste.
 
-**Descoberta importante relacionada**: quando a tolerância padrão de 15min
-de um ticket **já venceu**, o ValidPark **exige** que pelo menos um dos
-sliders seja movido (horasAdicionais ou diasAdicionais > 0) — tentar validar
-com os dois em 0 dá erro `"OPS! Digite uma tolêrancia para validar o
-ticket!"`. Isso significa que, na prática, o fluxo "15min–2h: precisa
-validar" (ver linha do tempo confirmada acima) **também precisa sempre
-mandar algum valor de horasAdicionais/diasAdicionais**, não só quando o
-cliente pede pra estender.
+**Causa raiz encontrada** capturando a requisição de rede real: o próprio
+JavaScript do site calcula um campo `nova_tolerancia` **corrompido** (ex:
+`"20, -/2-9/T:3:27:0-03:00"`) e manda assim mesmo pro backend — isso
+acontece com os 3 métodos de interação, então **é um bug do próprio
+ValidPark**, não de como automatizamos o slider.
 
-- [ ] Definir a regra: quando o bot for validar um ticket dentro da janela
-      15min–2h (primeira validação, não extensão), que valor padrão de
-      horasAdicionais/diasAdicionais deve mandar automaticamente? (ex:
-      sempre 1h por padrão, ou perguntar ao cliente quanto tempo mais precisa)
+**Endpoint real descoberto** (útil para uma futura solução via chamada
+direta de API, sem depender do JS quebrado do site):
+```
+POST https://1parkvalidador.technext.com.br/api-token-auth/
+  body: {"username": "...", "password": "..."}
+  → {"token": "..."}
+
+PUT https://1parkvalidador.technext.com.br/tickets/{numeroTicket}/
+  body: {
+    "n_ticket": "...", "tp_ticket": "A", "placa": "...",
+    "dt_entrada": "2026-09-08T20:17:27-03:00",
+    "tolerancia": "2026-09-08T20:32:27-03:00",
+    "add_min": 0, "add_hora": 2, "add_dia": 0,
+    "indeterminado": false,
+    "nova_tolerancia": "<calcular certo: tolerancia + add_hora horas + add_dia dias>",
+    "id_patio": null, "usuario": "1park", "status": "V"
+  }
+```
+`nova_tolerancia` parece ser calculado a partir de `tolerancia` (não de
+`dt_entrada`) — confirmado comparando um caso real onde `add_dia: 20` e
+`tolerancia` original geraram `nova_tolerancia` exatamente 20 dias depois.
+
+**Complicador**: no teste que capturou essa requisição, a resposta do
+servidor voltou com placa e `add_dia` **diferentes** do que enviamos — o
+usuário confirmou que **esse ticket específico foi validado em outro pátio**
+ao mesmo tempo (mesmo totem compartilhado entre hangares). Isso significa
+que não temos 100% de certeza se nossa requisição (com o dado corrompido)
+teria sido aceita ou rejeitada isoladamente — só sabemos que, na prática, o
+resultado final não bateu com o que mandamos.
+
+- [ ] **Não resolvido**: testar a chamada direta à API (calculando
+      `nova_tolerancia` corretamente nós mesmos, em vez de depender do
+      slider/JS do site) com um ticket isolado, sem risco de colisão com
+      outro pátio.
+- [ ] Definir a regra de negócio: quando o bot for validar um ticket dentro
+      da janela 15min–2h (primeira validação, não extensão), que valor
+      padrão de horasAdicionais/diasAdicionais deve mandar automaticamente?
+      (ex: sempre 1h por padrão, ou perguntar ao cliente quanto tempo mais precisa)
 
 ### ⚠️ Limitação conhecida: `jaValidado` pode não detectar tickets recentes
 
@@ -74,6 +109,12 @@ de checar isso na interface do ValidPark até agora.
 
 - [x] URL do site validador — `https://validpark.technext.com.br/login`
 - [x] Usuário e senha de login — obtidos, mas **não guardados nem usados por mim** (ver nota de segurança abaixo)
+- [x] **Usuário dedicado para o bot criado** (08/09/2026): `BOT_SOLOJET` /
+      "BOT_ONEPARK_SOLOJET", vinculado ao Hangar Solojet, substitui o login
+      pessoal (`alessan.solojet`) que era usado até então. Agora as
+      validações automáticas aparecem como "Validado por: BOT_SOLOJET" nos
+      cards, distinguindo claramente ação automática de ação manual de
+      funcionário. `.env` local e do servidor já atualizados e testados.
 - [x] Seletores de login — `input[name="username"]`, `input[name="senha"]`, `button[type="submit"]`
 - [x] Seletor do campo de ticket — `#standard-basic`
 - [x] Seletor do campo "Placa" dentro do modal — `#outlined-error-helper-text`
@@ -311,10 +352,17 @@ estacionado no hangar** antes de validar — só pra esse hangar, não pra todos
 
 ### Nota de segurança
 
-A senha real do usuário de login do Solojet foi compartilhada em texto nesta
-conversa (duas vezes). Ela foi salva localmente em `.env` (arquivo
-gitignored, nunca vai para o repositório) e usada pelos scripts
-`validate-ticket.js`/`consultar-ticket.js`, que rodam via Playwright — em
-nenhum momento a senha foi digitada manualmente numa tela por mim. Ainda
-assim, **como ficou registrada em texto no histórico da conversa,
-recomenda-se trocar essa senha** quando for conveniente.
+A senha real do usuário pessoal de login do Solojet (`alessan.solojet`) foi
+compartilhada em texto nesta conversa (duas vezes) e salva em `.env`
+(gitignored) para uso pelos scripts — nunca digitada manualmente numa tela
+por mim. **Esse usuário não é mais usado** pela automação desde 08/09/2026:
+foi substituído por um usuário dedicado (`BOT_SOLOJET`, ver seção do Solojet
+acima), o que já reduz a exposição da conta pessoal. Ainda assim, como a
+senha antiga ficou registrada em texto no histórico da conversa, recomenda-se
+trocá-la quando for conveniente.
+
+A senha do `BOT_SOLOJET` também apareceu em texto/print nesta conversa
+(visível no formulário "Adicionar Usuário"). Como é uma conta dedicada só
+para a automação (não uma conta pessoal), o risco é menor, mas vale
+considerar trocar por uma senha mais forte que "botteste" antes de ir para
+produção de verdade.
