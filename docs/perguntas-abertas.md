@@ -95,13 +95,19 @@ resultado final não bateu com o que mandamos.
       como se a escrita fosse silenciosamente ignorada. Testado também com
       cabeçalhos de navegador (Origin/Referer/Accept) — mesmo resultado.
       Confirmado que o ticket ficou intacto (sem efeito colateral).
-      **Hipótese não testada**: o campo `id_patio` (que vimos como `31` numa
-      resposta real capturada antes) pode ser obrigatório para a escrita
-      funcionar — mas não quisemos adivinhar esse número no sistema de
-      produção sem confirmação, já que pode vincular a validação ao pátio
-      errado. **Não vale a pena continuar tentando "no escuro"** sem mais
-      informação (ex: pedir à Technext/1Park documentação da API, ou o ID
-      correto do pátio do Solojet).
+      **Atualização (mesmo dia)**: descobrimos o `id_patio` real e correto
+      do Solojet fazendo um GET (só leitura, sem risco) num ticket que
+      sabíamos ter sido validado pelo Solojet — confirmado: **`id_patio: 30`**
+      (o `31` visto antes era de outro pátio/hangar, então ainda bem que não
+      arriscamos usar aquele número). Repetimos o teste com um ticket novo
+      isolado (`030809210500`) e `id_patio: 30` correto — **mesmo resultado:
+      HTTP 200, escrita ignorada silenciosamente**, sem CSRF ou erro visível
+      nos headers de resposta. Descartamos `id_patio` como a causa.
+      **Conclusão: precisamos parar de tentar "no escuro"** — falta alguma
+      informação que só dá pra descobrir com documentação da API (Technext/
+      1Park) ou inspecionando mais a fundo o tráfego de um navegador real
+      autenticado (ex: cookies de sessão que a automação não está enviando).
+      Ticket de teste confirmado intacto, sem efeito colateral.
 - [ ] Definir a regra de negócio: quando o bot for validar um ticket dentro
       da janela 15min–2h (primeira validação, não extensão), que valor
       padrão de horasAdicionais/diasAdicionais deve mandar automaticamente?
