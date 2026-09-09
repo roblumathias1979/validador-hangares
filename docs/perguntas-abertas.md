@@ -31,7 +31,18 @@ Command).
       não foi testado sob carga real (WhatsApp conectado + Playwright rodando
       ao mesmo tempo). Se travar, considerar upgrade pra t3.small (2GB).
 
-### 🐛 Bug real AINDA NÃO RESOLVIDO: sliders "+ Horas"/"+ Dias"
+### 🐛 Investigação em aberto: sliders "+ Horas"/"+ Dias" (tickets emulados)
+
+**⚠️ Atualização importante (09/09/2026):** os tickets usados nos testes
+abaixo (`010409183948`, `010809202610`, `010809201717`, `030809194400`,
+`030809210500`) eram **emulados/simulados para teste**, não tickets reais
+emitidos pelo totem — confirmado pelo usuário. O `usuario: "AVULSO"` visto
+nas respostas da API provavelmente reflete isso. **Isso pode explicar por
+que a escrita via API era ignorada silenciosamente** — talvez tickets
+emulados tenham alguma restrição/flag que tickets reais não têm. **Ainda não
+sabemos se o bug do slider (JS quebrado calculando `nova_tolerancia`) e o
+bloqueio da escrita via API acontecem também com um ticket real** — isso
+precisa ser testado de novo assim que tivermos um.
 
 Testando a validação de um ticket com a tolerância de 15min já vencida
 (exige mexer nos sliders — ver abaixo), percorremos 3 métodos diferentes:
