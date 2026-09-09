@@ -4,3 +4,5 @@ config/hangares.json
 n8n/data/
 logs/*.log
 .DS_Store
+*.pem
+*.key
