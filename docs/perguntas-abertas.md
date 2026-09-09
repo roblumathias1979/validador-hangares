@@ -139,10 +139,32 @@ resultado final não bateu com o que mandamos.
       1Park) ou inspecionando mais a fundo o tráfego de um navegador real
       autenticado (ex: cookies de sessão que a automação não está enviando).
       Ticket de teste confirmado intacto, sem efeito colateral.
-- [ ] Definir a regra de negócio: quando o bot for validar um ticket dentro
-      da janela 15min–2h (primeira validação, não extensão), que valor
-      padrão de horasAdicionais/diasAdicionais deve mandar automaticamente?
-      (ex: sempre 1h por padrão, ou perguntar ao cliente quanto tempo mais precisa)
+- [x] **Definida a regra de negócio da tolerância na primeira validação**
+      (09/09/2026): o bot **pergunta ao cliente quanto tempo ele pretende
+      ficar** e converte a resposta em horasAdicionais/diasAdicionais, em vez
+      de aplicar um valor fixo. Motivo: valor fixo alto concede
+      estacionamento gratuito a quem ficaria minutos, e valor fixo baixo faz
+      a validação vencer com o carro ainda no pátio. Limites dos sliders:
+      24 horas e 20 dias.
+      **Ainda falta implementar** o passo que faz essa pergunta e interpreta
+      a resposta — depende do nó de WhatsApp, que ainda é placeholder. Os
+      scripts já aceitam os dois valores por argumento, e o workflow já os
+      repassa (`{{$json.horasAdicionais || 0}}`), então o que falta é só a
+      camada de conversa. Decidir também o formato da pergunta: texto livre
+      ("umas 3 horas", "dois dias") exige interpretação e tratamento de
+      resposta vaga; um menu numerado é mais confiável e combina com o menu
+      de opções que já existe.
+- [x] **Removida a orientação de esperar os 15 minutos** (09/09/2026): não
+      existia nenhuma trava de código para isso — `validate-ticket.js` só
+      checa formato, prazo de 2h e vagas, e o workflow decide por
+      `opcao === 3`, sem condição de tempo. A "regra" era só a mensagem do
+      `consultar-ticket.js`, que dizia "ainda não precisa validar" e na
+      prática empurrava o cliente para depois. Cliente que vai deixar o
+      veículo no hangar precisa validar já na entrada; a mensagem agora
+      convida a validar informando quanto tempo vai ficar.
+      ⚠️ Atenção ao implementar: validar dentro dessa janela com os sliders
+      em 0 concede só a tolerância padrão (~15min), que vence com o carro
+      ainda no pátio — a pergunta ao cliente não é opcional nesse caminho.
 
 ### ⚠️ Limitação conhecida: `jaValidado` pode não detectar tickets recentes
 
@@ -229,13 +251,17 @@ extrair o número do ticket, não a data de emissão).
 - [x] **Linha do tempo completa confirmada** (isso explica o "Tolerância"
       padrão do modal = Entrada + 15min, visto em testes reais):
       1. **0–15min desde a emissão**: todo ticket impresso já sai com essa
-         tolerância — o cliente **não precisa validar**.
+         tolerância gratuita — quem for sair nesse prazo **não precisa
+         validar**. Mas quem vai deixar o veículo no hangar **pode e deve
+         validar já aqui**, sem esperar (revisto em 09/09/2026 — antes a
+         mensagem do bot mandava esperar).
       2. **15min–2h desde a emissão**: precisa validar (fluxo normal do
          `validate-ticket.js`).
       3. **Depois de 2h**: `status: 'fora_do_prazo'`, não deixa mais validar.
       Implementado em [scripts/consultar-ticket.js](../scripts/consultar-ticket.js):
-      quando o ticket ainda não foi validado e está dentro dos 15min, a
-      mensagem já avisa que não precisa validar ainda.
+      dentro dos 15min a mensagem informa até quando vale a tolerância
+      gratuita e oferece validar na hora, perguntando quanto tempo o cliente
+      vai ficar.
 
 ### ✅ Descoberta: tickets são de um totem compartilhado entre hangares
 

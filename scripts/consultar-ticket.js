@@ -114,9 +114,21 @@ async function consultarTicket(hangarId, ticket) {
     } else if (!jaValidado && ativo === false) {
       mensagemWhatsapp = `⚠️ Ticket ${ticket} ainda não foi validado e o prazo de tolerância de 15 minutos já venceu (${toleranciaReal}).`;
     } else {
-      // Todo ticket impresso já sai com 15min de tolerância — dentro desse
-      // período, não é preciso validar.
-      mensagemWhatsapp = `ℹ️ Ticket ${ticket} está dentro da tolerância de 15 minutos da emissão — ainda não precisa validar. Tolerância vai até ${toleranciaReal}.`;
+      // Todo ticket impresso já sai com ~15min de tolerância gratuita. O bot
+      // dizia aqui "ainda não precisa validar", o que na prática mandava o
+      // cliente esperar — errado para quem vai deixar o veículo no hangar e
+      // ficar: esse cliente precisa validar JÁ na entrada.
+      //
+      // Nada nunca impediu isso: validate-ticket.js não checa essa janela
+      // (só formato, prazo de 2h e vagas) e o workflow do n8n decide por
+      // `opcao === 3`, sem condição de tempo. O que faltava era a mensagem
+      // não empurrar o cliente para depois.
+      //
+      // Cuidado ao validar aqui: com os sliders em 0 o site concede apenas a
+      // tolerância padrão, que vence em minutos. Daí a mensagem pedir quanto
+      // tempo o cliente vai ficar — a resposta alimenta
+      // horasAdicionais/diasAdicionais do validate-ticket.js.
+      mensagemWhatsapp = `ℹ️ Ticket ${ticket} ainda está na tolerância gratuita, que vai até ${toleranciaReal}. Se você for sair antes disso, não precisa validar nada. Se for deixar o veículo no hangar, me diga quanto tempo pretende ficar que eu já valido agora — não precisa esperar.`;
     }
 
     return {

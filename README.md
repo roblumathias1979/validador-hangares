@@ -28,7 +28,11 @@ inexistente. Duas descobertas mudaram o escopo do briefing original:
    entre a emissão (impressa na foto) e a validação** — isso significa que o
    OCR também precisa extrair a data/hora de emissão, não só o número.
    Confirmado também: todo ticket já sai com **15 minutos de tolerância**
-   desde a emissão, período em que nem precisa validar.
+   desde a emissão — quem for sair nesse prazo nem precisa validar. Quem vai
+   deixar o veículo no hangar, porém, **valida já na entrada**, sem esperar
+   esses 15 minutos: nesse caso o bot pergunta quanto tempo o cliente vai
+   ficar e manda o valor nos sliders de tolerância, senão a validação
+   venceria em minutos.
 
 Segundo hangar identificado: **AIBM** (só cadastrado como esqueleto em
 `config/hangares.example.json` ainda — falta URL, credenciais e seletores).
