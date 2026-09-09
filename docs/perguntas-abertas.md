@@ -85,10 +85,23 @@ que não temos 100% de certeza se nossa requisição (com o dado corrompido)
 teria sido aceita ou rejeitada isoladamente — só sabemos que, na prática, o
 resultado final não bateu com o que mandamos.
 
-- [ ] **Não resolvido**: testar a chamada direta à API (calculando
-      `nova_tolerancia` corretamente nós mesmos, em vez de depender do
-      slider/JS do site) com um ticket isolado, sem risco de colisão com
-      outro pátio.
+- [x] **Testada a chamada direta à API (09/09/2026), sem sucesso ainda**:
+      com um ticket isolado (`030809194400`, sem risco de colisão com outro
+      pátio), autenticamos via `/api-token-auth/`, calculamos
+      `nova_tolerancia` corretamente (formato `-03:00`, sem milissegundos,
+      igual ao resto do payload) e mandamos o `PUT /tickets/{ticket}/`.
+      Resultado: **HTTP 200, mas o servidor devolve o registro sem nenhuma
+      mudança** (mesma placa vazia, `status: "A"`, `usuario: "AVULSO"`) —
+      como se a escrita fosse silenciosamente ignorada. Testado também com
+      cabeçalhos de navegador (Origin/Referer/Accept) — mesmo resultado.
+      Confirmado que o ticket ficou intacto (sem efeito colateral).
+      **Hipótese não testada**: o campo `id_patio` (que vimos como `31` numa
+      resposta real capturada antes) pode ser obrigatório para a escrita
+      funcionar — mas não quisemos adivinhar esse número no sistema de
+      produção sem confirmação, já que pode vincular a validação ao pátio
+      errado. **Não vale a pena continuar tentando "no escuro"** sem mais
+      informação (ex: pedir à Technext/1Park documentação da API, ou o ID
+      correto do pátio do Solojet).
 - [ ] Definir a regra de negócio: quando o bot for validar um ticket dentro
       da janela 15min–2h (primeira validação, não extensão), que valor
       padrão de horasAdicionais/diasAdicionais deve mandar automaticamente?
