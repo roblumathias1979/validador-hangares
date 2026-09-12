@@ -40,7 +40,7 @@ O bot continua **stateless** quanto a "perguntei e estou esperando resposta" —
 - [ ] `DIAS_VENCIMENTO_BOLETO = 5` em `validate-ticket.js` é um **placeholder** — prazo real de vencimento do boleto ainda não confirmado com o usuário.
 - [ ] Nota fiscal (NF-e): FORA de escopo por enquanto (confirmado com o usuário) — Asaas exige configuração municipal extra (serviço, alíquota) que ainda não temos.
 - [ ] `cotaMensalForaPrazo` está com o mesmo valor (5) pré-preenchido em TODOS os hangares no skeleton — confirmar se cada hangar realmente tem a mesma cota ou se varia por pátio.
-- [ ] `prazoValidacaoHoras` (a regra de 2h que dispara toda essa lógica) só está configurado para o Solojet (`2`) — todos os outros 15 hangares estão com `null`, ou seja, a cota/faturamento fora do prazo **não está ativa** para eles ainda. Confirmar com o usuário se a regra de 2h vale pra todos os pátios ou é específica do Solojet.
+- [x] `prazoValidacaoHoras`: CONFIRMADO pelo usuário (12/09/2026) que a regra de 2h vale para TODOS os hangares, não só o Solojet. Atualizado `config/hangares.json` — os 15 hangares que estavam com `null` agora têm `prazoValidacaoHoras: 2`, testado de ponta a ponta via webhook (indaia, antes com a regra desligada, agora oferece a cota corretamente).
 - [x] Nova opção do menu (12/09/2026, pedida pelo usuário): consultar quantas validações fora do prazo ainda restam no mês. Implementado em `scripts/consultar-cota-fora-prazo.js` + `opcao: 4` no webhook (ver nó "Opção 4 (Consultar Cota)?" em `n8n/workflows/validador-tickets.json`). Testado de ponta a ponta via webhook real.
 
 ## 🐛 Bug real corrigido (09/09/2026): fuso horário no `consultar-ticket.js`
