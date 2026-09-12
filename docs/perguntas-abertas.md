@@ -2,6 +2,47 @@
 
 Copiado da seção 7 do briefing. Preencher antes de tentar rodar o fluxo real.
 
+## 🐛 Bug real corrigido (12/09/2026): corrida no login — "senha incorreta" era falso positivo
+
+Ao testar os 14 hangares novos, TODOS falhavam com "usuário ou senha incorretos" — mesmo depois de confirmar as credenciais certinho com o usuário (ex: `BOT_INDAIA`/`1BOTINDAIA`, testado manualmente por ele com sucesso). Capturando a rede durante o login automatizado, descobri que o `POST /api-token-auth/` retornava um TOKEN VÁLIDO e os `GET /tickets` e `GET /patios` seguintes retornavam dados reais do pátio — ou seja, **o login sempre funcionou**.
+
+Causa: `login()` em `scripts/lib/hangar.js` esperava `page.waitForLoadState('networkidle')` depois do clique — mas o ValidPark é um SPA (React): o clique não navega pra uma página nova, só dispara a chamada assíncrona acima e re-renderiza a MESMA página via JS. `waitForLoadState` não é o sinal certo pra esperar isso, e o código lia o texto da tela CEDO DEMAIS — antes do React re-renderizar com o resultado real, ainda vendo a mensagem de erro estática que já vem no HTML da tela de login (escondida via CSS, mas presente no DOM desde o carregamento — `textContent()` não filtra por visibilidade, só `waitForSelector` filtra).
+
+**Corrigido**: `login()` agora espera por um sinal explícito — o elemento do painel carregado (`areaVagasDisponiveis`, com `state: 'visible'`) OU a mensagem de erro ficando de fato VISÍVEL, o que vier primeiro (timeout 15s), e sóław depois disso decide se o login deu certo. Testado contra Solojet (sem regressão) e os 14 hangares novos: **todos os 15 logam com sucesso agora**.
+
+**Impacto**: esse bug pode ter causado falsos negativos silenciosos em qualquer chamada anterior de `login()` (Solojet incluso) — vale desconfiar de qualquer "falha de login" registrada antes de 12/09/2026.
+
+## 💰 Funcionalidade nova (11/09/2026): cota mensal de validações fora do prazo + faturamento via Asaas
+
+Regras de negócio confirmadas com o usuário:
+
+- Todo mês, cada hangar (não é cota compartilhada) tem direito a **5 validações fora do prazo de 2h** de graça. Controlado em `scripts/lib/cota-fora-prazo.js`, persistido em `data/cota-fora-prazo.json` (fora do git — é estado operacional, não config; ver `.gitignore`).
+- Quando um ticket está fora do prazo E ainda sobra cota no mês: `validate-ticket.js` **pergunta** se o cliente quer usar 1 das validações fora do prazo (`status: fora_do_prazo_requer_decisao`), em vez de recusar direto.
+- Quando a cota do mês já acabou: calcula o valor pelo tempo de permanência (tabela abaixo) e pergunta se autoriza faturar (`status: fora_do_prazo_requer_autorizacao_faturamento`).
+- A autorização de faturar **exige uma foto anexada** (`fotoAutorizacao`) — CONFIRMADO com o usuário que não é reconhecimento facial nem comparação de conteúdo, é só registrar a foto como evidência de quem autorizou (sempre é algum funcionário). Sem foto, `status: fora_do_prazo_falta_foto_autorizacao` pede de novo.
+- Faturamento autorizado → emite boleto via **Asaas** (`scripts/lib/asaas.js`, `POST /v3/payments`) e a validação do ticket no ValidPark **continua normalmente** depois (o faturamento é uma camada de negócio nossa, à parte do próprio validador).
+- Auditoria de todo faturamento emitido em `data/faturamentos.json` (`scripts/lib/faturamento.js`): hangar, ticket, valor, referência da foto, id do pagamento no Asaas.
+
+### Tabela de preços (fornecida pelo usuário)
+
+1ª hora R$20, 2ª hora R$15, demais horas R$5 cada — **travando em R$60** (valor da diária) assim que o acumulado bate esse valor (na 7ª hora). Acima de 24h: R$60 por diária completa + o restante pela mesma tabela/teto (ex: 30h = R$60 + R$55 = R$115). Fração de hora arredonda pra cima. Implementado e testado em `scripts/lib/precos.js`.
+
+### Como o fluxo conversacional foi resolvido sem estado de conversa
+
+O bot continua **stateless** quanto a "perguntei e estou esperando resposta" — não existe um mecanismo de "conversa pendente" no servidor. Em vez disso, seguimos o mesmo padrão que `opcao` já usa hoje: o webhook aceita `usarCotaForaPrazo`, `autorizarFaturamento` e `fotoAutorizacao` como campos opcionais no corpo da requisição. Quem vai precisar re-enviar o pedido completo (ticket + essas flags) depois que o cliente responder no WhatsApp é a camada de integração real de WhatsApp (ainda não implementada — Baileys/Evolution API é placeholder). Ver `n8n/workflows/validador-tickets.json`, nota do nó Webhook.
+
+### Pendências desta funcionalidade
+
+- [x] `ASAAS_API_KEY` e `ASAAS_AMBIENTE`: preenchidos (12/09/2026) — chave de **produção** fornecida pelo usuário (`aact_prod_...`), `ASAAS_AMBIENTE=producao`. Testada com chamada real de leitura (`GET /v3/customers`, status 200, 89 clientes na conta) — qualquer boleto criado a partir de agora é REAL, não é sandbox.
+- [x] Bug real corrigido (12/09/2026): produção e sandbox do Asaas usam **caminho base diferente**, não só host — produção é `/v3/...` (sem `/api`), sandbox é `/api/v3/...`. `scripts/lib/asaas.js` usava o mesmo caminho pros dois; corrigido e testado de verdade.
+- [x] `asaas.customerId` preenchido para 9 hangares (encontrados por busca de nome na conta real do Asaas, confirmados um a um com o usuário): solojet, solojet-shares, alljet, cimed-alljet (mesmo cliente da alljet), bravo-aviation, nacoes, epeac, dux-express, aerie-aviacao-executiva.
+- [x] Hangares SEM cliente Asaas cadastrado (AIBM, AIBM 2, Concorde, Indaiá, Plane Aviation, Hangar-1, Hangar Aristek): confirmado com o usuário que nunca precisaram faturar antes. Implementado (12/09/2026) fluxo de auto-cadastro: quando faltar `asaas.customerId` na hora de faturar, o bot pede CNPJ/razão social/email pelo WhatsApp (novos campos opcionais no webhook: `cnpjHangar`/`razaoSocialHangar`/`emailHangar`), cria o cliente no Asaas na hora e **salva o customerId de volta em `config/hangares.json`** (`salvarAsaasCustomerId` em `scripts/lib/hangar.js`) — não pede de novo depois. Testado de ponta a ponta via webhook (pedido dos dados); criação real de cliente+boleto ainda não exercida (o usuário optou por confiar na lógica já testada isoladamente em vez de gerar um registro real de teste).
+- [ ] `DIAS_VENCIMENTO_BOLETO = 5` em `validate-ticket.js` é um **placeholder** — prazo real de vencimento do boleto ainda não confirmado com o usuário.
+- [ ] Nota fiscal (NF-e): FORA de escopo por enquanto (confirmado com o usuário) — Asaas exige configuração municipal extra (serviço, alíquota) que ainda não temos.
+- [ ] `cotaMensalForaPrazo` está com o mesmo valor (5) pré-preenchido em TODOS os hangares no skeleton — confirmar se cada hangar realmente tem a mesma cota ou se varia por pátio.
+- [ ] `prazoValidacaoHoras` (a regra de 2h que dispara toda essa lógica) só está configurado para o Solojet (`2`) — todos os outros 15 hangares estão com `null`, ou seja, a cota/faturamento fora do prazo **não está ativa** para eles ainda. Confirmar com o usuário se a regra de 2h vale pra todos os pátios ou é específica do Solojet.
+- [x] Nova opção do menu (12/09/2026, pedida pelo usuário): consultar quantas validações fora do prazo ainda restam no mês. Implementado em `scripts/consultar-cota-fora-prazo.js` + `opcao: 4` no webhook (ver nó "Opção 4 (Consultar Cota)?" em `n8n/workflows/validador-tickets.json`). Testado de ponta a ponta via webhook real.
+
 ## 🐛 Bug real corrigido (09/09/2026): fuso horário no `consultar-ticket.js`
 
 `parseDataBr()` construía o `Date` a partir do texto do ValidPark
@@ -21,6 +62,46 @@ diferente, mas correto).
 já venceu" para tickets consultados poucas horas após a emissão durante
 toda a sessão até agora — vale desconfiar de conclusões antigas sobre
 "tolerância vencida" tiradas antes dessa correção.
+
+## 🐛 Bug real corrigido (11/09/2026): senha do BOT_SOLOJET desatualizada e n8n cacheia o `.env` na própria inicialização
+
+O webhook do n8n (opção "consultar") passou a responder **vazio**, sem erro
+visível pro cliente. Investigação (ver histórico completo desta sessão)
+encontrou DOIS problemas empilhados:
+
+1. **Senha errada**: o usuário `BOT_SOLOJET` estava com a senha antiga
+   (`botteste`) no `.env`, mas o ValidPark exigia a nova (`botsolojet`).
+   Login falhava silenciosamente (ficava na tela de login), e o script
+   travava 30s esperando o campo de ticket que só existe após login —
+   erro real, visto rodando o script direto: `"Usúario ou senha incorretos"`.
+2. **Depois de corrigir o `.env`, o bug continuou** — só que agora com uma
+   causa bem mais sutil: **o n8n lê o `.env` (que fica na mesma pasta —
+   `WorkingDirectory` do systemd) uma única vez, quando o próprio processo
+   n8n inicia**, e guarda essas variáveis no ambiente dele. Como esse
+   processo continuava rodando desde ANTES da correção da senha, ele
+   ainda tinha `SOLOJET_SENHA=botteste` em memória. Todo script nosso
+   herda o ambiente de quem o chamou (o Execute Command do n8n) — e como
+   `dotenv.config()` **nunca sobrescreve uma variável que já existe** no
+   ambiente, o valor novo do arquivo era ignorado.
+
+**Corrigido**: reiniciar o serviço n8n (`sudo systemctl restart n8n`) fez
+o processo reler o ambiente do zero, pegando o valor novo.
+
+**Impacto operacional permanente**: qualquer alteração futura no `.env`
+(nova senha, novo hangar, nova chave de API) só passa a valer para os
+scripts depois de um `sudo systemctl restart n8n` no servidor — editar o
+arquivo sozinho não é suficiente, mesmo que o script funcione perfeitamente
+quando testado direto por SSH (nesse caso o ambiente é lido do zero a cada
+chamada, sem esse cache).
+
+**Também descartado nessa investigação** (ficou registrado porque consumiu
+tempo real de debug): não era falta de memória/CPU do servidor (t2/t3.micro
+é justo, mas `free`/`dmesg` não mostraram OOM nem indício de exec engasgado
+por recurso), não era PATH diferente do systemd, não era processo
+`chromium` travado de execução anterior, e o comando armazenado no banco
+do n8n batia exatamente com o do repositório (a diferença de espaçamento
+que apareceu nos logs de erro era só um artefato de como o n8n reserializa
+expressões `{{...}}` ao logar o erro — não reflete o comando real).
 
 - [ ] Quantos hangares no total, e quais são os grupos/URLs/credenciais de cada um? Segundo hangar identificado: **AIBM** (ver seção própria abaixo) — ainda faltam URL do validador, credenciais e grupo do WhatsApp dele.
 - [x] Qual o formato exato do número de ticket — ver seção "Formato real do ticket (foto confirmada)" abaixo.

@@ -10,3 +10,9 @@ logs/*.log
 .DS_Store
 *.pem
 *.key
+
+# Estado operacional/transacional (cota mensal usada, faturamentos emitidos,
+# fotos de autorização) — não é configuração, é dado gerado em produção.
+# Cresce e muda a cada uso; diferente de config/hangares.json, não faz
+# sentido versionar.
+data/

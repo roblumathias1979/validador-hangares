@@ -4,7 +4,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## ⚠️ Placeholder de entrada\n\nEste Webhook simula a chegada de uma mensagem do WhatsApp, só para testar o resto do fluxo. Quando o nó real de WhatsApp (Baileys/Evolution API) estiver instalado no n8n, substitua este Webhook por ele.\n\nBody esperado (JSON) enquanto o OCR não existe:\n```\n{\n  \"grupoId\": \"...\",\n  \"opcao\": 1 | 2 | 3,\n  \"ticket\": \"011903092521\",\n  \"placa\": \"ABC1234\",       // opcional, só usado se opcao=3\n  \"dataEmissaoIso\": \"...\",  // opcional\n  \"horasAdicionais\": 0,      // opcional\n  \"diasAdicionais\": 0        // opcional\n}\n```",
+        "content": "## ⚠️ Placeholder de entrada\n\nEste Webhook simula a chegada de uma mensagem do WhatsApp, só para testar o resto do fluxo. Quando o nó real de WhatsApp (Baileys/Evolution API) estiver instalado no n8n, substitua este Webhook por ele.\n\nBody esperado (JSON) enquanto o OCR não existe:\n```\n{\n  \"grupoId\": \"...\",\n  \"opcao\": 1 | 2 | 3 | 4,  // 4 = consultar cota de validações fora do prazo (12/09/2026)\n  \"ticket\": \"011903092521\",  // não usado se opcao=4\n  \"placa\": \"ABC1234\",       // opcional, só usado se opcao=3\n  \"dataEmissaoIso\": \"...\",  // opcional\n  \"horasAdicionais\": 0,      // opcional\n  \"diasAdicionais\": 0,       // opcional\n  \"usarCotaForaPrazo\": false,      // opcional (11/09/2026) — cliente respondeu SIM à pergunta de usar 1 das validações fora do prazo do mês\n  \"autorizarFaturamento\": false,   // opcional — cliente autorizou faturar (cota fora do prazo esgotada)\n  \"fotoAutorizacao\": \"\",           // opcional — referência da foto exigida para autorizar o faturamento (ver docs/perguntas-abertas.md)\n  \"cnpjHangar\": \"\",                // opcional (12/09/2026) — só se o hangar não tiver cliente Asaas cadastrado ainda\n  \"razaoSocialHangar\": \"\",         // opcional — idem\n  \"emailHangar\": \"\"                // opcional — idem\n}\n```\nO bot é STATELESS quanto a essa conversa: não guarda \"perguntei e estou esperando resposta\" — quem reenvia o pedido com o mesmo ticket + a flag marcada (`usarCotaForaPrazo`/`autorizarFaturamento`) é a camada de WhatsApp real (ainda não implementada), do mesmo jeito que `opcao` já funciona hoje.",
         "height": 460,
         "width": 380
       },
@@ -108,7 +108,52 @@
     },
     {
       "parameters": {
-        "command": "=node \"/home/ubuntu/validador-hangares/scripts/validate-ticket.js\" \"{{$json.hangarId}}\" \"{{$json.ticket}}\" \"{{$json.placa || ''}}\" \"{{$json.dataEmissaoIso || ''}}\" \"{{$json.horasAdicionais || 0}}\" \"{{$json.diasAdicionais || 0}}\""
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "cond-opcao-cota",
+              "leftValue": "={{ $json.opcao }}",
+              "rightValue": 4,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "opcao-consultar-cota",
+      "name": "Opção 4 (Consultar Cota)?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        520,
+        -220
+      ]
+    },
+    {
+      "parameters": {
+        "command": "=node \"/home/ubuntu/validador-hangares/scripts/consultar-cota-fora-prazo.js\" \"{{$json.hangarId}}\""
+      },
+      "id": "consultar-cota",
+      "name": "Consultar Cota Fora do Prazo",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        760,
+        -300
+      ]
+    },
+    {
+      "parameters": {
+        "command": "=node \"/home/ubuntu/validador-hangares/scripts/validate-ticket.js\" \"{{$json.hangarId}}\" \"{{$json.ticket}}\" \"{{$json.placa || ''}}\" \"{{$json.dataEmissaoIso || ''}}\" \"{{$json.horasAdicionais || 0}}\" \"{{$json.diasAdicionais || 0}}\" \"{{$json.usarCotaForaPrazo || false}}\" \"{{$json.autorizarFaturamento || false}}\" \"{{$json.fotoAutorizacao || ''}}\" \"{{$json.cnpjHangar || ''}}\" \"{{$json.razaoSocialHangar || ''}}\" \"{{$json.emailHangar || ''}}\""
       },
       "id": "validar-ticket",
       "name": "Validar Ticket",
@@ -236,7 +281,36 @@
       "main": [
         [
           {
+            "node": "Opção 4 (Consultar Cota)?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Opção 4 (Consultar Cota)?": {
+      "main": [
+        [
+          {
+            "node": "Consultar Cota Fora do Prazo",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
             "node": "Opção 3 (Validar)?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Consultar Cota Fora do Prazo": {
+      "main": [
+        [
+          {
+            "node": "Parse Resultado",
             "type": "main",
             "index": 0
           }

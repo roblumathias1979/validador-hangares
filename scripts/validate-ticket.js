@@ -16,7 +16,22 @@
 // que recebe um JSON no stdout com o resultado.
 
 const { chromium } = require('playwright');
-const { carregarConfig, buscarHangar, login } = require('./lib/hangar');
+const { carregarConfig, buscarHangar, login, salvarAsaasCustomerId } = require('./lib/hangar');
+const { calcularValorPermanencia, formatarReais } = require('./lib/precos');
+const { obterRestante, consumirUmaValidacao } = require('./lib/cota-fora-prazo');
+const { criarCobrancaBoleto, temDadosParaCriarCliente } = require('./lib/asaas');
+const { registrarFaturamento } = require('./lib/faturamento');
+
+// Prazo padrão do boleto gerado no Asaas quando o faturamento é acionado.
+// Ainda não confirmado com o usuário qual deve ser o prazo real de
+// vencimento — 5 dias é um placeholder razoável, fácil de ajustar depois.
+const DIAS_VENCIMENTO_BOLETO = 5;
+
+function dataVencimentoBoleto() {
+  const data = new Date();
+  data.setDate(data.getDate() + DIAS_VENCIMENTO_BOLETO);
+  return data.toISOString().slice(0, 10); // YYYY-MM-DD, formato exigido pelo Asaas
+}
 
 // Limites confirmados dos sliders "+ Horas" / "+ Dias" no modal do ValidPark.
 const SLIDER_MAX_HORAS = 24;
@@ -115,7 +130,67 @@ async function ajustarSlider(page, seletorInputRange, quantidade) {
   await page.locator(seletorInputRange).fill(String(quantidade));
 }
 
-async function validarTicket(hangarId, ticket, placa, dataEmissaoIso, horasAdicionais = 0, diasAdicionais = 0) {
+// Decide o que fazer com um ticket fora do prazo de 2h: pedir pra usar 1 das
+// validações fora do prazo do mês, pedir autorização de faturamento (cota
+// esgotada), pedir a foto que falta, ou seguir validando (cota consumida /
+// faturamento já autorizado). Separada de validarTicket() de propósito — é a
+// parte testável sem tocar no site nem no Asaas.
+//
+// Regra de precedência (11/09/2026, confirmada com o usuário): a cota mensal
+// (5 validações fora do prazo por hangar) SEMPRE tem prioridade sobre
+// faturar. Se `autorizarFaturamento` vier true mas ainda sobrar cota, isso é
+// tratado como estado inconsistente (ex: tela desatualizada do cliente) e o
+// sistema ignora o pedido de faturamento, oferecendo a cota de graça em vez
+// de cobrar por engano.
+function decidirAcaoForaDoPrazo({ hangar, ticket, horasDecorridas, usarCotaForaPrazo, autorizarFaturamento, fotoAutorizacao, dadosCadastrais }) {
+  const restante = obterRestante(hangar);
+
+  if (autorizarFaturamento && restante <= 0) {
+    const valor = calcularValorPermanencia(horasDecorridas);
+    if (!fotoAutorizacao) {
+      return {
+        acao: 'falta_foto',
+        valor,
+        mensagemWhatsapp: `⚠️ Para autorizar o faturamento do ticket ${ticket} (R$ ${formatarReais(valor)}) preciso que você envie uma FOTO junto com a autorização. Pode reenviar com a foto?`,
+      };
+    }
+    // Muitos hangares nunca faturaram antes (confirmado com o usuário,
+    // 12/09/2026) e não têm cliente cadastrado no Asaas. Em vez de falhar,
+    // pedimos os dados cadastrais — o cliente é criado na hora (ver
+    // scripts/lib/asaas.js) e o customerId fica salvo em
+    // config/hangares.json pra não precisar perguntar de novo.
+    if (!temDadosParaCriarCliente(hangar, dadosCadastrais)) {
+      return {
+        acao: 'faltam_dados_cadastrais',
+        valor,
+        mensagemWhatsapp: `⚠️ Para faturar o ticket ${ticket} (R$ ${formatarReais(valor)}) preciso cadastrar o hangar "${hangar.hangar}" no Asaas — ainda não tem cliente registrado. Pode me passar o CNPJ, a razão social e um email de contato?`,
+      };
+    }
+    return { acao: 'faturar', valor };
+  }
+
+  if (usarCotaForaPrazo && restante > 0) {
+    return { acao: 'usar_cota' };
+  }
+
+  if (restante > 0) {
+    return {
+      acao: 'perguntar_cota',
+      restante,
+      mensagemWhatsapp: `⚠️ Ticket ${ticket} está fora do prazo de ${hangar.prazoValidacaoHoras}h da emissão. Você ainda tem ${restante} validação(ões) fora do prazo disponível(is) este mês — quer usar 1 delas para validar este ticket mesmo assim? Responda SIM para usar.`,
+    };
+  }
+
+  const valor = calcularValorPermanencia(horasDecorridas);
+  return {
+    acao: 'perguntar_faturamento',
+    valor,
+    mensagemWhatsapp: `⚠️ Ticket ${ticket} está fora do prazo de ${hangar.prazoValidacaoHoras}h da emissão, e a cota de validações fora do prazo deste mês já acabou. Tempo de permanência: ${horasDecorridas.toFixed(1)}h. Valor: R$ ${formatarReais(valor)}. Você autoriza a One Park faturar e emitir o boleto para o hangar? Se sim, responda com uma FOTO confirmando a autorização.`,
+  };
+}
+
+async function validarTicket(hangarId, ticket, placa, dataEmissaoIso, horasAdicionais = 0, diasAdicionais = 0, opcoesForaDoPrazo = {}) {
+  const { usarCotaForaPrazo = false, autorizarFaturamento = false, fotoAutorizacao = '', dadosCadastrais } = opcoesForaDoPrazo;
   const config = carregarConfig();
   const hangar = buscarHangar(config, hangarId);
 
@@ -145,15 +220,111 @@ async function validarTicket(hangarId, ticket, placa, dataEmissaoIso, horasAdici
   }
 
   const prazo = dentroDoPrazo(hangar, dataEmissaoIso);
+  let notaForaDoPrazo = '';
+  let faturamentoInfo = null;
+
   if (!prazo.ok) {
-    return {
-      status: 'fora_do_prazo',
-      hangar: hangarId,
+    const decisao = decidirAcaoForaDoPrazo({
+      hangar,
       ticket,
-      mensagem: `Ticket emitido há ${prazo.horasDecorridas.toFixed(1)}h — acima do limite de ${hangar.prazoValidacaoHoras}h para validação.`,
-      mensagemWhatsapp: `⚠️ Ticket ${ticket} está fora do prazo de ${hangar.prazoValidacaoHoras} horas da emissão para validação.`,
-      notificarAdmin: false,
-    };
+      horasDecorridas: prazo.horasDecorridas,
+      usarCotaForaPrazo,
+      autorizarFaturamento,
+      fotoAutorizacao,
+      dadosCadastrais,
+    });
+
+    if (decisao.acao === 'perguntar_cota') {
+      return {
+        status: 'fora_do_prazo_requer_decisao',
+        hangar: hangarId,
+        ticket,
+        restanteCota: decisao.restante,
+        mensagem: `Ticket emitido há ${prazo.horasDecorridas.toFixed(1)}h — acima do limite de ${hangar.prazoValidacaoHoras}h. Restam ${decisao.restante} validações fora do prazo este mês.`,
+        mensagemWhatsapp: decisao.mensagemWhatsapp,
+        notificarAdmin: false,
+      };
+    }
+
+    if (decisao.acao === 'perguntar_faturamento') {
+      return {
+        status: 'fora_do_prazo_requer_autorizacao_faturamento',
+        hangar: hangarId,
+        ticket,
+        valor: decisao.valor,
+        mensagem: `Cota fora do prazo esgotada. Valor calculado: R$ ${formatarReais(decisao.valor)}.`,
+        mensagemWhatsapp: decisao.mensagemWhatsapp,
+        notificarAdmin: false,
+      };
+    }
+
+    if (decisao.acao === 'falta_foto') {
+      return {
+        status: 'fora_do_prazo_falta_foto_autorizacao',
+        hangar: hangarId,
+        ticket,
+        valor: decisao.valor,
+        mensagem: 'Autorização de faturamento recebida sem foto anexada.',
+        mensagemWhatsapp: decisao.mensagemWhatsapp,
+        notificarAdmin: false,
+      };
+    }
+
+    if (decisao.acao === 'faltam_dados_cadastrais') {
+      return {
+        status: 'fora_do_prazo_requer_dados_cadastrais',
+        hangar: hangarId,
+        ticket,
+        valor: decisao.valor,
+        mensagem: `Hangar "${hangarId}" sem cliente Asaas cadastrado e sem CNPJ/razão social informados para criar um.`,
+        mensagemWhatsapp: decisao.mensagemWhatsapp,
+        notificarAdmin: false,
+      };
+    }
+
+    if (decisao.acao === 'usar_cota') {
+      const restanteDepois = consumirUmaValidacao(hangar);
+      notaForaDoPrazo = ` Validação fora do prazo usada (restam ${restanteDepois} este mês).`;
+    }
+
+    if (decisao.acao === 'faturar') {
+      try {
+        const cobranca = await criarCobrancaBoleto({
+          hangar,
+          valor: decisao.valor,
+          descricao: `Validação fora do prazo — ticket ${ticket} (${hangar.hangar})`,
+          dataVencimento: dataVencimentoBoleto(),
+          dadosCadastraisNovoCliente: dadosCadastrais,
+        });
+        if (cobranca.clienteCriadoAgora) {
+          // Cliente do Asaas criado agora pela primeira vez (hangar não
+          // tinha cadastro) — salva o id em config/hangares.json pra não
+          // pedir CNPJ/razão social de novo da próxima vez.
+          salvarAsaasCustomerId(hangarId, cobranca.customerId);
+        }
+        registrarFaturamento({
+          hangarId,
+          ticket,
+          horasDecorridas: prazo.horasDecorridas,
+          valor: decisao.valor,
+          fotoAutorizacao,
+          asaasPaymentId: cobranca.id,
+          boletoUrl: cobranca.bankSlipUrl || cobranca.invoiceUrl || null,
+        });
+        faturamentoInfo = { valor: decisao.valor, asaasPaymentId: cobranca.id, boletoUrl: cobranca.bankSlipUrl || cobranca.invoiceUrl || null };
+        notaForaDoPrazo = ` Faturamento de R$ ${formatarReais(decisao.valor)} autorizado e boleto emitido (nº ${cobranca.id}) para o hangar.`;
+      } catch (erro) {
+        return {
+          status: 'faturamento_erro',
+          hangar: hangarId,
+          ticket,
+          valor: decisao.valor,
+          mensagem: erro.message,
+          mensagemWhatsapp: `⚠️ Não conseguimos emitir o boleto para o ticket ${ticket}: ${erro.message}. Nossa equipe foi avisada.`,
+          notificarAdmin: true,
+        };
+      }
+    }
   }
 
   const seletores = hangar.seletores || {};
@@ -306,9 +477,9 @@ async function validarTicket(hangarId, ticket, placa, dataEmissaoIso, horasAdici
     ].filter(Boolean).join(' e ');
 
     const mensagensWhatsapp = {
-      validado: extensaoTexto
+      validado: (extensaoTexto
         ? `✅ Ticket ${ticket} validado com sucesso. Placa: ${placa}. Tolerância estendida em ${extensaoTexto}.`
-        : `✅ Ticket ${ticket} validado com sucesso. Placa: ${placa}.`,
+        : `✅ Ticket ${ticket} validado com sucesso. Placa: ${placa}.`) + notaForaDoPrazo,
       erro_validacao: `⚠️ Não foi possível validar o ticket ${ticket}: ${resultado.mensagem}. Confira a placa e tente novamente.`,
       ticket_ja_utilizado: `⚠️ Ticket ${ticket} já foi utilizado anteriormente — não pode ser validado de novo.`,
       // O ValidPark exige horas/dias > 0 para QUALQUER validação — não só
@@ -329,6 +500,7 @@ async function validarTicket(hangarId, ticket, placa, dataEmissaoIso, horasAdici
       mensagem: resultado.mensagem,
       mensagemWhatsapp: mensagensWhatsapp[resultado.status],
       notificarAdmin: resultado.status === 'indeterminado',
+      ...(faturamentoInfo ? { faturamento: faturamentoInfo } : {}),
     };
   } finally {
     await browser.close();
@@ -336,17 +508,31 @@ async function validarTicket(hangarId, ticket, placa, dataEmissaoIso, horasAdici
 }
 
 async function main() {
-  const [hangarId, ticket, placa, dataEmissaoIso, horasAdicionaisStr, diasAdicionaisStr] = process.argv.slice(2);
+  const [
+    hangarId, ticket, placa, dataEmissaoIso, horasAdicionaisStr, diasAdicionaisStr,
+    usarCotaForaPrazoStr, autorizarFaturamentoStr, fotoAutorizacao,
+    cnpjHangar, razaoSocialHangar, emailHangar,
+  ] = process.argv.slice(2);
   if (!hangarId || !ticket || !placa) {
-    console.error('Uso: node scripts/validate-ticket.js <hangarId> <numeroTicket> <placa> [dataEmissaoIso] [horasAdicionais] [diasAdicionais]');
+    console.error('Uso: node scripts/validate-ticket.js <hangarId> <numeroTicket> <placa> [dataEmissaoIso] [horasAdicionais] [diasAdicionais] [usarCotaForaPrazo] [autorizarFaturamento] [fotoAutorizacao] [cnpjHangar] [razaoSocialHangar] [emailHangar]');
     process.exit(1);
   }
 
   const horasAdicionais = Number(horasAdicionaisStr) || 0;
   const diasAdicionais = Number(diasAdicionaisStr) || 0;
+  const opcoesForaDoPrazo = {
+    usarCotaForaPrazo: usarCotaForaPrazoStr === 'true',
+    autorizarFaturamento: autorizarFaturamentoStr === 'true',
+    fotoAutorizacao: fotoAutorizacao || '',
+    dadosCadastrais: {
+      cnpj: cnpjHangar || '',
+      razaoSocial: razaoSocialHangar || '',
+      email: emailHangar || '',
+    },
+  };
 
   try {
-    const resultado = await validarTicket(hangarId, ticket, placa, dataEmissaoIso, horasAdicionais, diasAdicionais);
+    const resultado = await validarTicket(hangarId, ticket, placa, dataEmissaoIso, horasAdicionais, diasAdicionais, opcoesForaDoPrazo);
     console.log(JSON.stringify(resultado));
   } catch (erro) {
     console.log(JSON.stringify({
@@ -368,4 +554,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { classificarResultadoValidacao, textoLegivel };
+module.exports = { classificarResultadoValidacao, textoLegivel, decidirAcaoForaDoPrazo };

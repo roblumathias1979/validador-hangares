@@ -40,26 +40,606 @@
       "_observacao_placa": "Por enquanto a placa não vem na foto do ticket — o bot deve perguntar ao cliente no WhatsApp. Se o cliente não souber/informar algo genérico, o bot segue com a validação usando essa placa genérica (não deve travar o cliente por falta desse dado). CONFIRMADO pelo usuário: esse valor de placa genérica já foi testado contra o site real e é aceito pela validação de formato do ValidPark. Quando o OCR passar a extrair a placa da própria foto, esse campo deixa de ser necessário.",
       "prazoValidacaoHoras": 2,
       "_observacao_prazo": "Regra de negócio adicional (não é uma validação do próprio ValidPark, que tem sua própria janela de 'Tolerância' bem maior): o bot só deve tentar validar um ticket se a hora de EMISSÃO impressa na foto do ticket estiver a no máximo `prazoValidacaoHoras` horas do momento atual. A data de emissão precisa ser extraída pelo OCR (além do número do ticket) — isso é um requisito novo em relação ao briefing original (seção 3.3), que só previa extrair o número.",
-      "grupoAdministracao": ""
+      "grupoAdministracao": "",
+      "cotaMensalForaPrazo": 5,
+      "asaas": {
+        "customerId": "cus_000015962055",
+        "cnpj": "",
+        "razaoSocial": "",
+        "email": ""
+      }
     },
     {
       "id": "aibm",
       "hangar": "AIBM",
       "grupoWhatsapp": "",
       "grupoWhatsappId": "",
-      "validadorUrl": "",
+      "validadorUrl": "https://validpark.technext.com.br/login",
       "usuarioEnvVar": "AIBM_USUARIO",
       "senhaEnvVar": "AIBM_SENHA",
-      "seletores": {},
+      "seletores": {
+        "campoUsuario": "input[name=\"username\"]",
+        "campoSenha": "input[name=\"senha\"]",
+        "botaoLogin": "button[type=\"submit\"]",
+        "campoTicket": "#standard-basic",
+        "modalDialog": ".modal-dialog",
+        "campoPlaca": "#outlined-error-helper-text",
+        "botaoValidar": ".modal-footer .buttons button[type=\"submit\"]",
+        "botaoFecharModal": ".modal-footer .buttons button[type=\"button\"]",
+        "areaErroInline": "#outlined-error-helper-text-helper-text",
+        "areaErroToast": ".Toastify__toast",
+        "areaVagasDisponiveis": ".qtd-veiculo-patio",
+        "sliderHorasThumb": "input[type=\"range\"][aria-label=\"horas\"]",
+        "sliderDiasThumb": "input[type=\"range\"][aria-label=\"dias\"]"
+      },
       "formatoTicket": {
-        "regex": "",
-        "descricao": "ainda não confirmado para este hangar — verificar se usa o mesmo validador ValidPark do Solojet ou outro sistema"
+        "regex": "^\\d{12}$",
+        "descricao": "12 dígitos numéricos, impresso como 'Ticket/Seq: 011903092521' no ticket real (#1Park, aeroporto de Jundiaí/VOA-SP)."
       },
       "placaGenerica": "",
       "prazoValidacaoHoras": null,
       "exigeFotoVeiculoNoLocal": true,
       "_observacao_fraude": "Hangar específico com histórico de fraude no pátio. Requisito exclusivo deste hangar (não se aplica ao Solojet nem aos demais): antes de validar o ticket, o cliente também precisa mandar uma foto do veículo estacionado NO HANGAR (não só a foto do ticket). O objetivo é confirmar visualmente que o carro está de fato no local — não é uma prova técnica à prova de fraude (o WhatsApp remove metadados de GPS das fotos), é uma checagem de bom senso comparando o fundo da foto com fotos de referência do pátio/fachada do hangar. Confirmado que dá pra ler a placa direto da foto do veículo também (testado com foto de exemplo: Haval cinza, placa UQB2A42, estacionado sob estrutura de telhado metálico azul com parede branca de azulejo). Aguardando foto da FACHADA do hangar (o usuário disse que manda no dia seguinte) para servir de referência visual da comparação de local.",
-      "grupoAdministracao": ""
+      "grupoAdministracao": "",
+      "_observacao_validador_compartilhado": "URL e seletores herdados do Solojet: CONFIRMADO pelo usuário (11/09/2026) que o ValidPark (validpark.technext.com.br) é o MESMO site para todos os pátios do aeroporto — só login/senha mudam por hangar. Os seletores foram copiados 1:1 dos do Solojet (mesma UI React/MUI); ainda não testados de verdade contra o login real deste hangar especificamente, então vale reconfirmar no primeiro teste real (pode haver pequenas diferenças de layout por pátio).",
+      "cotaMensalForaPrazo": 5,
+      "asaas": {
+        "customerId": "",
+        "cnpj": "",
+        "razaoSocial": "",
+        "email": ""
+      }
+    },
+    {
+      "id": "aibm-2",
+      "hangar": "AIBM 2",
+      "grupoWhatsapp": "",
+      "grupoWhatsappId": "",
+      "validadorUrl": "https://validpark.technext.com.br/login",
+      "usuarioEnvVar": "AIBM_2_USUARIO",
+      "senhaEnvVar": "AIBM_2_SENHA",
+      "seletores": {
+        "campoUsuario": "input[name=\"username\"]",
+        "campoSenha": "input[name=\"senha\"]",
+        "botaoLogin": "button[type=\"submit\"]",
+        "campoTicket": "#standard-basic",
+        "modalDialog": ".modal-dialog",
+        "campoPlaca": "#outlined-error-helper-text",
+        "botaoValidar": ".modal-footer .buttons button[type=\"submit\"]",
+        "botaoFecharModal": ".modal-footer .buttons button[type=\"button\"]",
+        "areaErroInline": "#outlined-error-helper-text-helper-text",
+        "areaErroToast": ".Toastify__toast",
+        "areaVagasDisponiveis": ".qtd-veiculo-patio",
+        "sliderHorasThumb": "input[type=\"range\"][aria-label=\"horas\"]",
+        "sliderDiasThumb": "input[type=\"range\"][aria-label=\"dias\"]"
+      },
+      "formatoTicket": {
+        "regex": "^\\d{12}$",
+        "descricao": "12 dígitos numéricos, impresso como 'Ticket/Seq: 011903092521' no ticket real (#1Park, aeroporto de Jundiaí/VOA-SP)."
+      },
+      "placaGenerica": "",
+      "prazoValidacaoHoras": null,
+      "exigeFotoVeiculoNoLocal": true,
+      "_observacao_fraude": "Pátio distinto de 'aibm' — CONFIRMADO pelo usuário (11/09/2026) que são dois pátios separados, não o mesmo hangar duplicado. Mesmo requisito do AIBM: exigir foto do veículo estacionado no local antes de validar. Ainda faltam: login/senha próprios, URL do validador e foto de referência da fachada.",
+      "grupoAdministracao": "",
+      "_observacao_validador_compartilhado": "URL e seletores herdados do Solojet: CONFIRMADO pelo usuário (11/09/2026) que o ValidPark (validpark.technext.com.br) é o MESMO site para todos os pátios do aeroporto — só login/senha mudam por hangar. Os seletores foram copiados 1:1 dos do Solojet (mesma UI React/MUI); ainda não testados de verdade contra o login real deste hangar especificamente, então vale reconfirmar no primeiro teste real (pode haver pequenas diferenças de layout por pátio).",
+      "cotaMensalForaPrazo": 5,
+      "asaas": {
+        "customerId": "",
+        "cnpj": "",
+        "razaoSocial": "",
+        "email": ""
+      }
+    },
+    {
+      "id": "solojet-shares",
+      "hangar": "Solojet Shares",
+      "grupoWhatsapp": "",
+      "grupoWhatsappId": "",
+      "validadorUrl": "https://validpark.technext.com.br/login",
+      "usuarioEnvVar": "SOLOJET_SHARES_USUARIO",
+      "senhaEnvVar": "SOLOJET_SHARES_SENHA",
+      "seletores": {
+        "campoUsuario": "input[name=\"username\"]",
+        "campoSenha": "input[name=\"senha\"]",
+        "botaoLogin": "button[type=\"submit\"]",
+        "campoTicket": "#standard-basic",
+        "modalDialog": ".modal-dialog",
+        "campoPlaca": "#outlined-error-helper-text",
+        "botaoValidar": ".modal-footer .buttons button[type=\"submit\"]",
+        "botaoFecharModal": ".modal-footer .buttons button[type=\"button\"]",
+        "areaErroInline": "#outlined-error-helper-text-helper-text",
+        "areaErroToast": ".Toastify__toast",
+        "areaVagasDisponiveis": ".qtd-veiculo-patio",
+        "sliderHorasThumb": "input[type=\"range\"][aria-label=\"horas\"]",
+        "sliderDiasThumb": "input[type=\"range\"][aria-label=\"dias\"]"
+      },
+      "formatoTicket": {
+        "regex": "^\\d{12}$",
+        "descricao": "12 dígitos numéricos, impresso como 'Ticket/Seq: 011903092521' no ticket real (#1Park, aeroporto de Jundiaí/VOA-SP)."
+      },
+      "placaGenerica": "",
+      "prazoValidacaoHoras": null,
+      "grupoAdministracao": "",
+      "_observacao": "Pátio distinto do 'solojet' já configurado — não é o mesmo hangar. Login/URL/seletores do ValidPark ainda não confirmados para este pátio.",
+      "_observacao_validador_compartilhado": "URL e seletores herdados do Solojet: CONFIRMADO pelo usuário (11/09/2026) que o ValidPark (validpark.technext.com.br) é o MESMO site para todos os pátios do aeroporto — só login/senha mudam por hangar. Os seletores foram copiados 1:1 dos do Solojet (mesma UI React/MUI); ainda não testados de verdade contra o login real deste hangar especificamente, então vale reconfirmar no primeiro teste real (pode haver pequenas diferenças de layout por pátio).",
+      "cotaMensalForaPrazo": 5,
+      "asaas": {
+        "customerId": "cus_000045871705",
+        "cnpj": "",
+        "razaoSocial": "",
+        "email": ""
+      }
+    },
+    {
+      "id": "plane-aviation",
+      "hangar": "Plane Aviation",
+      "grupoWhatsapp": "",
+      "grupoWhatsappId": "",
+      "validadorUrl": "https://validpark.technext.com.br/login",
+      "usuarioEnvVar": "PLANE_AVIATION_USUARIO",
+      "senhaEnvVar": "PLANE_AVIATION_SENHA",
+      "seletores": {
+        "campoUsuario": "input[name=\"username\"]",
+        "campoSenha": "input[name=\"senha\"]",
+        "botaoLogin": "button[type=\"submit\"]",
+        "campoTicket": "#standard-basic",
+        "modalDialog": ".modal-dialog",
+        "campoPlaca": "#outlined-error-helper-text",
+        "botaoValidar": ".modal-footer .buttons button[type=\"submit\"]",
+        "botaoFecharModal": ".modal-footer .buttons button[type=\"button\"]",
+        "areaErroInline": "#outlined-error-helper-text-helper-text",
+        "areaErroToast": ".Toastify__toast",
+        "areaVagasDisponiveis": ".qtd-veiculo-patio",
+        "sliderHorasThumb": "input[type=\"range\"][aria-label=\"horas\"]",
+        "sliderDiasThumb": "input[type=\"range\"][aria-label=\"dias\"]"
+      },
+      "formatoTicket": {
+        "regex": "^\\d{12}$",
+        "descricao": "12 dígitos numéricos, impresso como 'Ticket/Seq: 011903092521' no ticket real (#1Park, aeroporto de Jundiaí/VOA-SP)."
+      },
+      "placaGenerica": "",
+      "prazoValidacaoHoras": null,
+      "grupoAdministracao": "",
+      "_observacao_validador_compartilhado": "URL e seletores herdados do Solojet: CONFIRMADO pelo usuário (11/09/2026) que o ValidPark (validpark.technext.com.br) é o MESMO site para todos os pátios do aeroporto — só login/senha mudam por hangar. Os seletores foram copiados 1:1 dos do Solojet (mesma UI React/MUI); ainda não testados de verdade contra o login real deste hangar especificamente, então vale reconfirmar no primeiro teste real (pode haver pequenas diferenças de layout por pátio).",
+      "cotaMensalForaPrazo": 5,
+      "asaas": {
+        "customerId": "",
+        "cnpj": "",
+        "razaoSocial": "",
+        "email": ""
+      }
+    },
+    {
+      "id": "nacoes",
+      "hangar": "Nações",
+      "grupoWhatsapp": "",
+      "grupoWhatsappId": "",
+      "validadorUrl": "https://validpark.technext.com.br/login",
+      "usuarioEnvVar": "NACOES_USUARIO",
+      "senhaEnvVar": "NACOES_SENHA",
+      "seletores": {
+        "campoUsuario": "input[name=\"username\"]",
+        "campoSenha": "input[name=\"senha\"]",
+        "botaoLogin": "button[type=\"submit\"]",
+        "campoTicket": "#standard-basic",
+        "modalDialog": ".modal-dialog",
+        "campoPlaca": "#outlined-error-helper-text",
+        "botaoValidar": ".modal-footer .buttons button[type=\"submit\"]",
+        "botaoFecharModal": ".modal-footer .buttons button[type=\"button\"]",
+        "areaErroInline": "#outlined-error-helper-text-helper-text",
+        "areaErroToast": ".Toastify__toast",
+        "areaVagasDisponiveis": ".qtd-veiculo-patio",
+        "sliderHorasThumb": "input[type=\"range\"][aria-label=\"horas\"]",
+        "sliderDiasThumb": "input[type=\"range\"][aria-label=\"dias\"]"
+      },
+      "formatoTicket": {
+        "regex": "^\\d{12}$",
+        "descricao": "12 dígitos numéricos, impresso como 'Ticket/Seq: 011903092521' no ticket real (#1Park, aeroporto de Jundiaí/VOA-SP)."
+      },
+      "placaGenerica": "",
+      "prazoValidacaoHoras": null,
+      "grupoAdministracao": "",
+      "_observacao_validador_compartilhado": "URL e seletores herdados do Solojet: CONFIRMADO pelo usuário (11/09/2026) que o ValidPark (validpark.technext.com.br) é o MESMO site para todos os pátios do aeroporto — só login/senha mudam por hangar. Os seletores foram copiados 1:1 dos do Solojet (mesma UI React/MUI); ainda não testados de verdade contra o login real deste hangar especificamente, então vale reconfirmar no primeiro teste real (pode haver pequenas diferenças de layout por pátio).",
+      "cotaMensalForaPrazo": 5,
+      "asaas": {
+        "customerId": "cus_000076011885",
+        "cnpj": "",
+        "razaoSocial": "",
+        "email": ""
+      }
+    },
+    {
+      "id": "indaia",
+      "hangar": "Indaiá",
+      "grupoWhatsapp": "",
+      "grupoWhatsappId": "",
+      "validadorUrl": "https://validpark.technext.com.br/login",
+      "usuarioEnvVar": "INDAIA_USUARIO",
+      "senhaEnvVar": "INDAIA_SENHA",
+      "seletores": {
+        "campoUsuario": "input[name=\"username\"]",
+        "campoSenha": "input[name=\"senha\"]",
+        "botaoLogin": "button[type=\"submit\"]",
+        "campoTicket": "#standard-basic",
+        "modalDialog": ".modal-dialog",
+        "campoPlaca": "#outlined-error-helper-text",
+        "botaoValidar": ".modal-footer .buttons button[type=\"submit\"]",
+        "botaoFecharModal": ".modal-footer .buttons button[type=\"button\"]",
+        "areaErroInline": "#outlined-error-helper-text-helper-text",
+        "areaErroToast": ".Toastify__toast",
+        "areaVagasDisponiveis": ".qtd-veiculo-patio",
+        "sliderHorasThumb": "input[type=\"range\"][aria-label=\"horas\"]",
+        "sliderDiasThumb": "input[type=\"range\"][aria-label=\"dias\"]"
+      },
+      "formatoTicket": {
+        "regex": "^\\d{12}$",
+        "descricao": "12 dígitos numéricos, impresso como 'Ticket/Seq: 011903092521' no ticket real (#1Park, aeroporto de Jundiaí/VOA-SP)."
+      },
+      "placaGenerica": "",
+      "prazoValidacaoHoras": null,
+      "grupoAdministracao": "",
+      "_observacao_validador_compartilhado": "URL e seletores herdados do Solojet: CONFIRMADO pelo usuário (11/09/2026) que o ValidPark (validpark.technext.com.br) é o MESMO site para todos os pátios do aeroporto — só login/senha mudam por hangar. Os seletores foram copiados 1:1 dos do Solojet (mesma UI React/MUI); ainda não testados de verdade contra o login real deste hangar especificamente, então vale reconfirmar no primeiro teste real (pode haver pequenas diferenças de layout por pátio).",
+      "cotaMensalForaPrazo": 5,
+      "asaas": {
+        "customerId": "",
+        "cnpj": "",
+        "razaoSocial": "",
+        "email": ""
+      }
+    },
+    {
+      "id": "hangar-1",
+      "hangar": "Hangar 1",
+      "grupoWhatsapp": "",
+      "grupoWhatsappId": "",
+      "validadorUrl": "https://validpark.technext.com.br/login",
+      "usuarioEnvVar": "HANGAR_1_USUARIO",
+      "senhaEnvVar": "HANGAR_1_SENHA",
+      "seletores": {
+        "campoUsuario": "input[name=\"username\"]",
+        "campoSenha": "input[name=\"senha\"]",
+        "botaoLogin": "button[type=\"submit\"]",
+        "campoTicket": "#standard-basic",
+        "modalDialog": ".modal-dialog",
+        "campoPlaca": "#outlined-error-helper-text",
+        "botaoValidar": ".modal-footer .buttons button[type=\"submit\"]",
+        "botaoFecharModal": ".modal-footer .buttons button[type=\"button\"]",
+        "areaErroInline": "#outlined-error-helper-text-helper-text",
+        "areaErroToast": ".Toastify__toast",
+        "areaVagasDisponiveis": ".qtd-veiculo-patio",
+        "sliderHorasThumb": "input[type=\"range\"][aria-label=\"horas\"]",
+        "sliderDiasThumb": "input[type=\"range\"][aria-label=\"dias\"]"
+      },
+      "formatoTicket": {
+        "regex": "^\\d{12}$",
+        "descricao": "12 dígitos numéricos, impresso como 'Ticket/Seq: 011903092521' no ticket real (#1Park, aeroporto de Jundiaí/VOA-SP)."
+      },
+      "placaGenerica": "",
+      "prazoValidacaoHoras": null,
+      "grupoAdministracao": "",
+      "_observacao_validador_compartilhado": "URL e seletores herdados do Solojet: CONFIRMADO pelo usuário (11/09/2026) que o ValidPark (validpark.technext.com.br) é o MESMO site para todos os pátios do aeroporto — só login/senha mudam por hangar. Os seletores foram copiados 1:1 dos do Solojet (mesma UI React/MUI); ainda não testados de verdade contra o login real deste hangar especificamente, então vale reconfirmar no primeiro teste real (pode haver pequenas diferenças de layout por pátio).",
+      "cotaMensalForaPrazo": 5,
+      "asaas": {
+        "customerId": "",
+        "cnpj": "",
+        "razaoSocial": "",
+        "email": ""
+      }
+    },
+    {
+      "id": "hangar-aristek",
+      "hangar": "Hangar Aristek",
+      "grupoWhatsapp": "",
+      "grupoWhatsappId": "",
+      "validadorUrl": "https://validpark.technext.com.br/login",
+      "usuarioEnvVar": "HANGAR_ARISTEK_USUARIO",
+      "senhaEnvVar": "HANGAR_ARISTEK_SENHA",
+      "seletores": {
+        "campoUsuario": "input[name=\"username\"]",
+        "campoSenha": "input[name=\"senha\"]",
+        "botaoLogin": "button[type=\"submit\"]",
+        "campoTicket": "#standard-basic",
+        "modalDialog": ".modal-dialog",
+        "campoPlaca": "#outlined-error-helper-text",
+        "botaoValidar": ".modal-footer .buttons button[type=\"submit\"]",
+        "botaoFecharModal": ".modal-footer .buttons button[type=\"button\"]",
+        "areaErroInline": "#outlined-error-helper-text-helper-text",
+        "areaErroToast": ".Toastify__toast",
+        "areaVagasDisponiveis": ".qtd-veiculo-patio",
+        "sliderHorasThumb": "input[type=\"range\"][aria-label=\"horas\"]",
+        "sliderDiasThumb": "input[type=\"range\"][aria-label=\"dias\"]"
+      },
+      "formatoTicket": {
+        "regex": "^\\d{12}$",
+        "descricao": "12 dígitos numéricos, impresso como 'Ticket/Seq: 011903092521' no ticket real (#1Park, aeroporto de Jundiaí/VOA-SP)."
+      },
+      "placaGenerica": "",
+      "prazoValidacaoHoras": null,
+      "grupoAdministracao": "",
+      "_observacao_validador_compartilhado": "URL e seletores herdados do Solojet: CONFIRMADO pelo usuário (11/09/2026) que o ValidPark (validpark.technext.com.br) é o MESMO site para todos os pátios do aeroporto — só login/senha mudam por hangar. Os seletores foram copiados 1:1 dos do Solojet (mesma UI React/MUI); ainda não testados de verdade contra o login real deste hangar especificamente, então vale reconfirmar no primeiro teste real (pode haver pequenas diferenças de layout por pátio).",
+      "cotaMensalForaPrazo": 5,
+      "asaas": {
+        "customerId": "",
+        "cnpj": "",
+        "razaoSocial": "",
+        "email": ""
+      }
+    },
+    {
+      "id": "epeac",
+      "hangar": "EPEAC - Escola Aviação Civil",
+      "grupoWhatsapp": "",
+      "grupoWhatsappId": "",
+      "validadorUrl": "https://validpark.technext.com.br/login",
+      "usuarioEnvVar": "EPEAC_USUARIO",
+      "senhaEnvVar": "EPEAC_SENHA",
+      "seletores": {
+        "campoUsuario": "input[name=\"username\"]",
+        "campoSenha": "input[name=\"senha\"]",
+        "botaoLogin": "button[type=\"submit\"]",
+        "campoTicket": "#standard-basic",
+        "modalDialog": ".modal-dialog",
+        "campoPlaca": "#outlined-error-helper-text",
+        "botaoValidar": ".modal-footer .buttons button[type=\"submit\"]",
+        "botaoFecharModal": ".modal-footer .buttons button[type=\"button\"]",
+        "areaErroInline": "#outlined-error-helper-text-helper-text",
+        "areaErroToast": ".Toastify__toast",
+        "areaVagasDisponiveis": ".qtd-veiculo-patio",
+        "sliderHorasThumb": "input[type=\"range\"][aria-label=\"horas\"]",
+        "sliderDiasThumb": "input[type=\"range\"][aria-label=\"dias\"]"
+      },
+      "formatoTicket": {
+        "regex": "^\\d{12}$",
+        "descricao": "12 dígitos numéricos, impresso como 'Ticket/Seq: 011903092521' no ticket real (#1Park, aeroporto de Jundiaí/VOA-SP)."
+      },
+      "placaGenerica": "",
+      "prazoValidacaoHoras": null,
+      "grupoAdministracao": "",
+      "_observacao_validador_compartilhado": "URL e seletores herdados do Solojet: CONFIRMADO pelo usuário (11/09/2026) que o ValidPark (validpark.technext.com.br) é o MESMO site para todos os pátios do aeroporto — só login/senha mudam por hangar. Os seletores foram copiados 1:1 dos do Solojet (mesma UI React/MUI); ainda não testados de verdade contra o login real deste hangar especificamente, então vale reconfirmar no primeiro teste real (pode haver pequenas diferenças de layout por pátio).",
+      "cotaMensalForaPrazo": 5,
+      "asaas": {
+        "customerId": "cus_000131228780",
+        "cnpj": "",
+        "razaoSocial": "",
+        "email": ""
+      }
+    },
+    {
+      "id": "dux-express",
+      "hangar": "DUX Express",
+      "grupoWhatsapp": "",
+      "grupoWhatsappId": "",
+      "validadorUrl": "https://validpark.technext.com.br/login",
+      "usuarioEnvVar": "DUX_EXPRESS_USUARIO",
+      "senhaEnvVar": "DUX_EXPRESS_SENHA",
+      "seletores": {
+        "campoUsuario": "input[name=\"username\"]",
+        "campoSenha": "input[name=\"senha\"]",
+        "botaoLogin": "button[type=\"submit\"]",
+        "campoTicket": "#standard-basic",
+        "modalDialog": ".modal-dialog",
+        "campoPlaca": "#outlined-error-helper-text",
+        "botaoValidar": ".modal-footer .buttons button[type=\"submit\"]",
+        "botaoFecharModal": ".modal-footer .buttons button[type=\"button\"]",
+        "areaErroInline": "#outlined-error-helper-text-helper-text",
+        "areaErroToast": ".Toastify__toast",
+        "areaVagasDisponiveis": ".qtd-veiculo-patio",
+        "sliderHorasThumb": "input[type=\"range\"][aria-label=\"horas\"]",
+        "sliderDiasThumb": "input[type=\"range\"][aria-label=\"dias\"]"
+      },
+      "formatoTicket": {
+        "regex": "^\\d{12}$",
+        "descricao": "12 dígitos numéricos, impresso como 'Ticket/Seq: 011903092521' no ticket real (#1Park, aeroporto de Jundiaí/VOA-SP)."
+      },
+      "placaGenerica": "",
+      "prazoValidacaoHoras": null,
+      "grupoAdministracao": "",
+      "_observacao_validador_compartilhado": "URL e seletores herdados do Solojet: CONFIRMADO pelo usuário (11/09/2026) que o ValidPark (validpark.technext.com.br) é o MESMO site para todos os pátios do aeroporto — só login/senha mudam por hangar. Os seletores foram copiados 1:1 dos do Solojet (mesma UI React/MUI); ainda não testados de verdade contra o login real deste hangar especificamente, então vale reconfirmar no primeiro teste real (pode haver pequenas diferenças de layout por pátio).",
+      "cotaMensalForaPrazo": 5,
+      "asaas": {
+        "customerId": "cus_000027573817",
+        "cnpj": "",
+        "razaoSocial": "",
+        "email": ""
+      }
+    },
+    {
+      "id": "concorde",
+      "hangar": "Concorde",
+      "grupoWhatsapp": "",
+      "grupoWhatsappId": "",
+      "validadorUrl": "https://validpark.technext.com.br/login",
+      "usuarioEnvVar": "CONCORDE_USUARIO",
+      "senhaEnvVar": "CONCORDE_SENHA",
+      "seletores": {
+        "campoUsuario": "input[name=\"username\"]",
+        "campoSenha": "input[name=\"senha\"]",
+        "botaoLogin": "button[type=\"submit\"]",
+        "campoTicket": "#standard-basic",
+        "modalDialog": ".modal-dialog",
+        "campoPlaca": "#outlined-error-helper-text",
+        "botaoValidar": ".modal-footer .buttons button[type=\"submit\"]",
+        "botaoFecharModal": ".modal-footer .buttons button[type=\"button\"]",
+        "areaErroInline": "#outlined-error-helper-text-helper-text",
+        "areaErroToast": ".Toastify__toast",
+        "areaVagasDisponiveis": ".qtd-veiculo-patio",
+        "sliderHorasThumb": "input[type=\"range\"][aria-label=\"horas\"]",
+        "sliderDiasThumb": "input[type=\"range\"][aria-label=\"dias\"]"
+      },
+      "formatoTicket": {
+        "regex": "^\\d{12}$",
+        "descricao": "12 dígitos numéricos, impresso como 'Ticket/Seq: 011903092521' no ticket real (#1Park, aeroporto de Jundiaí/VOA-SP)."
+      },
+      "placaGenerica": "",
+      "prazoValidacaoHoras": null,
+      "grupoAdministracao": "",
+      "_observacao_validador_compartilhado": "URL e seletores herdados do Solojet: CONFIRMADO pelo usuário (11/09/2026) que o ValidPark (validpark.technext.com.br) é o MESMO site para todos os pátios do aeroporto — só login/senha mudam por hangar. Os seletores foram copiados 1:1 dos do Solojet (mesma UI React/MUI); ainda não testados de verdade contra o login real deste hangar especificamente, então vale reconfirmar no primeiro teste real (pode haver pequenas diferenças de layout por pátio).",
+      "cotaMensalForaPrazo": 5,
+      "asaas": {
+        "customerId": "",
+        "cnpj": "",
+        "razaoSocial": "",
+        "email": ""
+      }
+    },
+    {
+      "id": "cimed-alljet",
+      "hangar": "Cimed / Alljet",
+      "grupoWhatsapp": "",
+      "grupoWhatsappId": "",
+      "validadorUrl": "https://validpark.technext.com.br/login",
+      "usuarioEnvVar": "CIMED_ALLJET_USUARIO",
+      "senhaEnvVar": "CIMED_ALLJET_SENHA",
+      "seletores": {
+        "campoUsuario": "input[name=\"username\"]",
+        "campoSenha": "input[name=\"senha\"]",
+        "botaoLogin": "button[type=\"submit\"]",
+        "campoTicket": "#standard-basic",
+        "modalDialog": ".modal-dialog",
+        "campoPlaca": "#outlined-error-helper-text",
+        "botaoValidar": ".modal-footer .buttons button[type=\"submit\"]",
+        "botaoFecharModal": ".modal-footer .buttons button[type=\"button\"]",
+        "areaErroInline": "#outlined-error-helper-text-helper-text",
+        "areaErroToast": ".Toastify__toast",
+        "areaVagasDisponiveis": ".qtd-veiculo-patio",
+        "sliderHorasThumb": "input[type=\"range\"][aria-label=\"horas\"]",
+        "sliderDiasThumb": "input[type=\"range\"][aria-label=\"dias\"]"
+      },
+      "formatoTicket": {
+        "regex": "^\\d{12}$",
+        "descricao": "12 dígitos numéricos, impresso como 'Ticket/Seq: 011903092521' no ticket real (#1Park, aeroporto de Jundiaí/VOA-SP)."
+      },
+      "placaGenerica": "",
+      "prazoValidacaoHoras": null,
+      "grupoAdministracao": "",
+      "_observacao": "Nome composto passado pelo usuário como 'CIMED \\ ALLJET' — CONFIRMADO (11/09/2026) que é um pátio distinto do 'alljet' desta lista para fins de VALIDAÇÃO (login/senha próprios no ValidPark), mas CONFIRMADO (12/09/2026) que compartilha o MESMO cadastro de cliente no Asaas do 'alljet' (asaas.customerId igual) para fins de FATURAMENTO — faturamento fora do prazo deste hangar cai na mesma conta/CNPJ da Alljet.",
+      "_observacao_validador_compartilhado": "URL e seletores herdados do Solojet: CONFIRMADO pelo usuário (11/09/2026) que o ValidPark (validpark.technext.com.br) é o MESMO site para todos os pátios do aeroporto — só login/senha mudam por hangar. Os seletores foram copiados 1:1 dos do Solojet (mesma UI React/MUI); ainda não testados de verdade contra o login real deste hangar especificamente, então vale reconfirmar no primeiro teste real (pode haver pequenas diferenças de layout por pátio).",
+      "cotaMensalForaPrazo": 5,
+      "asaas": {
+        "customerId": "cus_000018396110",
+        "cnpj": "",
+        "razaoSocial": "",
+        "email": ""
+      }
+    },
+    {
+      "id": "bravo-aviation",
+      "hangar": "Bravo Aviation",
+      "grupoWhatsapp": "",
+      "grupoWhatsappId": "",
+      "validadorUrl": "https://validpark.technext.com.br/login",
+      "usuarioEnvVar": "BRAVO_AVIATION_USUARIO",
+      "senhaEnvVar": "BRAVO_AVIATION_SENHA",
+      "seletores": {
+        "campoUsuario": "input[name=\"username\"]",
+        "campoSenha": "input[name=\"senha\"]",
+        "botaoLogin": "button[type=\"submit\"]",
+        "campoTicket": "#standard-basic",
+        "modalDialog": ".modal-dialog",
+        "campoPlaca": "#outlined-error-helper-text",
+        "botaoValidar": ".modal-footer .buttons button[type=\"submit\"]",
+        "botaoFecharModal": ".modal-footer .buttons button[type=\"button\"]",
+        "areaErroInline": "#outlined-error-helper-text-helper-text",
+        "areaErroToast": ".Toastify__toast",
+        "areaVagasDisponiveis": ".qtd-veiculo-patio",
+        "sliderHorasThumb": "input[type=\"range\"][aria-label=\"horas\"]",
+        "sliderDiasThumb": "input[type=\"range\"][aria-label=\"dias\"]"
+      },
+      "formatoTicket": {
+        "regex": "^\\d{12}$",
+        "descricao": "12 dígitos numéricos, impresso como 'Ticket/Seq: 011903092521' no ticket real (#1Park, aeroporto de Jundiaí/VOA-SP)."
+      },
+      "placaGenerica": "",
+      "prazoValidacaoHoras": null,
+      "grupoAdministracao": "",
+      "_observacao_validador_compartilhado": "URL e seletores herdados do Solojet: CONFIRMADO pelo usuário (11/09/2026) que o ValidPark (validpark.technext.com.br) é o MESMO site para todos os pátios do aeroporto — só login/senha mudam por hangar. Os seletores foram copiados 1:1 dos do Solojet (mesma UI React/MUI); ainda não testados de verdade contra o login real deste hangar especificamente, então vale reconfirmar no primeiro teste real (pode haver pequenas diferenças de layout por pátio).",
+      "cotaMensalForaPrazo": 5,
+      "asaas": {
+        "customerId": "cus_000039952259",
+        "cnpj": "",
+        "razaoSocial": "",
+        "email": ""
+      }
+    },
+    {
+      "id": "alljet",
+      "hangar": "Alljet",
+      "grupoWhatsapp": "",
+      "grupoWhatsappId": "",
+      "validadorUrl": "https://validpark.technext.com.br/login",
+      "usuarioEnvVar": "ALLJET_USUARIO",
+      "senhaEnvVar": "ALLJET_SENHA",
+      "seletores": {
+        "campoUsuario": "input[name=\"username\"]",
+        "campoSenha": "input[name=\"senha\"]",
+        "botaoLogin": "button[type=\"submit\"]",
+        "campoTicket": "#standard-basic",
+        "modalDialog": ".modal-dialog",
+        "campoPlaca": "#outlined-error-helper-text",
+        "botaoValidar": ".modal-footer .buttons button[type=\"submit\"]",
+        "botaoFecharModal": ".modal-footer .buttons button[type=\"button\"]",
+        "areaErroInline": "#outlined-error-helper-text-helper-text",
+        "areaErroToast": ".Toastify__toast",
+        "areaVagasDisponiveis": ".qtd-veiculo-patio",
+        "sliderHorasThumb": "input[type=\"range\"][aria-label=\"horas\"]",
+        "sliderDiasThumb": "input[type=\"range\"][aria-label=\"dias\"]"
+      },
+      "formatoTicket": {
+        "regex": "^\\d{12}$",
+        "descricao": "12 dígitos numéricos, impresso como 'Ticket/Seq: 011903092521' no ticket real (#1Park, aeroporto de Jundiaí/VOA-SP)."
+      },
+      "placaGenerica": "",
+      "prazoValidacaoHoras": null,
+      "grupoAdministracao": "",
+      "_observacao_validador_compartilhado": "URL e seletores herdados do Solojet: CONFIRMADO pelo usuário (11/09/2026) que o ValidPark (validpark.technext.com.br) é o MESMO site para todos os pátios do aeroporto — só login/senha mudam por hangar. Os seletores foram copiados 1:1 dos do Solojet (mesma UI React/MUI); ainda não testados de verdade contra o login real deste hangar especificamente, então vale reconfirmar no primeiro teste real (pode haver pequenas diferenças de layout por pátio).",
+      "cotaMensalForaPrazo": 5,
+      "asaas": {
+        "customerId": "cus_000018396110",
+        "cnpj": "",
+        "razaoSocial": "",
+        "email": ""
+      }
+    },
+    {
+      "id": "aerie-aviacao-executiva",
+      "hangar": "Aerie Aviação Executiva",
+      "grupoWhatsapp": "",
+      "grupoWhatsappId": "",
+      "validadorUrl": "https://validpark.technext.com.br/login",
+      "usuarioEnvVar": "AERIE_AVIACAO_EXECUTIVA_USUARIO",
+      "senhaEnvVar": "AERIE_AVIACAO_EXECUTIVA_SENHA",
+      "seletores": {
+        "campoUsuario": "input[name=\"username\"]",
+        "campoSenha": "input[name=\"senha\"]",
+        "botaoLogin": "button[type=\"submit\"]",
+        "campoTicket": "#standard-basic",
+        "modalDialog": ".modal-dialog",
+        "campoPlaca": "#outlined-error-helper-text",
+        "botaoValidar": ".modal-footer .buttons button[type=\"submit\"]",
+        "botaoFecharModal": ".modal-footer .buttons button[type=\"button\"]",
+        "areaErroInline": "#outlined-error-helper-text-helper-text",
+        "areaErroToast": ".Toastify__toast",
+        "areaVagasDisponiveis": ".qtd-veiculo-patio",
+        "sliderHorasThumb": "input[type=\"range\"][aria-label=\"horas\"]",
+        "sliderDiasThumb": "input[type=\"range\"][aria-label=\"dias\"]"
+      },
+      "formatoTicket": {
+        "regex": "^\\d{12}$",
+        "descricao": "12 dígitos numéricos, impresso como 'Ticket/Seq: 011903092521' no ticket real (#1Park, aeroporto de Jundiaí/VOA-SP)."
+      },
+      "placaGenerica": "",
+      "prazoValidacaoHoras": null,
+      "grupoAdministracao": "",
+      "_observacao_validador_compartilhado": "URL e seletores herdados do Solojet: CONFIRMADO pelo usuário (11/09/2026) que o ValidPark (validpark.technext.com.br) é o MESMO site para todos os pátios do aeroporto — só login/senha mudam por hangar. Os seletores foram copiados 1:1 dos do Solojet (mesma UI React/MUI); ainda não testados de verdade contra o login real deste hangar especificamente, então vale reconfirmar no primeiro teste real (pode haver pequenas diferenças de layout por pátio).",
+      "cotaMensalForaPrazo": 5,
+      "asaas": {
+        "customerId": "cus_000174770371",
+        "cnpj": "",
+        "razaoSocial": "",
+        "email": ""
+      }
     }
-  ]
+  ],
+  "_observacao_faturamento": "Cota de validações fora do prazo (cotaMensalForaPrazo, padrão 5/mês por hangar) e dados do Asaas (asaas.customerId ou asaas.cnpj+razaoSocial+email para criar o cliente automaticamente) usados por scripts/lib/cota-fora-prazo.js e scripts/lib/asaas.js quando um ticket fica fora do prazo de validação (ver docs/perguntas-abertas.md, seção sobre faturamento, adicionada em 11/09/2026)."
 }
