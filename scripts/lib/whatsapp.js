@@ -55,6 +55,23 @@ function extrairPlaca(texto) {
   return null;
 }
 
+// Resposta a uma pergunta de sim/não. Deliberadamente restrito: aceita as
+// formas que alguém realmente digita no WhatsApp, e devolve null para
+// qualquer outra coisa. Interpretar "ok" ou um emoji como autorização seria
+// arriscado — o "sim" aqui consome cota do hangar e ocupa vaga no pátio.
+const AFIRMATIVAS = ['sim', 's', 'pode', 'pode sim', 'confirmo', 'confirmar', 'isso', 'quero', 'valida', 'validar'];
+const NEGATIVAS = ['nao', 'não', 'n', 'nao quero', 'não quero', 'cancela', 'cancelar', 'deixa'];
+
+function interpretarResposta(texto) {
+  const t = (texto || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[!.,;]+$/, '');
+  if (AFIRMATIVAS.includes(t)) return 'sim';
+  if (NEGATIVAS.includes(t)) return 'nao';
+  return null;
+}
+
 function ehGrupo(remoteJid) {
   return typeof remoteJid === 'string' && remoteJid.endsWith('@g.us');
 }
@@ -74,6 +91,13 @@ function interpretarMensagem(body) {
   const remoteJid = key.remoteJid || null;
   const fromMe = key.fromMe === true;
 
+  // Quem falou DENTRO do grupo. Confirmado no payload real de 15/09/2026:
+  //   key.participant     "272447123230847@lid"          (identificador novo)
+  //   key.participantAlt  "5511913119423@s.whatsapp.net" (telefone)
+  // Atenção: body.sender é o número do BOT, não o do remetente — usar aquilo
+  // aqui faria todo mundo no grupo virar a mesma pessoa.
+  const remetenteId = key.participant || key.participantAlt || remoteJid || null;
+
   const base = {
     evento: b.event || null,
     instancia: b.instance || null,
@@ -81,6 +105,8 @@ function interpretarMensagem(body) {
     ehGrupo: ehGrupo(remoteJid),
     fromMe,
     messageId: key.id || null,
+    remetenteId,
+    remetenteTelefone: key.participantAlt || null,
     remetente: data.pushName || null,
     ignorar: false,
     motivoIgnorar: null,
@@ -116,14 +142,20 @@ function interpretarMensagem(body) {
     null;
 
   if (!imagem) {
+    // Texto em grupo NÃO é descartado aqui: pode ser a resposta a uma
+    // pergunta que o bot fez (ex: "SIM" para usar a cota fora do prazo). Quem
+    // decide é processar-mensagem.js, consultando as pendências — se não
+    // houver nenhuma para esta pessoa, aí sim a mensagem é ignorada em
+    // silêncio, sem o bot responder a toda conversa do grupo.
+    if (textoLivre) {
+      return { ...base, tipo: 'texto', texto: textoLivre, resposta: interpretarResposta(textoLivre) };
+    }
     return {
       ...base,
-      tipo: textoLivre ? 'texto' : 'outro',
-      texto: textoLivre,
+      tipo: 'outro',
+      texto: null,
       ignorar: true,
-      motivoIgnorar: textoLivre
-        ? 'mensagem de texto (o fluxo espera a foto do ticket)'
-        : 'mensagem sem imagem nem texto',
+      motivoIgnorar: 'mensagem sem imagem nem texto',
     };
   }
 
@@ -142,4 +174,4 @@ function interpretarMensagem(body) {
   };
 }
 
-module.exports = { interpretarMensagem, extrairPlaca, ehGrupo };
+module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta };

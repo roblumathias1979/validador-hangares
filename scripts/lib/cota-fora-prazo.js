@@ -15,16 +15,10 @@
 // ganhava uma validação de graça que deveria ter sido cobrada. E um processo
 // morto no meio do writeFileSync deixava o JSON truncado, o que derrubaria a
 // contagem inteira do mês para zero.
-const fs = require('fs');
 const path = require('path');
+const { comTrava, salvarAtomico, lerJson } = require('./trava-arquivo');
 
 const ARQUIVO_ESTADO = path.join(__dirname, '..', '..', 'data', 'cota-fora-prazo.json');
-const ARQUIVO_TRAVA = `${ARQUIVO_ESTADO}.lock`;
-// Depois disso a trava é considerada abandonada (processo morreu sem liberar).
-// Folgado em relação ao trabalho real, que é ler e gravar um JSON pequeno.
-const TRAVA_ABANDONADA_MS = 10000;
-// Tempo máximo esperando a vez antes de desistir com erro.
-const TRAVA_ESPERA_MAX_MS = 15000;
 // Fallback usado só quando o hangar não declara `cotaMensalForaPrazo` no
 // config. Vale 2, o padrão geral: se um hangar novo for cadastrado sem a
 // chave, ele cai na cota menor, não na maior. Solojet e Alljet têm 5, mas
@@ -33,77 +27,15 @@ const COTA_PADRAO = 2;
 
 function mesAtual() {
   const agora = new Date();
-  const ano = agora.getFullYear();
-  const mes = String(agora.getMonth() + 1).padStart(2, '0');
-  return `${ano}-${mes}`;
+  return `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, '0')}`;
 }
 
 function lerEstado() {
-  try {
-    return JSON.parse(fs.readFileSync(ARQUIVO_ESTADO, 'utf-8'));
-  } catch (erro) {
-    if (erro.code === 'ENOENT') return {};
-    throw erro;
-  }
+  return lerJson(ARQUIVO_ESTADO, {});
 }
 
-// Gravação atômica: escreve num temporário e renomeia. O rename é atômico no
-// mesmo sistema de arquivos, então nunca existe um instante em que o arquivo
-// de cota está pela metade no disco.
 function salvarEstado(estado) {
-  fs.mkdirSync(path.dirname(ARQUIVO_ESTADO), { recursive: true });
-  const temporario = `${ARQUIVO_ESTADO}.${process.pid}.tmp`;
-  fs.writeFileSync(temporario, JSON.stringify(estado, null, 2));
-  fs.renameSync(temporario, ARQUIVO_ESTADO);
-}
-
-// Pausa síncrona. Os scripts são CLI de vida curta chamados pelo n8n, então
-// não há loop de eventos a proteger aqui.
-function dormir(ms) {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-}
-
-// Trava exclusiva entre processos. O open com flag 'wx' falha se o arquivo já
-// existe, e essa checagem-e-criação é atômica no sistema de arquivos — é o que
-// garante que só um processo entra por vez.
-function comTrava(fn) {
-  fs.mkdirSync(path.dirname(ARQUIVO_ESTADO), { recursive: true });
-  const inicio = Date.now();
-  let fd = null;
-
-  while (fd === null) {
-    try {
-      fd = fs.openSync(ARQUIVO_TRAVA, 'wx');
-    } catch (erro) {
-      if (erro.code !== 'EEXIST') throw erro;
-
-      let idade = 0;
-      try {
-        idade = Date.now() - fs.statSync(ARQUIVO_TRAVA).mtimeMs;
-      } catch (e) {
-        continue; // sumiu entre o open e o stat: tenta pegar de novo
-      }
-      if (idade > TRAVA_ABANDONADA_MS) {
-        try { fs.unlinkSync(ARQUIVO_TRAVA); } catch (e) { /* outro já removeu */ }
-        continue;
-      }
-      if (Date.now() - inicio > TRAVA_ESPERA_MAX_MS) {
-        throw new Error(
-          `Não consegui obter a trava da cota (${ARQUIVO_TRAVA}) em ${TRAVA_ESPERA_MAX_MS}ms. ` +
-          'Se nenhum outro processo estiver rodando, apague esse arquivo à mão.'
-        );
-      }
-      dormir(50);
-    }
-  }
-
-  try {
-    fs.writeSync(fd, `${process.pid}`);
-    return fn();
-  } finally {
-    try { fs.closeSync(fd); } catch (e) { /* ignora */ }
-    try { fs.unlinkSync(ARQUIVO_TRAVA); } catch (e) { /* ignora */ }
-  }
+  salvarAtomico(ARQUIVO_ESTADO, estado);
 }
 
 function cotaMensal(hangar) {
@@ -129,7 +61,7 @@ function obterRestante(hangar) {
 // o uso é registrado de verdade (o arquivo tem que refletir o que aconteceu) e
 // quem chamou decide o que fazer — avisar o admin para cobrar à mão.
 function consumirUmaValidacao(hangar) {
-  return comTrava(() => {
+  return comTrava(ARQUIVO_ESTADO, () => {
     const estado = lerEstado();
     const mes = mesAtual();
     if (!estado[hangar.id]) estado[hangar.id] = {};
@@ -157,7 +89,7 @@ function consumirUmaValidacao(hangar) {
 // validação gratuita sem ter validado nada — com cota 2, duas tentativas
 // frustradas zerariam o mês.
 function devolverUmaValidacao(hangar) {
-  return comTrava(() => {
+  return comTrava(ARQUIVO_ESTADO, () => {
     const estado = lerEstado();
     const mes = mesAtual();
     if (!estado[hangar.id]) estado[hangar.id] = {};

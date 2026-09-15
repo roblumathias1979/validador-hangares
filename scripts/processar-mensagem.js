@@ -31,6 +31,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 const { carregarConfig, buscarHangarPorGrupo } = require('./lib/hangar');
 const { interpretarMensagem } = require('./lib/whatsapp');
+const pendencias = require('./lib/pendencias');
 const { lerTicket } = require('./ocr-ticket');
 
 const EVOLUTION_URL = process.env.EVOLUTION_URL || 'http://127.0.0.1:8080';
@@ -107,6 +108,40 @@ function rodarScript(arquivo, args) {
   return JSON.parse(linhas[linhas.length - 1]);
 }
 
+// Roda validate-ticket.js e monta a resposta. `usarCota` vem true quando o
+// cliente respondeu SIM à pergunta sobre gastar uma validação fora do prazo.
+function validar(hangar, msg, pedido, usarCota) {
+  const validacao = rodarScript('validate-ticket.js', [
+    hangar.id, pedido.ticket, pedido.placa, pedido.dataEmissaoIso || '',
+    '0', '0', usarCota ? 'true' : '',
+  ]);
+
+  let mensagem = validacao.mensagemWhatsapp;
+  if (validacao.status === 'validado' && pedido.placaEhGenerica) {
+    mensagem += ` (validei com a placa padrão ${pedido.placa} porque não veio placa na legenda da foto — se precisar corrigir, fale com a administração. Da próxima vez, escreva a placa junto ao enviar a foto.)`;
+  }
+
+  // Pergunta feita: guardar o pedido para que a resposta do cliente tenha a
+  // que se referir. Sem isto, o "SIM" chegava sem contexto e o bot não fazia
+  // nada — a pergunta prometia algo que o sistema não sabia completar.
+  if (validacao.status === 'fora_do_prazo_requer_decisao') {
+    pendencias.registrar(msg.grupoId, msg.remetenteId, { ...pedido, hangarId: hangar.id, tipo: 'usar_cota' });
+  }
+
+  return {
+    status: validacao.status,
+    hangarId: hangar.id,
+    grupoId: msg.grupoId,
+    ticket: pedido.ticket,
+    placa: pedido.placa,
+    placaEhGenerica: pedido.placaEhGenerica,
+    mensagemWhatsapp: mensagem,
+    notificarAdmin: validacao.notificarAdmin === true,
+    responder: true,
+    etapa: usarCota ? 'validacao_com_cota' : 'validacao',
+  };
+}
+
 async function processar(body) {
   const msg = interpretarMensagem(body);
 
@@ -115,6 +150,47 @@ async function processar(body) {
   }
 
   const hangar = buscarHangarPorGrupo(carregarConfig(), msg.grupoId);
+
+  // ---- resposta a uma pergunta anterior ----
+  if (msg.tipo === 'texto') {
+    const pendente = pendencias.buscar(msg.grupoId, msg.remetenteId);
+
+    // Sem pendência, é conversa normal do grupo: ignorar em silêncio. O bot
+    // não pode responder a toda mensagem trocada entre as pessoas ali.
+    if (!pendente) {
+      return { status: 'ignorado', motivo: 'texto sem pendência para esta pessoa', grupoId: msg.grupoId, responder: false };
+    }
+
+    if (msg.resposta === 'nao') {
+      pendencias.descartar(msg.grupoId, msg.remetenteId);
+      return {
+        status: 'cancelado_pelo_cliente', hangarId: hangar.id, grupoId: msg.grupoId,
+        ticket: pendente.ticket,
+        mensagemWhatsapp: `Tudo bem, não validei o ticket ${pendente.ticket}. Se mudar de ideia, é só mandar a foto de novo.`,
+        notificarAdmin: false, responder: true, etapa: 'resposta',
+      };
+    }
+
+    if (msg.resposta !== 'sim') {
+      // Texto que não é sim nem não, com pergunta em aberto: reforça sem
+      // adivinhar. Tratar "ok" ou um emoji como autorização gastaria cota do
+      // hangar e ocuparia vaga sem o cliente ter dito claramente que queria.
+      return {
+        status: 'resposta_nao_entendida', hangarId: hangar.id, grupoId: msg.grupoId,
+        ticket: pendente.ticket,
+        mensagemWhatsapp: `Não entendi. Para validar o ticket ${pendente.ticket} usando uma das validações fora do prazo, responda SIM. Para deixar pra lá, responda NÃO.`,
+        notificarAdmin: false, responder: true, etapa: 'resposta',
+      };
+    }
+
+    // SIM: consome a pendência sob trava (duas mensagens quase simultâneas do
+    // mesmo cliente não podem validar o mesmo ticket duas vezes) e valida.
+    const pedido = pendencias.consumir(msg.grupoId, msg.remetenteId);
+    if (!pedido) {
+      return { status: 'ignorado', motivo: 'pendência já consumida por outra mensagem', grupoId: msg.grupoId, responder: false };
+    }
+    return validar(hangar, msg, pedido, true);
+  }
 
   const imagem = await baixarImagemBase64(msg.messageId);
   const ocr = await lerTicket({ base64: imagem.base64, mediaType: imagem.mediaType });
@@ -153,36 +229,16 @@ async function processar(body) {
   }
 
   // Placa: vem da legenda da foto; sem ela, a genérica do hangar. Decisão do
-  // usuário em 15/09/2026 — evita máquina de estados de conversa, que não
-  // existe. O cliente é avisado quando a genérica for usada, para poder
-  // corrigir com a administração.
+  // usuário em 15/09/2026 — o cliente é avisado quando a genérica for usada,
+  // para poder corrigir com a administração.
   const placa = msg.placa || hangar.placaGenerica || 'AAA0000';
-  const placaEhGenerica = !msg.placa;
 
-  // horas/dias em 0: validate-ticket.js aplica diasValidacaoPadrao do hangar.
-  // Não dá para mandar 0/0 até o fim — o ValidPark recusa toda validação sem
-  // tolerância (descoberto em 09/09/2026).
-  const validacao = rodarScript('validate-ticket.js', [
-    hangar.id, ocr.ticket, placa, ocr.dataEmissaoIso, '0', '0',
-  ]);
-
-  let mensagem = validacao.mensagemWhatsapp;
-  if (validacao.status === 'validado' && placaEhGenerica) {
-    mensagem += ` (validei com a placa padrão ${placa} porque não veio placa na legenda da foto — se precisar corrigir, fale com a administração. Da próxima vez, escreva a placa junto ao enviar a foto.)`;
-  }
-
-  return {
-    status: validacao.status,
-    hangarId: hangar.id,
-    grupoId: msg.grupoId,
+  return validar(hangar, msg, {
     ticket: ocr.ticket,
     placa,
-    placaEhGenerica,
-    mensagemWhatsapp: mensagem,
-    notificarAdmin: validacao.notificarAdmin === true,
-    responder: true,
-    etapa: 'validacao',
-  };
+    placaEhGenerica: !msg.placa,
+    dataEmissaoIso: ocr.dataEmissaoIso,
+  }, false);
 }
 
 async function main() {
