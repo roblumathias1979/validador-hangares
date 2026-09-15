@@ -57,7 +57,14 @@ function chamarEvolution(caminho, corpo) {
           apikey: chave,
           'Content-Type': 'application/json',
           'Content-Length': Buffer.byteLength(dados),
+          // Sem keep-alive de propósito. Entre o aviso "recebi seu ticket" e a
+          // resposta final passam ~11s de OCR e navegador; nesse intervalo a
+          // Evolution fecha a conexão ociosa, e o agente padrão do Node
+          // reaproveitava o socket morto — o envio final falhava com
+          // "socket hang up" e o cliente ficava sem resposta (15/09/2026).
+          Connection: 'close',
         },
+        agent: false,
         timeout: 60000,
       },
       (res) => {
@@ -90,11 +97,23 @@ async function baixarImagemBase64(messageId) {
   return { base64: r.base64, mediaType: r.mimetype || 'image/jpeg' };
 }
 
-function enviarTexto(grupoId, texto) {
-  return chamarEvolution(`/message/sendText/${EVOLUTION_INSTANCE}`, {
-    number: grupoId,
-    text: texto,
-  });
+async function enviarTexto(grupoId, texto) {
+  // Uma tentativa extra: a resposta ao cliente é a parte visível do sistema,
+  // e perdê-la por uma falha momentânea de rede é o pior desfecho possível —
+  // o ticket pode já ter sido validado e o cliente não fica sabendo.
+  let ultimoErro = null;
+  for (let tentativa = 1; tentativa <= 2; tentativa += 1) {
+    try {
+      return await chamarEvolution(`/message/sendText/${EVOLUTION_INSTANCE}`, {
+        number: grupoId,
+        text: texto,
+      });
+    } catch (erro) {
+      ultimoErro = erro;
+      if (tentativa < 2) await new Promise((r) => setTimeout(r, 1000));
+    }
+  }
+  throw ultimoErro;
 }
 
 // Os dois scripts de ticket são CLIs com contrato de json em stdout. Chamamos
