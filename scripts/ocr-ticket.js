@@ -20,6 +20,12 @@ const fs = require('fs');
 const https = require('https');
 const path = require('path');
 
+// Sem isto o .env nunca é lido. Diferente dos outros scripts, este não passa
+// por lib/hangar.js (não recebe hangarId) — e é lib/hangar.js quem carrega o
+// dotenv. O resultado era "ANTHROPIC_API_KEY não configurada" mesmo com a
+// chave preenchida corretamente no .env.
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
+
 const MODELO = 'claude-sonnet-5';
 
 const REGEX_TICKET = /^\d{12}$/;
@@ -127,7 +133,64 @@ function paraIso(dataDdMmAaHhMmSs) {
   const m = (dataDdMmAaHhMmSs || '').match(/^(\d{2})\/(\d{2})\/(\d{2})\s+(\d{2}):(\d{2}):(\d{2})$/);
   if (!m) return null;
   const [, dia, mes, ano2, hora, min, seg] = m;
-  return `20${ano2}-${mes}-${dia}T${hora}:${min}:${seg}-03:00`;
+  const ano = 2000 + Number(ano2);
+
+  // O regex só garante o FORMATO, não que a data exista. Sem esta checagem,
+  // "31/02/26" virava "2026-02-31" e o Date rolava silenciosamente para 3 de
+  // março — uma data plausível e errada, que depois seria comparada com a
+  // janela de 2h. Reconstruir e comparar os componentes pega esse caso.
+  const d = new Date(Date.UTC(ano, Number(mes) - 1, Number(dia), Number(hora), Number(min), Number(seg)));
+  const bate =
+    d.getUTCFullYear() === ano &&
+    d.getUTCMonth() === Number(mes) - 1 &&
+    d.getUTCDate() === Number(dia) &&
+    d.getUTCHours() === Number(hora) &&
+    d.getUTCMinutes() === Number(min) &&
+    d.getUTCSeconds() === Number(seg);
+  if (!bate) return null;
+
+  return `${ano}-${mes}-${dia}T${hora}:${min}:${seg}-03:00`;
+}
+
+// O número do ticket carrega dentro dele a própria data/hora de emissão:
+//
+//   01 | 1109 | 085843
+//        dia/mês  hh:mm:ss     ->  11/09 08:58:43
+//
+// Formato CONFIRMADO em 12 tickets reais (4 fotos do usuário em 12/09/2026 +
+// todos os exemplos documentados neste repo). Os dois prefixos "03" conhecidos
+// são de tickets emulados, e ambos terminam em segundo :00 — ticket de totem
+// nunca cai em segundo redondo.
+//
+// Por que isso importa: o número e a data impressa são lidos de partes
+// DIFERENTES do papel. Se concordam, nenhum dos dois foi lido errado. É
+// verificação independente, diferente do campo `confianca`, que é o próprio
+// modelo se autoavaliando. Um dígito trocado valida o ticket de outra pessoa.
+//
+// Limite conhecido: o ANO não está no número, só dia/mês/hora. Ano lido errado
+// não é pego aqui — mas falha do lado seguro, porque joga a emissão para fora
+// da janela de 2h e a validação é recusada.
+function conferirTicketComData(ticket, dataDdMmAaHhMmSs) {
+  const dia = ticket.slice(2, 4);
+  const mes = ticket.slice(4, 6);
+  const hh = ticket.slice(6, 8);
+  const mm = ticket.slice(8, 10);
+  const ss = ticket.slice(10, 12);
+  const doNumero = `${dia}/${mes} ${hh}:${mm}:${ss}`;
+
+  if (Number(dia) < 1 || Number(dia) > 31 || Number(mes) < 1 || Number(mes) > 12 ||
+      Number(hh) > 23 || Number(mm) > 59 || Number(ss) > 59) {
+    return { ok: false, doNumero, doPapel: null, motivo: `o número não contém uma data válida (${doNumero})` };
+  }
+
+  const m = (dataDdMmAaHhMmSs || '').match(/^(\d{2})\/(\d{2})\/(\d{2})\s+(\d{2}):(\d{2}):(\d{2})$/);
+  if (!m) return { ok: false, doNumero, doPapel: null, motivo: 'a data impressa não foi lida' };
+
+  const doPapel = `${m[1]}/${m[2]} ${m[4]}:${m[5]}:${m[6]}`;
+  if (doNumero !== doPapel) {
+    return { ok: false, doNumero, doPapel, motivo: `número diz ${doNumero} e papel diz ${doPapel}` };
+  }
+  return { ok: true, doNumero, doPapel, motivo: '' };
 }
 
 async function lerTicket(caminhoImagem) {
@@ -167,18 +230,40 @@ async function lerTicket(caminhoImagem) {
     };
   }
 
+  // Verificação independente: não seguir daqui é o ponto mais importante deste
+  // script. Um número com dígito trocado não dá erro nenhum lá na frente — ele
+  // simplesmente valida o ticket de outra pessoa.
+  const conferencia = conferirTicketComData(ticket, extraido.dataEmissaoDDMMAAHHMMSS);
+  if (!conferencia.ok) {
+    return {
+      status: 'ocr_conferencia_falhou',
+      mensagem: `Número e data não conferem entre si: ${conferencia.motivo}.`,
+      ticketLido: ticket,
+      dataEmissaoLida: extraido.dataEmissaoDDMMAAHHMMSS || null,
+      conferencia,
+      mensagemWhatsapp: '⚠️ A foto ficou com o número ou a data pouco legíveis. Pode reenviar, mais de perto e com o papel bem iluminado?',
+      notificarAdmin: false,
+    };
+  }
+
   return {
     status: 'ocr_ok',
     ticket,
     dataEmissaoIso,
+    conferencia: { ok: true, valor: conferencia.doNumero },
   };
 }
 
 async function main() {
   const [caminhoImagem] = process.argv.slice(2);
   if (!caminhoImagem) {
-    console.error('Uso: node scripts/ocr-ticket.js <caminhoImagem>');
-    process.exit(1);
+    console.log(JSON.stringify({
+      status: 'parametros_invalidos',
+      mensagem: 'Uso: node scripts/ocr-ticket.js <caminhoImagem>',
+      mensagemWhatsapp: '⚠️ Não conseguimos processar a foto do ticket no momento. Nossa equipe foi avisada.',
+      notificarAdmin: true,
+    }));
+    return;
   }
 
   try {
@@ -191,7 +276,10 @@ async function main() {
       mensagemWhatsapp: '⚠️ Não conseguimos processar a foto do ticket no momento. Nossa equipe foi avisada.',
       notificarAdmin: true,
     }));
-    process.exit(1);
+    // Sai com 0 DE PROPÓSITO, mesmo em falha: quem decide o que fazer é o nó
+    // seguinte do n8n, lendo o campo `status` do json. Código != 0 faz o nó
+    // "Execute Command" tratar como falha e engolir o json — a mensagem se
+    // perderia antes de chegar ao cliente. Mesmo padrão de identificar-hangar.js.
   }
 }
 
@@ -199,4 +287,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { lerTicket, paraIso, extrairJson };
+module.exports = { lerTicket, paraIso, extrairJson, conferirTicketComData };

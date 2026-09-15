@@ -18,7 +18,7 @@
 const { chromium } = require('playwright');
 const { carregarConfig, buscarHangar, login, salvarAsaasCustomerId } = require('./lib/hangar');
 const { calcularValorPermanencia, formatarReais } = require('./lib/precos');
-const { obterRestante, consumirUmaValidacao } = require('./lib/cota-fora-prazo');
+const { obterRestante, consumirUmaValidacao, devolverUmaValidacao } = require('./lib/cota-fora-prazo');
 const { criarCobrancaBoleto, temDadosParaCriarCliente } = require('./lib/asaas');
 const { registrarFaturamento } = require('./lib/faturamento');
 
@@ -36,6 +36,20 @@ function dataVencimentoBoleto() {
 // Limites confirmados dos sliders "+ Horas" / "+ Dias" no modal do ValidPark.
 const SLIDER_MAX_HORAS = 24;
 const SLIDER_MAX_DIAS = 20;
+
+// Quanto o bot estende por padrão, quando ninguém informa horas nem dias.
+//
+// Decisão do usuário (14/09/2026): 20 dias para todos. A vaga do pátio é
+// liberada quando o VEÍCULO SAI, não quando o ticket expira — então um prazo
+// longo não prende vaga, e evita ter que perguntar ao cliente quanto tempo ele
+// vai ficar. Por hangar em config/hangares.json (`diasValidacaoPadrao`); este
+// valor aqui é só o fallback.
+//
+// Isso também conserta um problema real: o ValidPark recusa QUALQUER validação
+// com os sliders em zero (ver docs/perguntas-abertas.md). Antes, validar sem
+// informar tempo caía sempre em `tolerancia_obrigatoria` — falhava e ainda
+// queimava uma validação da cota fora do prazo.
+const DIAS_VALIDACAO_PADRAO = 20;
 
 // Contador de vagas do pátio, que o site renderiza como
 // "Total de vagas: 90 | Disponiveis: 30". Atenção: o site escreve
@@ -208,6 +222,14 @@ async function validarTicket(hangarId, ticket, placa, dataEmissaoIso, horasAdici
     };
   }
 
+  // Sem tempo informado, aplica o padrão do hangar. Não dá para deixar 0/0:
+  // o site recusa a validação inteira nesse caso.
+  if (!horasAdicionais && !diasAdicionais) {
+    diasAdicionais = Number.isFinite(hangar.diasValidacaoPadrao)
+      ? hangar.diasValidacaoPadrao
+      : DIAS_VALIDACAO_PADRAO;
+  }
+
   if (horasAdicionais > SLIDER_MAX_HORAS || diasAdicionais > SLIDER_MAX_DIAS) {
     return {
       status: 'valor_invalido',
@@ -222,6 +244,32 @@ async function validarTicket(hangarId, ticket, placa, dataEmissaoIso, horasAdici
   const prazo = dentroDoPrazo(hangar, dataEmissaoIso);
   let notaForaDoPrazo = '';
   let faturamentoInfo = null;
+  // A cota é debitada ANTES do navegador abrir. Se a validação não acontecer
+  // depois, ela precisa voltar — ver `finalizar()` mais abaixo.
+  let cotaConsumida = false;
+  let cotaEstourada = false;
+
+  // Todo retorno a partir daqui passa por aqui. Devolve a cota quando o ticket
+  // não chegou a ser validado: sem isso o hangar perde uma validação gratuita
+  // por uma tentativa que falhou (pátio sem vaga, ticket já usado, ticket
+  // inexistente, ou o site exigindo tolerância > 0 — este último acontece em
+  // TODA validação sem horas informadas, então queimaria a cota toda rápido).
+  const finalizar = (resultado) => {
+    if (cotaConsumida && resultado.status !== 'validado') {
+      try {
+        const devolvida = devolverUmaValidacao(hangar);
+        resultado.cotaDevolvida = true;
+        resultado.cotaRestante = devolvida.restanteDepois;
+      } catch (erro) {
+        // Falhar ao devolver não pode derrubar a resposta ao cliente, mas o
+        // admin precisa saber: a contagem ficou um a mais do que o real.
+        resultado.cotaDevolvida = false;
+        resultado.cotaErro = erro.message;
+        resultado.notificarAdmin = true;
+      }
+    }
+    return resultado;
+  };
 
   if (!prazo.ok) {
     const decisao = decidirAcaoForaDoPrazo({
@@ -283,8 +331,17 @@ async function validarTicket(hangarId, ticket, placa, dataEmissaoIso, horasAdici
     }
 
     if (decisao.acao === 'usar_cota') {
-      const restanteDepois = consumirUmaValidacao(hangar);
-      notaForaDoPrazo = ` Validação fora do prazo usada (restam ${restanteDepois} este mês).`;
+      const uso = consumirUmaValidacao(hangar);
+      cotaConsumida = true;
+      if (uso.dentroDaCota) {
+        notaForaDoPrazo = ` Validação fora do prazo usada (restam ${uso.restanteDepois} este mês).`;
+      } else {
+        // Outro processo pegou a última vaga entre a checagem e este consumo.
+        // O ticket vai ser validado assim mesmo — não dá para desfazer depois
+        // — mas isso precisa ser cobrado à mão.
+        notaForaDoPrazo = ` ATENÇÃO: cota do mês estourada (${uso.usoDepois} de ${uso.cota}) — esta validação precisa ser cobrada manualmente.`;
+        cotaEstourada = true;
+      }
     }
 
     if (decisao.acao === 'faturar') {
@@ -364,14 +421,14 @@ async function validarTicket(hangarId, ticket, placa, dataEmissaoIso, horasAdici
     if (vagasMatch) {
       const vagasDisponiveis = Number(vagasMatch[1]);
       if (vagasDisponiveis <= 0) {
-        return {
+        return finalizar({
           status: 'sem_vagas',
           hangar: hangarId,
           ticket,
           mensagem: 'Nenhuma vaga disponível no pátio no momento.',
           mensagemWhatsapp: `⚠️ Não há vagas disponíveis no pátio no momento. Procure o totem de autopagamento no terminal do aeroporto para validação e pagamento.`,
           notificarAdmin: false,
-        };
+        });
       }
     }
     // Se, mesmo depois da espera, o texto não bateu com o padrão, não
@@ -397,7 +454,7 @@ async function validarTicket(hangarId, ticket, placa, dataEmissaoIso, horasAdici
 
     if (resultadoBusca.tipo === 'toast') {
       const jaUtilizado = /j[áa]\s+foi\s+utilizado/i.test(resultadoBusca.texto);
-      return {
+      return finalizar({
         status: jaUtilizado ? 'ticket_ja_utilizado' : 'erro_validacao',
         hangar: hangarId,
         ticket,
@@ -406,18 +463,18 @@ async function validarTicket(hangarId, ticket, placa, dataEmissaoIso, horasAdici
           ? `⚠️ Ticket ${ticket} já foi utilizado anteriormente — não pode ser validado de novo.`
           : `⚠️ Não foi possível validar o ticket ${ticket}: ${resultadoBusca.texto}`,
         notificarAdmin: false,
-      };
+      });
     }
 
     if (resultadoBusca.tipo !== 'modal') {
-      return {
+      return finalizar({
         status: 'ticket_nao_encontrado',
         hangar: hangarId,
         ticket,
         mensagem: 'Modal do ticket não abriu — o ticket pode não existir, ou o gatilho (Enter) mudou no site.',
         mensagemWhatsapp: `⚠️ Ticket ${ticket} não encontrado — verifique o número e tente novamente.`,
         notificarAdmin: false,
-      };
+      });
     }
 
     await page.fill(seletores.campoPlaca, placa);
@@ -492,16 +549,25 @@ async function validarTicket(hangarId, ticket, placa, dataEmissaoIso, horasAdici
       indeterminado: `⚠️ Não conseguimos confirmar a validação do ticket ${ticket}. Nossa equipe foi avisada e vai verificar manualmente.`,
     };
 
-    return {
+    return finalizar({
       status: resultado.status,
       hangar: hangarId,
       ticket,
       placa,
       mensagem: resultado.mensagem,
       mensagemWhatsapp: mensagensWhatsapp[resultado.status],
-      notificarAdmin: resultado.status === 'indeterminado',
+      notificarAdmin: resultado.status === 'indeterminado' || cotaEstourada,
       ...(faturamentoInfo ? { faturamento: faturamentoInfo } : {}),
-    };
+    });
+  } catch (erro) {
+    // Exceção no meio do navegador (timeout, site fora do ar, seletor mudou):
+    // a cota já foi debitada e o ticket não foi validado. Devolve antes de
+    // propagar, senão o hangar paga por uma tentativa que nunca aconteceu.
+    if (cotaConsumida) {
+      try { devolverUmaValidacao(hangar); } catch (e) { /* não mascara o erro original */ }
+      cotaConsumida = false;
+    }
+    throw erro;
   } finally {
     await browser.close();
   }
@@ -514,8 +580,13 @@ async function main() {
     cnpjHangar, razaoSocialHangar, emailHangar,
   ] = process.argv.slice(2);
   if (!hangarId || !ticket || !placa) {
-    console.error('Uso: node scripts/validate-ticket.js <hangarId> <numeroTicket> <placa> [dataEmissaoIso] [horasAdicionais] [diasAdicionais] [usarCotaForaPrazo] [autorizarFaturamento] [fotoAutorizacao] [cnpjHangar] [razaoSocialHangar] [emailHangar]');
-    process.exit(1);
+    console.log(JSON.stringify({
+      status: 'parametros_invalidos',
+      mensagem: 'Uso: node scripts/validate-ticket.js <hangarId> <numeroTicket> <placa> [dataEmissaoIso] [horasAdicionais] [diasAdicionais] [usarCotaForaPrazo] [autorizarFaturamento] [fotoAutorizacao] [cnpjHangar] [razaoSocialHangar] [emailHangar]',
+      mensagemWhatsapp: '⚠️ Não conseguimos processar a validação no momento. Nossa equipe foi avisada.',
+      notificarAdmin: true,
+    }));
+    return;
   }
 
   const horasAdicionais = Number(horasAdicionaisStr) || 0;
@@ -544,7 +615,10 @@ async function main() {
       mensagemWhatsapp: `⚠️ Não conseguimos processar a validação do ticket ${ticket} no momento. Nossa equipe foi avisada.`,
       notificarAdmin: true,
     }));
-    process.exit(1);
+    // Sai com 0 DE PROPÓSITO, mesmo em falha: quem decide o que fazer é o nó
+    // seguinte do n8n, lendo o campo `status` do json. Código != 0 faz o nó
+    // "Execute Command" tratar como falha e engolir o json — a mensagem se
+    // perderia antes de chegar ao cliente. Mesmo padrão de identificar-hangar.js.
   }
 }
 

@@ -47,7 +47,9 @@
         "cnpj": "",
         "razaoSocial": "",
         "email": ""
-      }
+      },
+      "diasValidacaoPadrao": 20,
+      "exigeFotoVeiculoNoLocal": false
     },
     {
       "id": "aibm",
@@ -82,12 +84,22 @@
       "_observacao_fraude": "Hangar específico com histórico de fraude no pátio. Requisito exclusivo deste hangar (não se aplica ao Solojet nem aos demais): antes de validar o ticket, o cliente também precisa mandar uma foto do veículo estacionado NO HANGAR (não só a foto do ticket). O objetivo é confirmar visualmente que o carro está de fato no local — não é uma prova técnica à prova de fraude (o WhatsApp remove metadados de GPS das fotos), é uma checagem de bom senso comparando o fundo da foto com fotos de referência do pátio/fachada do hangar. Confirmado que dá pra ler a placa direto da foto do veículo também (testado com foto de exemplo: Haval cinza, placa UQB2A42, estacionado sob estrutura de telhado metálico azul com parede branca de azulejo). Aguardando foto da FACHADA do hangar (o usuário disse que manda no dia seguinte) para servir de referência visual da comparação de local.",
       "grupoAdministracao": "",
       "_observacao_validador_compartilhado": "URL e seletores herdados do Solojet: CONFIRMADO pelo usuário (11/09/2026) que o ValidPark (validpark.technext.com.br) é o MESMO site para todos os pátios do aeroporto — só login/senha mudam por hangar. Os seletores foram copiados 1:1 dos do Solojet (mesma UI React/MUI); ainda não testados de verdade contra o login real deste hangar especificamente, então vale reconfirmar no primeiro teste real (pode haver pequenas diferenças de layout por pátio).",
-      "cotaMensalForaPrazo": 5,
+      "cotaMensalForaPrazo": 2,
       "asaas": {
         "customerId": "",
         "cnpj": "",
         "razaoSocial": "",
         "email": ""
+      },
+      "diasValidacaoPadrao": 20,
+      "localReferencia": {
+        "resumo": "Vagas de concreto liso, SEM demarcação pintada no chão, sob cobertura de telha metálica apoiada em pilares azuis. A cobertura é encostada no prédio: atrás dos carros há uma parede de bloco de concreto pintada de branco, com janelas pequenas com grade e aparelhos de ar-condicionado presos na fachada. Acima da parede branca aparece um telhado curvo de metal azul. Ao lado passa uma rua de asfalto.",
+        "sinaisFortes": [
+          "parede de bloco branco logo atrás do carro",
+          "piso de concreto sem faixa amarela",
+          "ar-condicionado na parede acima dos carros",
+          "telhado curvo azul acima da parede branca"
+        ]
       }
     },
     {
@@ -123,12 +135,23 @@
       "_observacao_fraude": "Pátio distinto de 'aibm' — CONFIRMADO pelo usuário (11/09/2026) que são dois pátios separados, não o mesmo hangar duplicado. Mesmo requisito do AIBM: exigir foto do veículo estacionado no local antes de validar. Ainda faltam: login/senha próprios, URL do validador e foto de referência da fachada.",
       "grupoAdministracao": "",
       "_observacao_validador_compartilhado": "URL e seletores herdados do Solojet: CONFIRMADO pelo usuário (11/09/2026) que o ValidPark (validpark.technext.com.br) é o MESMO site para todos os pátios do aeroporto — só login/senha mudam por hangar. Os seletores foram copiados 1:1 dos do Solojet (mesma UI React/MUI); ainda não testados de verdade contra o login real deste hangar especificamente, então vale reconfirmar no primeiro teste real (pode haver pequenas diferenças de layout por pátio).",
-      "cotaMensalForaPrazo": 5,
+      "cotaMensalForaPrazo": 2,
       "asaas": {
         "customerId": "",
         "cnpj": "",
         "razaoSocial": "",
         "email": ""
+      },
+      "diasValidacaoPadrao": 20,
+      "localReferencia": {
+        "resumo": "Estacionamento a céu aberto, com piso de ASFALTO e vagas demarcadas por faixas AMARELAS pintadas no chão. A cobertura é isolada, apoiada em pilares azuis, e NÃO encosta em prédio nenhum: atrás e ao lado dos carros não há parede, e sim cerca viva alta de árvores, gramado em declive e vista aberta de morros ao longe. Em uma das pontas há uma lixeira preta grande com rodas. Mais adiante, na mesma área, há um hangar de portas azuis com aeronaves estacionadas ao lado.",
+        "sinaisFortes": [
+          "faixa amarela demarcando a vaga",
+          "piso de asfalto",
+          "ausência de parede atrás do carro",
+          "árvores ou gramado ao fundo",
+          "aeronave ou hangar de portas azuis visível"
+        ]
       }
     },
     {
@@ -169,7 +192,9 @@
         "cnpj": "",
         "razaoSocial": "",
         "email": ""
-      }
+      },
+      "diasValidacaoPadrao": 20,
+      "exigeFotoVeiculoNoLocal": false
     },
     {
       "id": "plane-aviation",
@@ -202,13 +227,15 @@
       "prazoValidacaoHoras": 2,
       "grupoAdministracao": "",
       "_observacao_validador_compartilhado": "URL e seletores herdados do Solojet: CONFIRMADO pelo usuário (11/09/2026) que o ValidPark (validpark.technext.com.br) é o MESMO site para todos os pátios do aeroporto — só login/senha mudam por hangar. Os seletores foram copiados 1:1 dos do Solojet (mesma UI React/MUI); ainda não testados de verdade contra o login real deste hangar especificamente, então vale reconfirmar no primeiro teste real (pode haver pequenas diferenças de layout por pátio).",
-      "cotaMensalForaPrazo": 5,
+      "cotaMensalForaPrazo": 2,
       "asaas": {
         "customerId": "",
         "cnpj": "",
         "razaoSocial": "",
         "email": ""
-      }
+      },
+      "diasValidacaoPadrao": 20,
+      "exigeFotoVeiculoNoLocal": false
     },
     {
       "id": "nacoes",
@@ -241,13 +268,15 @@
       "prazoValidacaoHoras": 2,
       "grupoAdministracao": "",
       "_observacao_validador_compartilhado": "URL e seletores herdados do Solojet: CONFIRMADO pelo usuário (11/09/2026) que o ValidPark (validpark.technext.com.br) é o MESMO site para todos os pátios do aeroporto — só login/senha mudam por hangar. Os seletores foram copiados 1:1 dos do Solojet (mesma UI React/MUI); ainda não testados de verdade contra o login real deste hangar especificamente, então vale reconfirmar no primeiro teste real (pode haver pequenas diferenças de layout por pátio).",
-      "cotaMensalForaPrazo": 5,
+      "cotaMensalForaPrazo": 2,
       "asaas": {
         "customerId": "cus_000076011885",
         "cnpj": "",
         "razaoSocial": "",
         "email": ""
-      }
+      },
+      "diasValidacaoPadrao": 20,
+      "exigeFotoVeiculoNoLocal": false
     },
     {
       "id": "indaia",
@@ -280,13 +309,15 @@
       "prazoValidacaoHoras": 2,
       "grupoAdministracao": "",
       "_observacao_validador_compartilhado": "URL e seletores herdados do Solojet: CONFIRMADO pelo usuário (11/09/2026) que o ValidPark (validpark.technext.com.br) é o MESMO site para todos os pátios do aeroporto — só login/senha mudam por hangar. Os seletores foram copiados 1:1 dos do Solojet (mesma UI React/MUI); ainda não testados de verdade contra o login real deste hangar especificamente, então vale reconfirmar no primeiro teste real (pode haver pequenas diferenças de layout por pátio).",
-      "cotaMensalForaPrazo": 5,
+      "cotaMensalForaPrazo": 2,
       "asaas": {
         "customerId": "",
         "cnpj": "",
         "razaoSocial": "",
         "email": ""
-      }
+      },
+      "diasValidacaoPadrao": 20,
+      "exigeFotoVeiculoNoLocal": false
     },
     {
       "id": "hangar-1",
@@ -319,13 +350,15 @@
       "prazoValidacaoHoras": 2,
       "grupoAdministracao": "",
       "_observacao_validador_compartilhado": "URL e seletores herdados do Solojet: CONFIRMADO pelo usuário (11/09/2026) que o ValidPark (validpark.technext.com.br) é o MESMO site para todos os pátios do aeroporto — só login/senha mudam por hangar. Os seletores foram copiados 1:1 dos do Solojet (mesma UI React/MUI); ainda não testados de verdade contra o login real deste hangar especificamente, então vale reconfirmar no primeiro teste real (pode haver pequenas diferenças de layout por pátio).",
-      "cotaMensalForaPrazo": 5,
+      "cotaMensalForaPrazo": 2,
       "asaas": {
         "customerId": "",
         "cnpj": "",
         "razaoSocial": "",
         "email": ""
-      }
+      },
+      "diasValidacaoPadrao": 20,
+      "exigeFotoVeiculoNoLocal": false
     },
     {
       "id": "hangar-aristek",
@@ -358,13 +391,15 @@
       "prazoValidacaoHoras": 2,
       "grupoAdministracao": "",
       "_observacao_validador_compartilhado": "URL e seletores herdados do Solojet: CONFIRMADO pelo usuário (11/09/2026) que o ValidPark (validpark.technext.com.br) é o MESMO site para todos os pátios do aeroporto — só login/senha mudam por hangar. Os seletores foram copiados 1:1 dos do Solojet (mesma UI React/MUI); ainda não testados de verdade contra o login real deste hangar especificamente, então vale reconfirmar no primeiro teste real (pode haver pequenas diferenças de layout por pátio).",
-      "cotaMensalForaPrazo": 5,
+      "cotaMensalForaPrazo": 2,
       "asaas": {
         "customerId": "",
         "cnpj": "",
         "razaoSocial": "",
         "email": ""
-      }
+      },
+      "diasValidacaoPadrao": 20,
+      "exigeFotoVeiculoNoLocal": false
     },
     {
       "id": "epeac",
@@ -397,13 +432,15 @@
       "prazoValidacaoHoras": 2,
       "grupoAdministracao": "",
       "_observacao_validador_compartilhado": "URL e seletores herdados do Solojet: CONFIRMADO pelo usuário (11/09/2026) que o ValidPark (validpark.technext.com.br) é o MESMO site para todos os pátios do aeroporto — só login/senha mudam por hangar. Os seletores foram copiados 1:1 dos do Solojet (mesma UI React/MUI); ainda não testados de verdade contra o login real deste hangar especificamente, então vale reconfirmar no primeiro teste real (pode haver pequenas diferenças de layout por pátio).",
-      "cotaMensalForaPrazo": 5,
+      "cotaMensalForaPrazo": 2,
       "asaas": {
         "customerId": "cus_000131228780",
         "cnpj": "",
         "razaoSocial": "",
         "email": ""
-      }
+      },
+      "diasValidacaoPadrao": 20,
+      "exigeFotoVeiculoNoLocal": false
     },
     {
       "id": "dux-express",
@@ -436,13 +473,15 @@
       "prazoValidacaoHoras": 2,
       "grupoAdministracao": "",
       "_observacao_validador_compartilhado": "URL e seletores herdados do Solojet: CONFIRMADO pelo usuário (11/09/2026) que o ValidPark (validpark.technext.com.br) é o MESMO site para todos os pátios do aeroporto — só login/senha mudam por hangar. Os seletores foram copiados 1:1 dos do Solojet (mesma UI React/MUI); ainda não testados de verdade contra o login real deste hangar especificamente, então vale reconfirmar no primeiro teste real (pode haver pequenas diferenças de layout por pátio).",
-      "cotaMensalForaPrazo": 5,
+      "cotaMensalForaPrazo": 2,
       "asaas": {
         "customerId": "cus_000027573817",
         "cnpj": "",
         "razaoSocial": "",
         "email": ""
-      }
+      },
+      "diasValidacaoPadrao": 20,
+      "exigeFotoVeiculoNoLocal": false
     },
     {
       "id": "concorde",
@@ -475,13 +514,15 @@
       "prazoValidacaoHoras": 2,
       "grupoAdministracao": "",
       "_observacao_validador_compartilhado": "URL e seletores herdados do Solojet: CONFIRMADO pelo usuário (11/09/2026) que o ValidPark (validpark.technext.com.br) é o MESMO site para todos os pátios do aeroporto — só login/senha mudam por hangar. Os seletores foram copiados 1:1 dos do Solojet (mesma UI React/MUI); ainda não testados de verdade contra o login real deste hangar especificamente, então vale reconfirmar no primeiro teste real (pode haver pequenas diferenças de layout por pátio).",
-      "cotaMensalForaPrazo": 5,
+      "cotaMensalForaPrazo": 2,
       "asaas": {
         "customerId": "",
         "cnpj": "",
         "razaoSocial": "",
         "email": ""
-      }
+      },
+      "diasValidacaoPadrao": 20,
+      "exigeFotoVeiculoNoLocal": false
     },
     {
       "id": "cimed-alljet",
@@ -515,13 +556,15 @@
       "grupoAdministracao": "",
       "_observacao": "Nome composto passado pelo usuário como 'CIMED \\ ALLJET' — CONFIRMADO (11/09/2026) que é um pátio distinto do 'alljet' desta lista para fins de VALIDAÇÃO (login/senha próprios no ValidPark), mas CONFIRMADO (12/09/2026) que compartilha o MESMO cadastro de cliente no Asaas do 'alljet' (asaas.customerId igual) para fins de FATURAMENTO — faturamento fora do prazo deste hangar cai na mesma conta/CNPJ da Alljet.",
       "_observacao_validador_compartilhado": "URL e seletores herdados do Solojet: CONFIRMADO pelo usuário (11/09/2026) que o ValidPark (validpark.technext.com.br) é o MESMO site para todos os pátios do aeroporto — só login/senha mudam por hangar. Os seletores foram copiados 1:1 dos do Solojet (mesma UI React/MUI); ainda não testados de verdade contra o login real deste hangar especificamente, então vale reconfirmar no primeiro teste real (pode haver pequenas diferenças de layout por pátio).",
-      "cotaMensalForaPrazo": 5,
+      "cotaMensalForaPrazo": 2,
       "asaas": {
         "customerId": "cus_000018396110",
         "cnpj": "",
         "razaoSocial": "",
         "email": ""
-      }
+      },
+      "diasValidacaoPadrao": 20,
+      "exigeFotoVeiculoNoLocal": false
     },
     {
       "id": "bravo-aviation",
@@ -554,13 +597,15 @@
       "prazoValidacaoHoras": 2,
       "grupoAdministracao": "",
       "_observacao_validador_compartilhado": "URL e seletores herdados do Solojet: CONFIRMADO pelo usuário (11/09/2026) que o ValidPark (validpark.technext.com.br) é o MESMO site para todos os pátios do aeroporto — só login/senha mudam por hangar. Os seletores foram copiados 1:1 dos do Solojet (mesma UI React/MUI); ainda não testados de verdade contra o login real deste hangar especificamente, então vale reconfirmar no primeiro teste real (pode haver pequenas diferenças de layout por pátio).",
-      "cotaMensalForaPrazo": 5,
+      "cotaMensalForaPrazo": 2,
       "asaas": {
         "customerId": "cus_000039952259",
         "cnpj": "",
         "razaoSocial": "",
         "email": ""
-      }
+      },
+      "diasValidacaoPadrao": 20,
+      "exigeFotoVeiculoNoLocal": false
     },
     {
       "id": "alljet",
@@ -599,7 +644,9 @@
         "cnpj": "",
         "razaoSocial": "",
         "email": ""
-      }
+      },
+      "diasValidacaoPadrao": 20,
+      "exigeFotoVeiculoNoLocal": false
     },
     {
       "id": "aerie-aviacao-executiva",
@@ -632,13 +679,15 @@
       "prazoValidacaoHoras": 2,
       "grupoAdministracao": "",
       "_observacao_validador_compartilhado": "URL e seletores herdados do Solojet: CONFIRMADO pelo usuário (11/09/2026) que o ValidPark (validpark.technext.com.br) é o MESMO site para todos os pátios do aeroporto — só login/senha mudam por hangar. Os seletores foram copiados 1:1 dos do Solojet (mesma UI React/MUI); ainda não testados de verdade contra o login real deste hangar especificamente, então vale reconfirmar no primeiro teste real (pode haver pequenas diferenças de layout por pátio).",
-      "cotaMensalForaPrazo": 5,
+      "cotaMensalForaPrazo": 2,
       "asaas": {
         "customerId": "cus_000174770371",
         "cnpj": "",
         "razaoSocial": "",
         "email": ""
-      }
+      },
+      "diasValidacaoPadrao": 20,
+      "exigeFotoVeiculoNoLocal": false
     }
   ],
   "_observacao_faturamento": "Cota de validações fora do prazo (cotaMensalForaPrazo, padrão 5/mês por hangar) e dados do Asaas (asaas.customerId ou asaas.cnpj+razaoSocial+email para criar o cliente automaticamente) usados por scripts/lib/cota-fora-prazo.js e scripts/lib/asaas.js quando um ticket fica fora do prazo de validação (ver docs/perguntas-abertas.md, seção sobre faturamento, adicionada em 11/09/2026)."

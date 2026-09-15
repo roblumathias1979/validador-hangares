@@ -8,16 +8,28 @@
 // .gitignore: é dado operacional, não configuração). Formato:
 // { "<hangarId>": { "<AAAA-MM>": <quantidade usada> } }
 //
-// Cuidado conhecido: leitura+escrita não é atômica entre processos
-// concorrentes (dois "Execute Command" do n8n rodando ao mesmo tempo para o
-// mesmo hangar podem perder um incremento). Aceitável por ora dado o volume
-// baixo de validações fora do prazo (no máximo 5/mês por hangar); documentado
-// aqui para não ser esquecido se o volume crescer.
+// Concorrência (resolvido em 14/09/2026): leitura+escrita agora acontece sob
+// trava exclusiva entre processos, e a gravação é atômica (grava em .tmp e
+// renomeia). Antes, dois "Execute Command" do n8n rodando ao mesmo tempo para
+// o mesmo hangar podiam ler o mesmo valor e perder um incremento — o hangar
+// ganhava uma validação de graça que deveria ter sido cobrada. E um processo
+// morto no meio do writeFileSync deixava o JSON truncado, o que derrubaria a
+// contagem inteira do mês para zero.
 const fs = require('fs');
 const path = require('path');
 
 const ARQUIVO_ESTADO = path.join(__dirname, '..', '..', 'data', 'cota-fora-prazo.json');
-const COTA_PADRAO = 5;
+const ARQUIVO_TRAVA = `${ARQUIVO_ESTADO}.lock`;
+// Depois disso a trava é considerada abandonada (processo morreu sem liberar).
+// Folgado em relação ao trabalho real, que é ler e gravar um JSON pequeno.
+const TRAVA_ABANDONADA_MS = 10000;
+// Tempo máximo esperando a vez antes de desistir com erro.
+const TRAVA_ESPERA_MAX_MS = 15000;
+// Fallback usado só quando o hangar não declara `cotaMensalForaPrazo` no
+// config. Vale 2, o padrão geral: se um hangar novo for cadastrado sem a
+// chave, ele cai na cota menor, não na maior. Solojet e Alljet têm 5, mas
+// isso está explícito no config de cada um — nunca aqui.
+const COTA_PADRAO = 2;
 
 function mesAtual() {
   const agora = new Date();
@@ -35,9 +47,63 @@ function lerEstado() {
   }
 }
 
+// Gravação atômica: escreve num temporário e renomeia. O rename é atômico no
+// mesmo sistema de arquivos, então nunca existe um instante em que o arquivo
+// de cota está pela metade no disco.
 function salvarEstado(estado) {
   fs.mkdirSync(path.dirname(ARQUIVO_ESTADO), { recursive: true });
-  fs.writeFileSync(ARQUIVO_ESTADO, JSON.stringify(estado, null, 2));
+  const temporario = `${ARQUIVO_ESTADO}.${process.pid}.tmp`;
+  fs.writeFileSync(temporario, JSON.stringify(estado, null, 2));
+  fs.renameSync(temporario, ARQUIVO_ESTADO);
+}
+
+// Pausa síncrona. Os scripts são CLI de vida curta chamados pelo n8n, então
+// não há loop de eventos a proteger aqui.
+function dormir(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+// Trava exclusiva entre processos. O open com flag 'wx' falha se o arquivo já
+// existe, e essa checagem-e-criação é atômica no sistema de arquivos — é o que
+// garante que só um processo entra por vez.
+function comTrava(fn) {
+  fs.mkdirSync(path.dirname(ARQUIVO_ESTADO), { recursive: true });
+  const inicio = Date.now();
+  let fd = null;
+
+  while (fd === null) {
+    try {
+      fd = fs.openSync(ARQUIVO_TRAVA, 'wx');
+    } catch (erro) {
+      if (erro.code !== 'EEXIST') throw erro;
+
+      let idade = 0;
+      try {
+        idade = Date.now() - fs.statSync(ARQUIVO_TRAVA).mtimeMs;
+      } catch (e) {
+        continue; // sumiu entre o open e o stat: tenta pegar de novo
+      }
+      if (idade > TRAVA_ABANDONADA_MS) {
+        try { fs.unlinkSync(ARQUIVO_TRAVA); } catch (e) { /* outro já removeu */ }
+        continue;
+      }
+      if (Date.now() - inicio > TRAVA_ESPERA_MAX_MS) {
+        throw new Error(
+          `Não consegui obter a trava da cota (${ARQUIVO_TRAVA}) em ${TRAVA_ESPERA_MAX_MS}ms. ` +
+          'Se nenhum outro processo estiver rodando, apague esse arquivo à mão.'
+        );
+      }
+      dormir(50);
+    }
+  }
+
+  try {
+    fs.writeSync(fd, `${process.pid}`);
+    return fn();
+  } finally {
+    try { fs.closeSync(fd); } catch (e) { /* ignora */ }
+    try { fs.unlinkSync(ARQUIVO_TRAVA); } catch (e) { /* ignora */ }
+  }
 }
 
 function cotaMensal(hangar) {
@@ -55,15 +121,61 @@ function obterRestante(hangar) {
   return Math.max(0, cotaMensal(hangar) - obterUsoMensal(hangar.id));
 }
 
-// Registra o uso de 1 validação fora do prazo neste mês. Retorna quantas
-// restam depois de consumir.
+// Registra o uso de 1 validação fora do prazo neste mês.
+//
+// Devolve `dentroDaCota: false` quando o incremento passou do limite. Isso
+// acontece se outro processo consumiu a última vaga entre a checagem do
+// chamador e este consumo. Não dá para desfazer a validação nesse caso, então
+// o uso é registrado de verdade (o arquivo tem que refletir o que aconteceu) e
+// quem chamou decide o que fazer — avisar o admin para cobrar à mão.
 function consumirUmaValidacao(hangar) {
-  const estado = lerEstado();
-  const mes = mesAtual();
-  if (!estado[hangar.id]) estado[hangar.id] = {};
-  estado[hangar.id][mes] = (estado[hangar.id][mes] || 0) + 1;
-  salvarEstado(estado);
-  return Math.max(0, cotaMensal(hangar) - estado[hangar.id][mes]);
+  return comTrava(() => {
+    const estado = lerEstado();
+    const mes = mesAtual();
+    if (!estado[hangar.id]) estado[hangar.id] = {};
+    const usoAntes = estado[hangar.id][mes] || 0;
+    const usoDepois = usoAntes + 1;
+    estado[hangar.id][mes] = usoDepois;
+    salvarEstado(estado);
+
+    const cota = cotaMensal(hangar);
+    return {
+      usoAntes,
+      usoDepois,
+      cota,
+      restanteDepois: Math.max(0, cota - usoDepois),
+      dentroDaCota: usoDepois <= cota,
+    };
+  });
 }
 
-module.exports = { mesAtual, obterUsoMensal, obterRestante, consumirUmaValidacao, COTA_PADRAO };
+// Devolve uma validação consumida que acabou não acontecendo.
+//
+// Necessário porque a cota é debitada ANTES do navegador abrir, e a validação
+// pode falhar depois (pátio sem vaga, ticket já utilizado, ticket inexistente,
+// ou o site exigindo tolerância > 0). Sem devolver, o hangar perderia uma
+// validação gratuita sem ter validado nada — com cota 2, duas tentativas
+// frustradas zerariam o mês.
+function devolverUmaValidacao(hangar) {
+  return comTrava(() => {
+    const estado = lerEstado();
+    const mes = mesAtual();
+    if (!estado[hangar.id]) estado[hangar.id] = {};
+    const usoAntes = estado[hangar.id][mes] || 0;
+    const usoDepois = Math.max(0, usoAntes - 1);
+    estado[hangar.id][mes] = usoDepois;
+    salvarEstado(estado);
+
+    const cota = cotaMensal(hangar);
+    return { usoAntes, usoDepois, cota, restanteDepois: Math.max(0, cota - usoDepois) };
+  });
+}
+
+module.exports = {
+  mesAtual,
+  obterUsoMensal,
+  obterRestante,
+  consumirUmaValidacao,
+  devolverUmaValidacao,
+  COTA_PADRAO,
+};

@@ -161,8 +161,13 @@ function parseDataBr(texto) {
 async function main() {
   const [hangarId, ticket] = process.argv.slice(2);
   if (!hangarId || !ticket) {
-    console.error('Uso: node scripts/consultar-ticket.js <hangarId> <numeroTicket>');
-    process.exit(1);
+    console.log(JSON.stringify({
+      status: 'parametros_invalidos',
+      mensagem: 'Uso: node scripts/consultar-ticket.js <hangarId> <numeroTicket>',
+      mensagemWhatsapp: '⚠️ Não conseguimos consultar o ticket no momento. Nossa equipe foi avisada.',
+      notificarAdmin: true,
+    }));
+    return;
   }
 
   try {
@@ -177,7 +182,10 @@ async function main() {
       mensagemWhatsapp: `⚠️ Não conseguimos consultar o ticket ${ticket} no momento. Nossa equipe foi avisada.`,
       notificarAdmin: true,
     }));
-    process.exit(1);
+    // Sai com 0 DE PROPÓSITO, mesmo em falha: quem decide o que fazer é o nó
+    // seguinte do n8n, lendo o campo `status` do json. Código != 0 faz o nó
+    // "Execute Command" tratar como falha e engolir o json — a mensagem se
+    // perderia antes de chegar ao cliente. Mesmo padrão de identificar-hangar.js.
   }
 }
 
