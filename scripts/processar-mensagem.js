@@ -31,6 +31,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 const { carregarConfig, buscarHangarPorGrupo } = require('./lib/hangar');
 const { interpretarMensagem } = require('./lib/whatsapp');
+const { avaliarLocal } = require('./lib/conferir-local');
 const pendencias = require('./lib/pendencias');
 const { lerTicket } = require('./ocr-ticket');
 
@@ -337,7 +338,9 @@ async function conduzir(body, { aoReceber } = {}) {
   }
 
   const imagem = await baixarImagemBase64(msg.messageId);
-  const ocr = await lerTicket({ base64: imagem.base64, mediaType: imagem.mediaType });
+  // O hangar vai junto: nos que exigem foto do veículo no local (AIBM 1 e 2),
+  // a conferência do cenário é feita na mesma chamada que lê o ticket.
+  const ocr = await lerTicket({ base64: imagem.base64, mediaType: imagem.mediaType, hangar });
 
   if (ocr.status !== 'ocr_ok') {
     return {
@@ -348,6 +351,35 @@ async function conduzir(body, { aoReceber } = {}) {
       notificarAdmin: ocr.notificarAdmin === true,
       responder: true,
       ocr,
+    };
+  }
+
+  // Conferência de local, antes de qualquer coisa que tenha efeito. Só vale
+  // para hangares com exigeFotoVeiculoNoLocal (AIBM 1 e 2): é o requisito
+  // antifraude do pátio com histórico de problema.
+  //
+  // Até 15/09/2026 o módulo conferir-local.js existia, testado, e não era
+  // chamado por lugar nenhum — o config dizia que a checagem era obrigatória e
+  // o código validava sem fazê-la, em silêncio.
+  //
+  // Só `incompativel` bloqueia. `indeterminado` passa com aviso: num close do
+  // carro aparece apenas um pedaço de asfalto ou de parede branca, que existe
+  // no aeroporto inteiro, e travar por isso acusaria de fraude cliente
+  // honesto por causa do enquadramento da foto.
+  const local = avaliarLocal(hangar, ocr.local, ocr.localMotivo);
+  if (local.bloqueia) {
+    return {
+      status: 'local_incompativel',
+      hangarId: hangar.id,
+      grupoId: msg.grupoId,
+      ticket: ocr.ticket,
+      local: local.local,
+      localMotivo: local.motivo,
+      cenario: ocr.cenario || null,
+      mensagemWhatsapp: local.mensagemWhatsapp,
+      notificarAdmin: local.notificarAdmin === true,
+      responder: true,
+      etapa: 'conferencia_local',
     };
   }
 

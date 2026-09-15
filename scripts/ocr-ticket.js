@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // Uso: node scripts/ocr-ticket.js <caminhoImagem>
-//      node scripts/ocr-ticket.js --stdin [mimetype]   (base64 pela entrada padrão)
+//      node scripts/ocr-ticket.js --stdin [mimetype] [hangarId]
+//        (base64 pela entrada padrão; hangarId liga a conferência de local
+//         nos hangares que exigem foto do veículo — hoje AIBM 1 e 2)
 // Lê a foto de um ticket do estacionamento (#1Park, aeroporto de Jundiaí) e
 // extrai o número do ticket (12 dígitos) e a data/hora de emissão, usando a
 // API da Anthropic (Claude) com visão. CONFIRMADO pelo usuário (12/09/2026):
@@ -26,6 +28,10 @@ const path = require('path');
 // dotenv. O resultado era "ANTHROPIC_API_KEY não configurada" mesmo com a
 // chave preenchida corretamente no .env.
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
+
+const { carregarConfig, buscarHangar } = require('./lib/hangar');
+
+const { blocoPromptLocal } = require('./lib/conferir-local');
 
 const MODELO = 'claude-sonnet-5';
 
@@ -61,7 +67,7 @@ function lerImagemBase64(caminho) {
   return { mediaType, dados };
 }
 
-function chamarClaude({ mediaType, dados }) {
+function chamarClaude({ mediaType, dados, prompt }) {
   return new Promise((resolve, reject) => {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
@@ -77,7 +83,7 @@ function chamarClaude({ mediaType, dados }) {
           role: 'user',
           content: [
             { type: 'image', source: { type: 'base64', media_type: mediaType, data: dados } },
-            { type: 'text', text: PROMPT },
+            { type: 'text', text: prompt || PROMPT },
           ],
         },
       ],
@@ -225,7 +231,13 @@ async function lerTicket(origem) {
   } else {
     throw new Error('lerTicket precisa de um caminho de arquivo ou da imagem em base64.');
   }
-  const resposta = await chamarClaude(imagem);
+
+  // Hangares com histórico de fraude no pátio (hoje AIBM 1 e 2) exigem que a
+  // foto mostre o veículo no local. A conferência vai na MESMA chamada que lê
+  // o ticket: uma foto, uma chamada, um custo. Separar em duas dobraria preço
+  // e tempo sem ganho nenhum.
+  const extraLocal = blocoPromptLocal(entrada.hangar || null);
+  const resposta = await chamarClaude({ ...imagem, prompt: PROMPT + extraLocal });
 
   const textoResposta = (resposta.content || []).map((b) => b.text || '').join('');
   let extraido;
@@ -277,11 +289,16 @@ async function lerTicket(origem) {
     ticket,
     dataEmissaoIso,
     conferencia: { ok: true, valor: conferencia.doNumero },
+    // Só vêm preenchidos quando o hangar exige a foto com o veículo; quem
+    // decide o que fazer com eles é avaliarLocal(), em conferir-local.js.
+    cenario: extraido.cenario || null,
+    local: extraido.local || null,
+    localMotivo: extraido.localMotivo || null,
   };
 }
 
 async function main() {
-  const [caminhoImagem, mimetypeArg] = process.argv.slice(2);
+  const [caminhoImagem, mimetypeArg, hangarIdArg] = process.argv.slice(2);
 
   if (caminhoImagem === '--stdin') {
     try {
@@ -289,6 +306,7 @@ async function main() {
       const resultado = await lerTicket({
         base64: daEntrada.dados,
         mediaType: daEntrada.mediaType || mimetypeArg || 'image/jpeg',
+        hangar: hangarIdArg ? buscarHangar(carregarConfig(), hangarIdArg) : null,
       });
       console.log(JSON.stringify(resultado));
     } catch (erro) {
