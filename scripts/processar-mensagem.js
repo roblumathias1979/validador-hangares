@@ -110,10 +110,12 @@ function rodarScript(arquivo, args) {
 
 // Roda validate-ticket.js e monta a resposta. `usarCota` vem true quando o
 // cliente respondeu SIM à pergunta sobre gastar uma validação fora do prazo.
-function validar(hangar, msg, pedido, usarCota) {
+function validar(hangar, msg, pedido, usarCota, faturamento = {}) {
   const validacao = rodarScript('validate-ticket.js', [
     hangar.id, pedido.ticket, pedido.placa, pedido.dataEmissaoIso || '',
     '0', '0', usarCota ? 'true' : '',
+    faturamento.autorizar ? 'true' : '',
+    faturamento.fotoAutorizacao || '',
   ]);
 
   let mensagem = validacao.mensagemWhatsapp;
@@ -126,6 +128,28 @@ function validar(hangar, msg, pedido, usarCota) {
   // nada — a pergunta prometia algo que o sistema não sabia completar.
   if (validacao.status === 'fora_do_prazo_requer_decisao') {
     pendencias.registrar(msg.grupoId, msg.remetenteId, { ...pedido, hangarId: hangar.id, tipo: 'usar_cota' });
+  }
+
+  // Cota do mês esgotada: o bot informa isso, mostra o valor e pergunta se
+  // pode liberar o ticket e faturar. A pendência guarda o pedido para a
+  // resposta ter a que se referir — mesma mecânica da cota.
+  //
+  // ⚠️ A chave do Asaas é de PRODUÇÃO (docs/perguntas-abertas.md): o boleto
+  // emitido aqui é real. Por isso a autorização continua exigindo FOTO, que é
+  // a evidência de quem autorizou — regra de negócio confirmada em 12/09/2026
+  // e mantida de propósito. "SIM" sozinho não fatura.
+  if (validacao.status === 'fora_do_prazo_requer_autorizacao_faturamento'
+      || validacao.status === 'fora_do_prazo_falta_foto_autorizacao') {
+    pendencias.registrar(msg.grupoId, msg.remetenteId, {
+      ...pedido, hangarId: hangar.id, tipo: 'autorizar_faturamento', valor: validacao.valor,
+    });
+  }
+
+  // Faltam CNPJ/razão social/email para criar o cliente no Asaas. Extrair isso
+  // de texto livre de WhatsApp seria frágil, e o erro aqui emite nota para o
+  // CNPJ errado — cai para uma pessoa resolver.
+  if (validacao.status === 'fora_do_prazo_requer_dados_cadastrais') {
+    validacao.notificarAdmin = true;
   }
 
   return {
@@ -171,12 +195,28 @@ async function processar(body, { aoReceber } = {}) {
       return { status: 'ignorado', motivo: 'texto sem pendência para esta pessoa', grupoId: msg.grupoId, responder: false };
     }
 
+    const ehFaturamento = pendente.tipo === 'autorizar_faturamento';
+
     if (msg.resposta === 'nao') {
       pendencias.descartar(msg.grupoId, msg.remetenteId);
       return {
         status: 'cancelado_pelo_cliente', hangarId: hangar.id, grupoId: msg.grupoId,
         ticket: pendente.ticket,
-        mensagemWhatsapp: `Tudo bem, não validei o ticket ${pendente.ticket}. Se mudar de ideia, é só mandar a foto de novo.`,
+        mensagemWhatsapp: ehFaturamento
+          ? `Tudo bem, não vou faturar nem validar o ticket ${pendente.ticket}. Se mudar de ideia, é só mandar a foto de novo.`
+          : `Tudo bem, não validei o ticket ${pendente.ticket}. Se mudar de ideia, é só mandar a foto de novo.`,
+        notificarAdmin: false, responder: true, etapa: 'resposta',
+      };
+    }
+
+    // SIM no faturamento não basta: falta a foto de autorização. A pendência
+    // fica de pé esperando a foto, senão o "sim" se perderia e o cliente
+    // teria que recomeçar.
+    if (msg.resposta === 'sim' && ehFaturamento) {
+      return {
+        status: 'fora_do_prazo_falta_foto_autorizacao', hangarId: hangar.id, grupoId: msg.grupoId,
+        ticket: pendente.ticket, valor: pendente.valor,
+        mensagemWhatsapp: `Para eu liberar o ticket ${pendente.ticket} e seguir com o faturamento, preciso de uma FOTO confirmando a autorização — é o registro de quem autorizou a cobrança. Pode mandar a foto aqui no grupo?`,
         notificarAdmin: false, responder: true, etapa: 'resposta',
       };
     }
@@ -188,7 +228,9 @@ async function processar(body, { aoReceber } = {}) {
       return {
         status: 'resposta_nao_entendida', hangarId: hangar.id, grupoId: msg.grupoId,
         ticket: pendente.ticket,
-        mensagemWhatsapp: `Não entendi. Para validar o ticket ${pendente.ticket} usando uma das validações fora do prazo, responda SIM. Para deixar pra lá, responda NÃO.`,
+        mensagemWhatsapp: ehFaturamento
+          ? `Não entendi. Para eu liberar o ticket ${pendente.ticket} e seguir com o faturamento, responda SIM. Para deixar pra lá, responda NÃO.`
+          : `Não entendi. Para validar o ticket ${pendente.ticket} usando uma das validações fora do prazo, responda SIM. Para deixar pra lá, responda NÃO.`,
         notificarAdmin: false, responder: true, etapa: 'resposta',
       };
     }
@@ -200,6 +242,30 @@ async function processar(body, { aoReceber } = {}) {
       return { status: 'ignorado', motivo: 'pendência já consumida por outra mensagem', grupoId: msg.grupoId, responder: false };
     }
     return validar(hangar, msg, pedido, true);
+  }
+
+  // ---- foto chegando com faturamento pendente = é a autorização ----
+  // O bot acabou de pedir uma foto confirmando a autorização, então uma foto
+  // desta pessoa agora é essa confirmação, não um ticket novo. Mandá-la ao
+  // OCR seria errado duas vezes: não há ticket nela para ler, e o pedido
+  // original (ticket, placa, data) já está guardado na pendência.
+  const faturamentoPendente = pendencias.buscar(msg.grupoId, msg.remetenteId);
+  if (faturamentoPendente && faturamentoPendente.tipo === 'autorizar_faturamento') {
+    const pedido = pendencias.consumir(msg.grupoId, msg.remetenteId);
+    if (!pedido) {
+      return { status: 'ignorado', motivo: 'pendência já consumida por outra mensagem', grupoId: msg.grupoId, responder: false };
+    }
+    if (aoReceber) {
+      try {
+        await aoReceber(msg.grupoId, '🔎 Recebi a autorização, estou liberando o ticket e gerando a cobrança...');
+      } catch (erro) { /* aviso é conforto, não pode travar o fluxo */ }
+    }
+    // A referência da foto guardada na auditoria é o id da mensagem no
+    // WhatsApp: é o que permite reencontrar quem autorizou, e quando.
+    return validar(hangar, msg, pedido, false, {
+      autorizar: true,
+      fotoAutorizacao: msg.messageId,
+    });
   }
 
   // Daqui para baixo tudo é lento. Avisa que recebeu antes de começar.
