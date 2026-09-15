@@ -5,7 +5,7 @@
       "id": "solojet",
       "hangar": "Solojet",
       "grupoWhatsapp": "Grupo Solojet",
-      "grupoWhatsappId": "",
+      "grupoWhatsappId": "120363431859218622@g.us",
       "validadorUrl": "https://validpark.technext.com.br/login",
       "usuarioEnvVar": "SOLOJET_USUARIO",
       "senhaEnvVar": "SOLOJET_SENHA",
