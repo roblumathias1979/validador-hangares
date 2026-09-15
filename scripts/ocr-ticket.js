@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // Uso: node scripts/ocr-ticket.js <caminhoImagem>
+//      node scripts/ocr-ticket.js --stdin [mimetype]   (base64 pela entrada padrão)
 // Lê a foto de um ticket do estacionamento (#1Park, aeroporto de Jundiaí) e
 // extrai o número do ticket (12 dígitos) e a data/hora de emissão, usando a
 // API da Anthropic (Claude) com visão. CONFIRMADO pelo usuário (12/09/2026):
@@ -193,12 +194,37 @@ function conferirTicketComData(ticket, dataDdMmAaHhMmSs) {
   return { ok: true, doNumero, doPapel, motivo: '' };
 }
 
-async function lerTicket(caminhoImagem) {
-  if (!fs.existsSync(caminhoImagem)) {
-    throw new Error(`Arquivo de imagem não encontrado: ${caminhoImagem}`);
+// Lê a base64 da entrada padrão. Existe para a foto do WhatsApp não precisar
+// passar pelo disco: ela vem da Evolution já em base64
+// (/chat/getBase64FromMediaMessage), e gravar foto de cliente em arquivo é
+// dado pessoal parado no servidor, com o risco de sobrar ali se algo falhar
+// no meio do fluxo.
+function lerBase64DaEntrada() {
+  const bruto = fs.readFileSync(0, 'utf-8').trim();
+  if (!bruto) {
+    throw new Error('Nada chegou pela entrada padrão — esperava a imagem em base64.');
   }
+  // Aceita tanto base64 pura quanto data URI ("data:image/jpeg;base64,...").
+  const m = bruto.match(/^data:([^;]+);base64,(.*)$/s);
+  return m ? { mediaType: m[1], dados: m[2] } : { dados: bruto, mediaType: null };
+}
 
-  const imagem = lerImagemBase64(caminhoImagem);
+// `origem` é { caminho } ou { base64, mediaType } — o segundo caso é o do
+// WhatsApp, onde a imagem nunca toca o disco.
+async function lerTicket(origem) {
+  const entrada = typeof origem === 'string' ? { caminho: origem } : (origem || {});
+
+  let imagem;
+  if (entrada.caminho) {
+    if (!fs.existsSync(entrada.caminho)) {
+      throw new Error(`Arquivo de imagem não encontrado: ${entrada.caminho}`);
+    }
+    imagem = lerImagemBase64(entrada.caminho);
+  } else if (entrada.base64) {
+    imagem = { dados: entrada.base64, mediaType: entrada.mediaType || 'image/jpeg' };
+  } else {
+    throw new Error('lerTicket precisa de um caminho de arquivo ou da imagem em base64.');
+  }
   const resposta = await chamarClaude(imagem);
 
   const textoResposta = (resposta.content || []).map((b) => b.text || '').join('');
@@ -255,7 +281,27 @@ async function lerTicket(caminhoImagem) {
 }
 
 async function main() {
-  const [caminhoImagem] = process.argv.slice(2);
+  const [caminhoImagem, mimetypeArg] = process.argv.slice(2);
+
+  if (caminhoImagem === '--stdin') {
+    try {
+      const daEntrada = lerBase64DaEntrada();
+      const resultado = await lerTicket({
+        base64: daEntrada.dados,
+        mediaType: daEntrada.mediaType || mimetypeArg || 'image/jpeg',
+      });
+      console.log(JSON.stringify(resultado));
+    } catch (erro) {
+      console.log(JSON.stringify({
+        status: 'erro',
+        mensagem: erro.message,
+        mensagemWhatsapp: '⚠️ Não conseguimos processar a foto do ticket no momento. Nossa equipe foi avisada.',
+        notificarAdmin: true,
+      }));
+    }
+    return;
+  }
+
   if (!caminhoImagem) {
     console.log(JSON.stringify({
       status: 'parametros_invalidos',
