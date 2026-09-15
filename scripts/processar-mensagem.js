@@ -142,7 +142,17 @@ function validar(hangar, msg, pedido, usarCota) {
   };
 }
 
-async function processar(body) {
+/**
+ * `aoReceber` é chamado assim que sabemos que a mensagem é uma foto de ticket
+ * num grupo conhecido — antes do trabalho lento (baixar a imagem, OCR, abrir o
+ * navegador no ValidPark), que junto passa fácil de um minuto. Sem isso o
+ * cliente fica sem retorno nenhum e reenvia a foto, o que dispara o fluxo de
+ * novo em paralelo.
+ *
+ * Recebe uma função em vez de mandar direto daqui para processar() continuar
+ * testável: sem callback, nada é enviado a ninguém.
+ */
+async function processar(body, { aoReceber } = {}) {
   const msg = interpretarMensagem(body);
 
   if (msg.ignorar) {
@@ -190,6 +200,16 @@ async function processar(body) {
       return { status: 'ignorado', motivo: 'pendência já consumida por outra mensagem', grupoId: msg.grupoId, responder: false };
     }
     return validar(hangar, msg, pedido, true);
+  }
+
+  // Daqui para baixo tudo é lento. Avisa que recebeu antes de começar.
+  if (aoReceber) {
+    try {
+      await aoReceber(msg.grupoId, '🔎 Recebi seu ticket, já estou verificando...');
+    } catch (erro) {
+      // Falhar no aviso não pode impedir a validação: o aviso é conforto, o
+      // resultado é o que importa.
+    }
   }
 
   const imagem = await baixarImagemBase64(msg.messageId);
@@ -258,7 +278,10 @@ async function main() {
   let resultado;
   try {
     const body = JSON.parse(Buffer.from(payloadBase64, 'base64').toString('utf-8'));
-    resultado = await processar(body);
+    // O aviso só existe quando estamos de fato conversando com o WhatsApp.
+    resultado = await processar(body, {
+      aoReceber: enviar ? (grupoId, texto) => enviarTexto(grupoId, texto) : null,
+    });
   } catch (erro) {
     resultado = {
       status: 'erro',
