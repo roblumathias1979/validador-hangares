@@ -66,6 +66,12 @@ const REGEX_TOAST_SUCESSO = /validad[oa]\s+com\s+sucesso/i;
 const REGEX_TOAST_JA_UTILIZADO = /j[áa]\s+foi\s+utilizado/i;
 // O site tem um typo em "tolêrancia" — o [eê] cobre os dois casos.
 const REGEX_TOAST_SEM_TOLERANCIA = /digite\s+uma\s+tol[eê]r[âa]ncia/i;
+// Prazo do PRÓPRIO ValidPark, descoberto em 15/09/2026 ao tentar validar um
+// ticket de 12 dias: "O prazo para a validação foi excedido!". É um limite do
+// site, diferente da nossa regra de negócio de 2h — e diferente também da
+// tolerância que concedemos (20 dias), que vale depois de validado. Qual é
+// exatamente esse limite, não sabemos: só que 12 dias está fora dele.
+const REGEX_TOAST_PRAZO_EXCEDIDO = /prazo\s+para\s+a\s+valida[çc][ãa]o\s+foi\s+excedido/i;
 const TIMEOUT_RESULTADO_MS = 10000;
 
 // O ValidPark preenche campos de erro "vazios" com caracteres zero-width:
@@ -91,6 +97,9 @@ function classificarResultadoValidacao({ toastTexto, erroInline, modalFechado })
   }
   if (REGEX_TOAST_SEM_TOLERANCIA.test(toastTexto)) {
     return { status: 'tolerancia_obrigatoria', mensagem: toastTexto };
+  }
+  if (REGEX_TOAST_PRAZO_EXCEDIDO.test(toastTexto)) {
+    return { status: 'prazo_excedido_no_site', mensagem: toastTexto };
   }
   if (toastTexto) {
     return { status: 'erro_validacao', mensagem: toastTexto };
@@ -539,6 +548,10 @@ async function validarTicket(hangarId, ticket, placa, dataEmissaoIso, horasAdici
         : `✅ Ticket ${ticket} validado com sucesso. Placa: ${placa}.`) + notaForaDoPrazo,
       erro_validacao: `⚠️ Não foi possível validar o ticket ${ticket}: ${resultado.mensagem}. Confira a placa e tente novamente.`,
       ticket_ja_utilizado: `⚠️ Ticket ${ticket} já foi utilizado anteriormente — não pode ser validado de novo.`,
+      // Recusa do próprio ValidPark por idade do ticket. Não adianta tentar de
+      // novo nem conferir a placa: não há nada que o cliente possa fazer pelo
+      // WhatsApp, então a mensagem manda direto para quem resolve.
+      prazo_excedido_no_site: `⚠️ O ticket ${ticket} é antigo demais e o sistema do estacionamento não aceita mais validá-lo. Não é problema da foto nem da placa. Procure o totem de autopagamento no terminal ou fale com a administração do hangar.`,
       // O ValidPark exige horas/dias > 0 para QUALQUER validação — não só
       // para ticket com tolerância vencida, como se acreditava até
       // 09/09/2026 (ver docs/perguntas-abertas.md). Confirmado testando um

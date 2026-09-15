@@ -349,6 +349,39 @@ Resultado" não roda e a `mensagemWhatsapp` de erro nunca chega ao cliente** —
 justamente nos casos em que ele mais precisa de resposta. Vale testar e, se
 confirmado, alinhar os dois scripts com a saída 0.
 
+### ⚠️ DESCOBERTO: o ValidPark tem prazo próprio para validar, e não sabemos qual é
+
+Em 15/09/2026, no primeiro teste real do fluxo completo pelo WhatsApp, um
+ticket de **03/09** (12 dias antes) foi recusado pelo site com o toast:
+
+    O prazo para a validação foi excedido!
+
+São **três prazos diferentes** em jogo, e é fácil confundi-los:
+
+| Prazo | De quem | Quanto |
+| --- | --- | --- |
+| Janela para validar | regra de negócio nossa | 2h desde a emissão (`prazoValidacaoHoras`) |
+| Tolerância concedida | ValidPark, ao validar | 20 dias (`diasValidacaoPadrao`) |
+| **Idade máxima do ticket** | **ValidPark** | **desconhecida — 12 dias já está fora** |
+
+O terceiro é novo e não estava previsto em lugar nenhum. Ele limita até onde a
+cota fora do prazo e o faturamento fazem sentido: de nada adianta o cliente
+autorizar a cobrança se o site vai recusar a validação de qualquer forma.
+
+**Consequência prática já tratada:** a validação recusada devolve a cota
+(`devolverUmaValidacao`), confirmado no teste real — o hangar consumiu 1 e
+voltou a ter 5. Sem esse mecanismo, o cliente teria perdido uma validação
+gratuita numa tentativa que o site nunca aceitaria.
+
+- [ ] **Descobrir o limite real.** Vale testar com tickets de 1, 2, 3 dias para
+      encontrar o corte. Sabendo o número, dá para recusar antes de abrir o
+      navegador e antes de perguntar sobre cota ou faturamento — hoje o
+      cliente passa por todo o fluxo para receber uma recusa no fim.
+- [x] Mensagem própria para esse caso (`prazo_excedido_no_site`). Antes caía em
+      `erro_validacao`, cuja mensagem manda "confira a placa e tente
+      novamente" — as duas coisas erradas: a placa não tem relação, e tentar de
+      novo não resolve.
+
 ### ⚠️ CORRIGIDO: o site exige tolerância > 0 em TODA validação
 
 Acreditávamos que a exigência de `horasAdicionais`/`diasAdicionais` > 0
