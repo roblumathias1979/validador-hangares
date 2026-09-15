@@ -196,6 +196,40 @@ function validar(hangar, msg, pedido, usarCota, faturamento = {}) {
  * Recebe uma função em vez de mandar direto daqui para processar() continuar
  * testável: sem callback, nada é enviado a ninguém.
  */
+// Situações em que o cliente não tem o que fazer e alguém precisa agir. A
+// lista é explícita de propósito: escalar demais vira ruído e a administração
+// para de ler; escalar de menos deixa o cliente parado esperando.
+//
+// Ficam FORA os casos que o próprio cliente resolve — foto ilegível, número
+// não encontrado, formato inválido, foto fora do local — porque para esses a
+// resposta já diz o que fazer e reenviar resolve.
+const STATUS_QUE_ESCALAM = new Set([
+  'sem_vagas',              // pátio cheio
+  'prazo_excedido_no_site', // ValidPark recusa por idade do ticket
+  'erro_validacao',         // recusa que não soubemos classificar
+  'valor_invalido',         // horas/dias acima do limite do slider
+  'indeterminado',          // clicou em validar e o site não confirmou nada
+  'erro',                   // exceção no meio do caminho
+]);
+
+/**
+ * Para os casos acima: avisa o cliente de que a administração foi acionada e
+ * marca o resultado para notificação. A explicação específica é mantida — o
+ * cliente saber POR QUE parou evita que ele reenvie a foto várias vezes.
+ */
+function escalar(resultado, remetente) {
+  if (!STATUS_QUE_ESCALAM.has(resultado.status)) return resultado;
+
+  const base = resultado.mensagemWhatsapp
+    || '⚠️ Não consegui concluir a validação deste ticket.';
+  resultado.mensagemWhatsapp = `${base}\n\nJá estou encaminhando para o administrador resolver.`;
+  resultado.notificarAdmin = true;
+  resultado.escalado = true;
+  resultado.responder = true;
+  if (remetente) resultado.remetente = remetente;
+  return resultado;
+}
+
 /**
  * Manda o aviso para a administração quando o resultado pede gente.
  *
@@ -222,6 +256,7 @@ async function avisarAdmin(hangar, resultado, aoNotificarAdmin) {
   const linhas = [
     `⚠️ Validador — hangar ${hangar.hangar || hangar.id}`,
     `Situação: ${resultado.status}`,
+    resultado.remetente ? `Cliente: ${resultado.remetente}` : null,
     resultado.ticket ? `Ticket: ${resultado.ticket}` : null,
     resultado.placa ? `Placa: ${resultado.placa}` : null,
     resultado.valor ? `Valor: R$ ${resultado.valor}` : null,
@@ -240,6 +275,11 @@ async function avisarAdmin(hangar, resultado, aoNotificarAdmin) {
 
 async function processar(body, opcoes = {}) {
   const resultado = await conduzir(body, opcoes);
+
+  // interpretarMensagem é pura e barata; chamá-la de novo aqui evita ter que
+  // carregar o remetente por todos os pontos de retorno de conduzir().
+  const quem = interpretarMensagem(body).remetente;
+  escalar(resultado, quem);
 
   if (resultado.notificarAdmin) {
     // O hangar só é conhecido quando a mensagem chegou de um grupo cadastrado;
@@ -488,4 +528,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { processar, avisarAdmin };
+module.exports = { processar, avisarAdmin, escalar, STATUS_QUE_ESCALAM };
