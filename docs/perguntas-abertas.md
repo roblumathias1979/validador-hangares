@@ -111,7 +111,7 @@ expressões `{{...}}` ao logar o erro — não reflete o comando real).
 
 ## ✅ Deploy no servidor AWS — workflow do n8n testado de ponta a ponta
 
-O servidor (EC2, IP `18.191.250.76`, Ubuntu, 2 vCPU / ~900MB RAM) está no ar
+O servidor (EC2, IP `3.136.166.82`, Ubuntu, 2 vCPU / ~900MB RAM) está no ar
 com n8n rodando como serviço systemd (reinicia sozinho). O workflow
 `n8n/workflows/validador-tickets.json` foi testado de verdade via HTTP real
 (não só dentro do editor) — ver [README.md](../README.md), seção "Workflow
@@ -330,7 +330,7 @@ isso já era ruim; com vários, é validação cruzada entre clientes de hangare
 diferentes, e cada validação tem efeito financeiro.
 
 Agravante: a porta 5678 está exposta na internet (o README documenta chamadas
-via `http://18.191.250.76:5678/...`), em HTTP puro, sem TLS.
+via `http://3.136.166.82:5678/...`), em HTTP puro, sem TLS.
 
 **Antes de plugar o WhatsApp de verdade:** ativar autenticação no nó Webhook,
 restringir ou remover o atalho `hangarId`, e considerar fechar a 5678 para o

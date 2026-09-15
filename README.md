@@ -175,17 +175,20 @@ Command" → interpreta o JSON de resultado → responde o cliente e,
 se necessário, avisa o grupo de administração.
 
 **✅ Testado de ponta a ponta de verdade**, rodando no servidor AWS
-(18.191.250.76), via HTTP real (não só dentro do editor do n8n):
+(3.136.166.82 — **Elastic IP**, fixo desde 15/09/2026: sobrevive a
+parar/iniciar a instância, diferente do IP automático que mudava a cada
+reinício e quebraria o webhook do WhatsApp), via HTTP real (não só dentro
+do editor do n8n):
 
 ```bash
 # consultar (opção 1/2 do menu) — ticket já validado, tolerância expirada:
-curl -X POST http://18.191.250.76:5678/webhook/validador-tickets-hangares-sbjd/webhookwhatsapp/ticket-hangar \
+curl -X POST http://3.136.166.82:5678/webhook/validador-tickets-hangares-sbjd/webhookwhatsapp/ticket-hangar \
   -H "Content-Type: application/json" \
   -d '{"hangarId": "solojet", "opcao": 1, "ticket": "011811132237"}'
 # → {"mensagem":"⚠️ Ticket 011811132237 foi validado, mas a validade já expirou..."}
 
 # validar (opção 3) — ticket inexistente, sem efeito colateral:
-curl -X POST http://18.191.250.76:5678/webhook/validador-tickets-hangares-sbjd/webhookwhatsapp/ticket-hangar \
+curl -X POST http://3.136.166.82:5678/webhook/validador-tickets-hangares-sbjd/webhookwhatsapp/ticket-hangar \
   -H "Content-Type: application/json" \
   -d '{"hangarId": "solojet", "opcao": 3, "ticket": "000000000000", "placa": "AAA0000"}'
 # → {"mensagem":"⚠️ Ticket 000000000000 não encontrado — verifique o número..."}

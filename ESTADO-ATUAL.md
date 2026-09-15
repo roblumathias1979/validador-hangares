@@ -42,8 +42,8 @@ git pull
 
 | Item | Estado |
 |---|---|
-| EC2 Ubuntu 26.04, us-east-2 | rodando, IP público 18.191.250.76 |
-| Memória | ~900 MB — **insuficiente**, precisa ir para 2 GB (t3.small) |
+| EC2 Ubuntu 26.04, us-east-2 | rodando, **t3.small**, Elastic IP `3.136.166.82` (fixo desde 15/09/2026) |
+| Memória | **1.9 GB** — upgrade feito em 15/09/2026. Antes: 908 MB, com 338 MB já em swap em repouso; agora swap zerado |
 | n8n | instalado, workflow roda ponta a ponta com webhook manual |
 | Playwright | instalado, valida ticket real no ValidPark |
 | `ANTHROPIC_API_KEY` | configurada no `.env` do servidor e **testada com sucesso** |
@@ -51,8 +51,12 @@ git pull
 | Número de WhatsApp dedicado | **não providenciado** |
 | Acesso ao servidor | via EC2 Instance Connect (navegador). Sem upload de arquivo. |
 
-O upgrade de memória é pré-requisito: Evolution API + Redis + Chromium não cabem
-em 900 MB. Fazer **antes** de instalar qualquer coisa nova.
+~~O upgrade de memória é pré-requisito~~ — **feito em 15/09/2026**: a instância
+foi para `t3.small` (1.9 GB) e ganhou um Elastic IP (`3.136.166.82`), que sobrevive
+a parar/iniciar a máquina. O IP automático mudou duas vezes durante o upgrade, e
+teria quebrado o webhook da Evolution API depois de configurado. O swap, que vivia
+com 338 MB ocupados em repouso, zerou. Há folga para Evolution API + Redis +
+Chromium.
 
 ---
 
@@ -203,8 +207,10 @@ a sessão do WhatsApp não cai — aí entra a validação.
 
 ## Sequência técnica pendente
 
-1. Aplicar o patch, commitar, push, pull no servidor.
-2. Subir o EC2 para 2 GB.
+1. ~~Aplicar o patch, commitar, push, pull no servidor.~~ **Feito em 15/09/2026**
+   (commit `0c169fe`). O servidor não era um repositório git — foi convertido em
+   clone de verdade, então agora `git pull` funciona mesmo.
+2. ~~Subir o EC2 para 2 GB.~~ **Feito em 15/09/2026**, com Elastic IP junto.
 3. Chip dedicado num celular guardado, no CNPJ. Não pode ser chip que viva em
    outro aparelho: a conta principal precisa existir num celular, e o WhatsApp
    derruba dispositivos vinculados se o celular passar ~14 dias sem conectar.
