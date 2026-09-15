@@ -176,7 +176,65 @@ function validar(hangar, msg, pedido, usarCota, faturamento = {}) {
  * Recebe uma função em vez de mandar direto daqui para processar() continuar
  * testável: sem callback, nada é enviado a ninguém.
  */
-async function processar(body, { aoReceber } = {}) {
+/**
+ * Manda o aviso para a administração quando o resultado pede gente.
+ *
+ * Até 15/09/2026 isso não existia: `notificarAdmin: true` era só um campo no
+ * json, e o nó "Notificar Admin" do workflow era um noOp — ou seja, os casos
+ * que dependiam de uma pessoa ficavam sem pessoa nenhuma.
+ *
+ * O destino é `grupoAdministracao` do hangar em config/hangares.json. Aceita
+ * tanto um grupo (…@g.us) quanto um número direto (…@s.whatsapp.net): o envio
+ * é o mesmo, e alguns hangares podem preferir avisar uma pessoa em vez de um
+ * grupo.
+ */
+async function avisarAdmin(hangar, resultado, aoNotificarAdmin) {
+  const destino = (hangar && hangar.grupoAdministracao || '').trim();
+
+  if (!destino) {
+    // Fica registrado no json em vez de falhar em silêncio: sem isso, um
+    // problema que precisa de gente desaparece sem deixar rastro.
+    resultado.adminNaoConfigurado = true;
+    return;
+  }
+  if (!aoNotificarAdmin) return;
+
+  const linhas = [
+    `⚠️ Validador — hangar ${hangar.hangar || hangar.id}`,
+    `Situação: ${resultado.status}`,
+    resultado.ticket ? `Ticket: ${resultado.ticket}` : null,
+    resultado.placa ? `Placa: ${resultado.placa}` : null,
+    resultado.valor ? `Valor: R$ ${resultado.valor}` : null,
+    resultado.mensagem ? `Detalhe: ${resultado.mensagem}` : null,
+    `Grupo de origem: ${resultado.grupoId}`,
+  ].filter(Boolean);
+
+  try {
+    await aoNotificarAdmin(destino, linhas.join('\n'));
+    resultado.adminAvisado = true;
+  } catch (erro) {
+    resultado.adminAvisado = false;
+    resultado.erroAvisoAdmin = erro.message;
+  }
+}
+
+async function processar(body, opcoes = {}) {
+  const resultado = await conduzir(body, opcoes);
+
+  if (resultado.notificarAdmin) {
+    // O hangar só é conhecido quando a mensagem chegou de um grupo cadastrado;
+    // fora disso não há para quem avisar.
+    let hangar = null;
+    try {
+      hangar = buscarHangarPorGrupo(carregarConfig(), resultado.grupoId);
+    } catch (e) { /* grupo desconhecido: cai no adminNaoConfigurado abaixo */ }
+    await avisarAdmin(hangar, resultado, opcoes.aoNotificarAdmin);
+  }
+
+  return resultado;
+}
+
+async function conduzir(body, { aoReceber } = {}) {
   const msg = interpretarMensagem(body);
 
   if (msg.ignorar) {
@@ -347,6 +405,7 @@ async function main() {
     // O aviso só existe quando estamos de fato conversando com o WhatsApp.
     resultado = await processar(body, {
       aoReceber: enviar ? (grupoId, texto) => enviarTexto(grupoId, texto) : null,
+      aoNotificarAdmin: enviar ? (destino, texto) => enviarTexto(destino, texto) : null,
     });
   } catch (erro) {
     resultado = {
@@ -378,4 +437,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { processar };
+module.exports = { processar, avisarAdmin };
