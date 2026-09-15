@@ -20,12 +20,27 @@
     },
     {
       "parameters": {
-        "command": "=node \"/home/ubuntu/validador-hangares/scripts/processar-mensagem.js\" \"{{ Buffer.from(JSON.stringify($json.body)).toString('base64') }}\" --enviar"
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Monta o payload em base64 para o Execute Command.\n//\n// Isto vive num nó de CÓDIGO, não numa expressão, por um motivo aprendido na\n// prática em 15/09/2026: expressões do n8n NÃO têm `Buffer`. A expressão\n// resolvia para vazio, o script era chamado sem argumento nenhum e devolvia\n// \"parametros_invalidos\" — a execução aparecia como sucesso e nada acontecia,\n// que é o pior tipo de falha: silenciosa.\n//\n// Base64 também evita o problema de escape: o evento da Evolution tem ~14 KB\n// de JSON com aspas e acentos, e interpolar isso cru num comando de shell\n// quebraria.\nconst body = $input.first().json.body || $input.first().json;\nreturn [{ json: { payloadB64: Buffer.from(JSON.stringify(body)).toString('base64') } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        180,
+        -60
+      ],
+      "id": "preparar-payload",
+      "name": "Preparar Payload"
+    },
+    {
+      "parameters": {
+        "command": "=node \"/home/ubuntu/validador-hangares/scripts/processar-mensagem.js\" \"{{ $json.payloadB64 }}\" --enviar"
       },
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
       "position": [
-        180,
+        420,
         -60
       ],
       "id": "processar-mensagem-whatsapp",
@@ -40,7 +55,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        420,
+        660,
         -60
       ]
     },
@@ -55,7 +70,7 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
       "position": [
-        680,
+        900,
         -160
       ]
     },
@@ -88,7 +103,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        680,
+        900,
         40
       ]
     },
@@ -114,7 +129,7 @@
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
       "position": [
-        920,
+        1140,
         40
       ]
     }
@@ -124,7 +139,7 @@
       "main": [
         [
           {
-            "node": "Processar Mensagem",
+            "node": "Preparar Payload",
             "type": "main",
             "index": 0
           }
@@ -163,6 +178,17 @@
         [
           {
             "node": "Notificar Admin (placeholder)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Payload": {
+      "main": [
+        [
+          {
+            "node": "Processar Mensagem",
             "type": "main",
             "index": 0
           }
