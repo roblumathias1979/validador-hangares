@@ -40,7 +40,7 @@
       "_observacao_placa": "Por enquanto a placa não vem na foto do ticket — o bot deve perguntar ao cliente no WhatsApp. Se o cliente não souber/informar algo genérico, o bot segue com a validação usando essa placa genérica (não deve travar o cliente por falta desse dado). CONFIRMADO pelo usuário: esse valor de placa genérica já foi testado contra o site real e é aceito pela validação de formato do ValidPark. Quando o OCR passar a extrair a placa da própria foto, esse campo deixa de ser necessário.",
       "prazoValidacaoHoras": 2,
       "_observacao_prazo": "Regra de negócio adicional (não é uma validação do próprio ValidPark, que tem sua própria janela de 'Tolerância' bem maior): o bot só deve tentar validar um ticket se a hora de EMISSÃO impressa na foto do ticket estiver a no máximo `prazoValidacaoHoras` horas do momento atual. A data de emissão precisa ser extraída pelo OCR (além do número do ticket) — isso é um requisito novo em relação ao briefing original (seção 3.3), que só previa extrair o número.",
-      "grupoAdministracao": "",
+      "grupoAdministracao": "5511913119423@s.whatsapp.net",
       "cotaMensalForaPrazo": 5,
       "asaas": {
         "customerId": "cus_000015962055",
@@ -49,7 +49,8 @@
         "email": ""
       },
       "diasValidacaoPadrao": 20,
-      "exigeFotoVeiculoNoLocal": false
+      "exigeFotoVeiculoNoLocal": false,
+      "_observacao_administracao": "Conversa PRIVADA do administrador (pushName 'estacionamento', 272447123230847@lid), não um grupo — o campo aceita os dois formatos. Escolha do usuário em 15/09/2026. Ressalva registrada: concentrar os avisos numa pessoa significa que férias, doença ou troca de número deixam os alertas sem ninguém, e nada avisa que isso aconteceu. Trocar para um grupo de administração é mudança só neste campo, sem mexer em código."
     },
     {
       "id": "aibm",
