@@ -24,21 +24,30 @@ const path = require('path');
 const { comTrava, salvarAtomico, lerJson } = require('./trava-arquivo');
 
 const ARQUIVO = path.join(__dirname, '..', '..', 'data', 'aviso-patio.json');
-const REAVISO_MS = 6 * 3600 * 1000;
+// A cada 3 horas enquanto o pátio continuar no limite (definido pelo usuário em
+// 16/09/2026; antes eram 6h). Com a varredura de 15 minutos, é isso que separa
+// "lembrete" de "enxurrada": quem recebe a mesma mensagem de hora em hora para
+// de ler, e aí o aviso deixa de funcionar justamente quando importa.
+const REAVISO_MS = 3 * 3600 * 1000;
+
+// Avisa a partir de 5 vagas livres — regra única para todos os hangares,
+// definida pelo usuário em 16/09/2026.
+//
+// Substitui a regra anterior, de 10% do total com piso de 3, que tentava ser
+// proporcional ao tamanho do pátio. Na prática o que importa não é a proporção
+// e sim quantos carros ainda cabem: cinco vagas livres é pouco tempo de folga
+// tanto no Solojet, de 90 vagas, quanto no AIBM 1, de 12.
+const LIMITE_PADRAO = 5;
 
 /**
  * Limite de vagas livres a partir do qual se avisa.
  *
- * Configurável por hangar (`avisarVagasAbaixoDe`). Sem configuração, 10% do
- * total, com piso de 3 — porque um número fixo trataria igual o Solojet, de 90
- * vagas, e o AIBM 1, de 12: cinco vagas livres é folga num e quase lotação no
- * outro.
+ * `avisarVagasAbaixoDe` continua valendo por hangar, pelo painel, para quem
+ * precisar de um número diferente do padrão. Nenhum hangar usa isso hoje.
  */
 function limiteDe(hangar) {
   if (Number.isFinite(hangar.avisarVagasAbaixoDe)) return hangar.avisarVagasAbaixoDe;
-  const total = Number(hangar.totalVagas) || null;
-  if (!total) return 3;
-  return Math.max(3, Math.round(total * 0.1));
+  return LIMITE_PADRAO;
 }
 
 /**
@@ -127,4 +136,4 @@ function notaParaCliente(disponiveis, limite) {
   return `\n\n⚠️ Atenção: restam apenas ${disponiveis} vaga(s) no pátio.`;
 }
 
-module.exports = { avaliar, mensagemAdmin, notaParaCliente, limiteDe, REAVISO_MS };
+module.exports = { avaliar, mensagemAdmin, notaParaCliente, limiteDe, REAVISO_MS, LIMITE_PADRAO };
