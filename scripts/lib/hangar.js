@@ -98,7 +98,13 @@ async function login(page, hangar) {
 
     if (resultado === 'sucesso') return;
     if (resultado === 'erro') {
-      throw new Error(`Login falhou para o hangar "${hangar.id}" — usuário ou senha incorretos (usuário: ${usuario}).`);
+      // Diagnóstico TAMBÉM na recusa, não só no indeterminado. Em 16/09/2026 o
+      // AIBM 1 foi recusado dentro do fluxo do bot enquanto os mesmos dados
+      // entravam pelo terminal, minutos antes e minutos depois. A diferença
+      // está em algum lugar entre os dois ambientes, e sem medir o que chega
+      // ao campo no instante da recusa isso não sai do campo do palpite.
+      const pista = await registrarDiagnostico(page, hangar, tentativa, usuario, senha);
+      throw new Error(`Login falhou para o hangar "${hangar.id}" — usuário ou senha incorretos (usuário: ${usuario}).${pista}`);
     }
     const pista = await registrarDiagnostico(page, hangar, tentativa, usuario, senha);
     ultimoErro = `Não foi possível confirmar o login do hangar "${hangar.id}" em ${espera / 1000}s `
