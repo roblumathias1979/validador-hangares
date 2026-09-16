@@ -4,7 +4,7 @@
     {
       "id": "solojet",
       "hangar": "Solojet",
-      "grupoWhatsapp": "Grupo Solojet",
+      "grupoWhatsapp": "Bot_Solojet",
       "grupoWhatsappId": "120363431859218622@g.us",
       "validadorUrl": "https://validpark.technext.com.br/login",
       "usuarioEnvVar": "SOLOJET_USUARIO",
@@ -50,7 +50,8 @@
       },
       "diasValidacaoPadrao": 20,
       "exigeFotoVeiculoNoLocal": false,
-      "_observacao_administracao": "Conversa PRIVADA do administrador (pushName 'estacionamento', 272447123230847@lid), não um grupo — o campo aceita os dois formatos. Escolha do usuário em 15/09/2026. Ressalva registrada: concentrar os avisos numa pessoa significa que férias, doença ou troca de número deixam os alertas sem ninguém, e nada avisa que isso aconteceu. Trocar para um grupo de administração é mudança só neste campo, sem mexer em código."
+      "_observacao_administracao": "Conversa PRIVADA do administrador (pushName 'estacionamento', 272447123230847@lid), não um grupo — o campo aceita os dois formatos. Escolha do usuário em 15/09/2026. Ressalva registrada: concentrar os avisos numa pessoa significa que férias, doença ou troca de número deixam os alertas sem ninguém, e nada avisa que isso aconteceu. Trocar para um grupo de administração é mudança só neste campo, sem mexer em código.",
+      "_observacao_grupo": "O que vale para o roteamento é grupoWhatsappId, não este nome: o ID do WhatsApp é imutável e renomear o grupo não o altera (confirmado em 16/09/2026, quando o grupo foi renomeado e nada quebrou). Este campo é só rótulo para leitura humana. ATENÇÃO: apagar e recriar o grupo GERA UM ID NOVO — aí o bot para de reconhecer as mensagens até este config ser atualizado."
     },
     {
       "id": "aibm",
