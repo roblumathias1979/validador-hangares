@@ -107,8 +107,8 @@
     {
       "id": "aibm-2",
       "hangar": "AIBM 2",
-      "grupoWhatsapp": "",
-      "grupoWhatsappId": "",
+      "grupoWhatsapp": "Bot_AIBM2",
+      "grupoWhatsappId": "120363431499963963@g.us",
       "validadorUrl": "https://validpark.technext.com.br/login",
       "usuarioEnvVar": "AIBM_2_USUARIO",
       "senhaEnvVar": "AIBM_2_SENHA",
@@ -135,7 +135,7 @@
       "prazoValidacaoHoras": 2,
       "exigeFotoVeiculoNoLocal": true,
       "_observacao_fraude": "Pátio distinto de 'aibm' — CONFIRMADO pelo usuário (11/09/2026) que são dois pátios separados, não o mesmo hangar duplicado. Mesmo requisito do AIBM: exigir foto do veículo estacionado no local antes de validar. Ainda faltam: login/senha próprios, URL do validador e foto de referência da fachada.",
-      "grupoAdministracao": "",
+      "grupoAdministracao": "5511913119423@s.whatsapp.net",
       "_observacao_validador_compartilhado": "URL e seletores herdados do Solojet: CONFIRMADO pelo usuário (11/09/2026) que o ValidPark (validpark.technext.com.br) é o MESMO site para todos os pátios do aeroporto — só login/senha mudam por hangar. Os seletores foram copiados 1:1 dos do Solojet (mesma UI React/MUI); ainda não testados de verdade contra o login real deste hangar especificamente, então vale reconfirmar no primeiro teste real (pode haver pequenas diferenças de layout por pátio).",
       "cotaMensalForaPrazo": 2,
       "asaas": {
@@ -154,7 +154,8 @@
           "árvores ou gramado ao fundo",
           "aeronave ou hangar de portas azuis visível"
         ]
-      }
+      },
+      "_observacao_grupo": "Grupo criado em 16/09/2026. Login BOT_AIBM2, seletores e leitura de vagas testados contra o site real na mesma data: pátio de 41 vagas, 39 livres. ATENÇÃO: este hangar exige foto do veículo no local (exigeFotoVeiculoNoLocal), e a conferência fica bem melhor com fotos de referência do pátio subidas pelo painel — sem elas, a comparação usa só a descrição em texto de localReferencia."
     },
     {
       "id": "solojet-shares",
