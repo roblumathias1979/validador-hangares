@@ -72,6 +72,18 @@ function interpretarResposta(texto) {
   return null;
 }
 
+// Pedido de situação do pátio. Exige a palavra "pátio" ou "vagas" junto de um
+// verbo de consulta, em vez de reagir a qualquer menção: num grupo as pessoas
+// conversam, e "acabou a vaga aí?" entre elas não deve disparar uma consulta
+// que abre navegador e loga no site.
+const REGEX_STATUS_PATIO = /\b(status|situa[çc][ãa]o|como\s+est[áa]|quantas?|tem)\b[^?!.]{0,40}\b(p[áa]tio|vagas?|estacionamento)\b/i;
+
+function ehPedidoDeStatus(texto) {
+  const t = (texto || '').trim();
+  if (!t || t.length > 120) return false; // frase longa raramente é comando
+  return REGEX_STATUS_PATIO.test(t);
+}
+
 function ehGrupo(remoteJid) {
   return typeof remoteJid === 'string' && remoteJid.endsWith('@g.us');
 }
@@ -148,7 +160,7 @@ function interpretarMensagem(body) {
     // houver nenhuma para esta pessoa, aí sim a mensagem é ignorada em
     // silêncio, sem o bot responder a toda conversa do grupo.
     if (textoLivre) {
-      return { ...base, tipo: 'texto', texto: textoLivre, resposta: interpretarResposta(textoLivre) };
+      return { ...base, tipo: 'texto', texto: textoLivre, resposta: interpretarResposta(textoLivre), pedeStatusPatio: ehPedidoDeStatus(textoLivre) };
     }
     return {
       ...base,
@@ -174,4 +186,4 @@ function interpretarMensagem(body) {
   };
 }
 
-module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta };
+module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus };

@@ -35,6 +35,7 @@ const { avaliarLocal } = require('./lib/conferir-local');
 const pendencias = require('./lib/pendencias');
 const registro = require('./lib/registro');
 const { lerTicket, lerLocal } = require('./ocr-ticket');
+const { consultarPatio } = require('./consultar-patio');
 
 const EVOLUTION_URL = process.env.EVOLUTION_URL || 'http://127.0.0.1:8080';
 const EVOLUTION_INSTANCE = process.env.EVOLUTION_INSTANCE || 'validador-hangares';
@@ -311,6 +312,27 @@ async function conduzir(body, { aoReceber } = {}) {
   }
 
   const hangar = buscarHangarPorGrupo(carregarConfig(), msg.grupoId);
+
+  // ---- pedido de situação do pátio ----
+  // Vem ANTES das pendências: quem tem um ticket em aberto também pode querer
+  // saber das vagas, e responder "ainda preciso da foto" a uma pergunta sobre
+  // o pátio seria ignorar o que foi perguntado.
+  if (msg.tipo === 'texto' && msg.pedeStatusPatio) {
+    if (aoReceber) {
+      try { await aoReceber(msg.grupoId, '🔎 Consultando o pátio...'); } catch (e) { /* aviso é conforto */ }
+    }
+    const patio = await consultarPatio(hangar.id);
+    return {
+      status: patio.status,
+      hangarId: hangar.id,
+      grupoId: msg.grupoId,
+      mensagemWhatsapp: patio.mensagemWhatsapp,
+      notificarAdmin: patio.notificarAdmin === true,
+      responder: true,
+      etapa: 'status_patio',
+      vagasDisponiveis: patio.disponiveis ?? null,
+    };
+  }
 
   // ---- resposta a uma pergunta anterior ----
   if (msg.tipo === 'texto') {
