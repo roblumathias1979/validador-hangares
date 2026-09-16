@@ -186,10 +186,13 @@ function promptSomenteLocal(hangar, temFotosReferencia = false) {
 
 Responda APENAS com um JSON (sem markdown, sem texto antes ou depois) neste formato exato:
 {
+  "placa": "<a placa do veículo, se estiver legível na foto; só letras e números, sem hífen. null se não der para ler com certeza>",
   "cenario": "<uma ou duas frases sobre o que se vê ao redor do veículo: tipo de piso, se há demarcação pintada, se há parede atrás e de que material, o que aparece ao fundo. Descreva o que REALMENTE vê, sem tentar encaixar na referência>",
   "local": "compativel" | "incompativel" | "indeterminado",
   "localMotivo": "<por que escolheu esse valor, citando o que viu>"
 }
+
+Sobre a PLACA: só preencha se conseguir ler os caracteres com certeza. Placa borrada, cortada ou em ângulo difícil é null — um caractere errado registra o veículo de outra pessoa no sistema, e é melhor não informar do que informar errado.
 
 Referência deste hangar:
 

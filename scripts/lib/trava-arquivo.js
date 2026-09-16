@@ -96,4 +96,51 @@ function lerJson(arquivoEstado, padrao = {}) {
   }
 }
 
-module.exports = { comTrava, salvarAtomico, lerJson, TRAVA_ABANDONADA_MS, TRAVA_ESPERA_MAX_MS };
+/**
+ * Versão assíncrona, para quem precisa segurar a trava durante trabalho longo
+ * (chamada de modelo, navegador). A síncrona não serve: `Atomics.wait` bloqueia
+ * o event loop, e a função protegida aqui é um `await`.
+ *
+ * Existe por um caso real (16/09/2026): fotos enviadas em álbum chegam com ~1
+ * segundo de diferença, mas cada uma leva ~10s para processar. Sem serializar,
+ * a segunda foto começava antes de a primeira registrar a pendência, e o fluxo
+ * de dois passos se perdia — as duas eram tratadas como ticket.
+ */
+async function comTravaAsync(arquivoEstado, fn, { esperaMaxMs = 120000 } = {}) {
+  const arquivoTrava = `${arquivoEstado}.lock`;
+  fs.mkdirSync(path.dirname(arquivoEstado), { recursive: true });
+  const inicio = Date.now();
+  let fd = null;
+
+  while (fd === null) {
+    try {
+      fd = fs.openSync(arquivoTrava, 'wx');
+    } catch (erro) {
+      if (erro.code !== 'EEXIST') throw erro;
+      let idade = 0;
+      try {
+        idade = Date.now() - fs.statSync(arquivoTrava).mtimeMs;
+      } catch (e) { continue; }
+      // Abandono mais folgado que na versão síncrona: aqui o trabalho protegido
+      // envolve rede e navegador, e 10s seria curto demais.
+      if (idade > esperaMaxMs) {
+        try { fs.unlinkSync(arquivoTrava); } catch (e) { /* outro já removeu */ }
+        continue;
+      }
+      if (Date.now() - inicio > esperaMaxMs) {
+        throw new Error(`Não consegui obter a trava (${arquivoTrava}) em ${esperaMaxMs}ms.`);
+      }
+      await new Promise((r) => setTimeout(r, 200));
+    }
+  }
+
+  try {
+    fs.writeSync(fd, `${process.pid}`);
+    return await fn();
+  } finally {
+    try { fs.closeSync(fd); } catch (e) { /* ignora */ }
+    try { fs.unlinkSync(arquivoTrava); } catch (e) { /* ignora */ }
+  }
+}
+
+module.exports = { comTrava, comTravaAsync, salvarAtomico, lerJson, TRAVA_ABANDONADA_MS, TRAVA_ESPERA_MAX_MS };

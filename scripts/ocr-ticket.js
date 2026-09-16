@@ -32,6 +32,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const { carregarConfig, buscarHangar } = require('./lib/hangar');
 
 const { blocoPromptLocal, promptSomenteLocal } = require('./lib/conferir-local');
+const { extrairPlaca } = require('./lib/whatsapp');
 const referencias = require('./lib/referencias');
 
 const MODELO = 'claude-sonnet-5';
@@ -354,6 +355,10 @@ async function lerLocal({ base64, mediaType, hangar }) {
     local: extraido.local || 'indeterminado',
     localMotivo: extraido.localMotivo || null,
     cenario: extraido.cenario || null,
+    // Placa lida da própria foto do veículo. Passa pelo mesmo extrairPlaca dos
+    // outros caminhos: se o modelo devolver algo que não é uma placa válida,
+    // vira null e o fluxo cai na genérica, em vez de gravar lixo no ValidPark.
+    placa: extrairPlaca(String(extraido.placa || '')),
   };
 }
 

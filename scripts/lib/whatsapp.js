@@ -187,6 +187,20 @@ function interpretarMensagem(body) {
     if (textoLivre) {
       return { ...base, tipo: 'texto', texto: textoLivre, resposta: interpretarResposta(textoLivre), pedidoPatio: interpretarPedidoPatio(textoLivre) };
     }
+    // Álbum: quando várias fotos são enviadas juntas, o WhatsApp manda primeiro
+    // um `albumMessage` que é só metadado — anuncia quantas imagens vêm e não
+    // carrega nenhuma. As fotos chegam logo atrás, como mensagens separadas.
+    // Ignorar é o certo, mas com motivo próprio: cair em "sem imagem nem texto"
+    // escondia o que estava acontecendo (16/09/2026).
+    if (msg.albumMessage) {
+      return {
+        ...base,
+        tipo: 'album',
+        ignorar: true,
+        motivoIgnorar: `aviso de álbum com ${msg.albumMessage.expectedImageCount ?? '?'} imagem(ns) — as fotos vêm em mensagens separadas`,
+      };
+    }
+
     return {
       ...base,
       tipo: 'outro',

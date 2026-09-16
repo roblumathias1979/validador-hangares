@@ -30,6 +30,7 @@ const { execFileSync } = require('child_process');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 const { carregarConfig, buscarHangarPorGrupo } = require('./lib/hangar');
+const { comTravaAsync } = require('./lib/trava-arquivo');
 const { interpretarMensagem } = require('./lib/whatsapp');
 const { avaliarLocal } = require('./lib/conferir-local');
 const pendencias = require('./lib/pendencias');
@@ -277,7 +278,7 @@ async function avisarAdmin(hangar, resultado, aoNotificarAdmin) {
 }
 
 async function processar(body, opcoes = {}) {
-  const resultado = await conduzir(body, opcoes);
+  const resultado = await comSerializacao(body, () => conduzir(body, opcoes));
 
   // interpretarMensagem é pura e barata; chamá-la de novo aqui evita ter que
   // carregar o remetente por todos os pontos de retorno de conduzir().
@@ -334,6 +335,32 @@ async function processar(body, opcoes = {}) {
   }
 
   return resultado;
+}
+
+/**
+ * Serializa o processamento por PESSOA. Duas mensagens da mesma pessoa no mesmo
+ * grupo são tratadas uma de cada vez; de pessoas diferentes seguem em paralelo.
+ *
+ * Existe por um caso real (16/09/2026): fotos enviadas em álbum chegam com ~1
+ * segundo de diferença, e cada uma leva ~10s para processar. Sem serializar, a
+ * segunda foto começava antes de a primeira registrar a pendência — as duas
+ * eram tratadas como ticket, e o fluxo de dois passos se perdia.
+ *
+ * Falhar a trava não pode impedir o atendimento: nesse caso segue sem
+ * serializar, que é o comportamento de antes.
+ */
+async function comSerializacao(body, fn) {
+  const msg = interpretarMensagem(body);
+  if (msg.ignorar || !msg.grupoId || !msg.remetenteId) return fn();
+  const chave = path.join(
+    __dirname, '..', 'data', 'filas',
+    `${msg.grupoId}-${msg.remetenteId}`.replace(/[^a-z0-9.@-]/gi, '_')
+  );
+  try {
+    return await comTravaAsync(chave, fn);
+  } catch (e) {
+    return fn();
+  }
 }
 
 async function conduzir(body, { aoReceber } = {}) {
@@ -460,6 +487,14 @@ async function conduzir(body, { aoReceber } = {}) {
     const local = avaliarLocal(hangar, r.local, r.localMotivo);
     const infoLocal = { local: local.local, localMotivo: local.motivo || null, cenario: r.cenario || null };
 
+    // Placa, em ordem de confiança: a lida na foto do veículo (é o próprio
+    // carro, a fonte mais direta), depois a que o cliente escreveu na legenda
+    // do ticket, e por fim a genérica do hangar.
+    const placaFinal = r.placa || pedido.placa || hangar.placaGenerica || 'AAA0000';
+    pedido.placa = placaFinal;
+    pedido.placaEhGenerica = !r.placa && !pedido.placa;
+    if (r.placa) infoLocal.placaLidaDaFoto = r.placa;
+
     if (local.bloqueia) {
       return {
         ...infoLocal,
@@ -523,14 +558,32 @@ async function conduzir(body, { aoReceber } = {}) {
     };
   }
 
-  // Hangar antifraude: em vez de validar agora, pede a foto do veículo. O
-  // ticket já está lido e fica guardado na pendência — a segunda foto só
-  // precisa mostrar o carro no pátio.
+  // Hangar antifraude: CONSULTA primeiro, pede a foto depois.
+  //
+  // A ordem importa. Pedir a foto do carro antes de saber se o ticket serve
+  // faria o cliente ir até o veículo, fotografar e voltar — para só então
+  // ouvir que o ticket já tinha sido usado ou está fora do prazo. Conferir
+  // antes custa uma consulta barata e evita esse trabalho perdido.
   if (hangar.exigeFotoVeiculoNoLocal) {
-    const placaPrimeiraFoto = msg.placa || hangar.placaGenerica || 'AAA0000';
+    const previa = rodarScript('consultar-ticket.js', [hangar.id, ocr.ticket]);
+    const naoServe = previa.status !== 'consulta_ok' || previa.jaValidado === true;
+    if (naoServe) {
+      return {
+        ...infoLocalVazio,
+        status: previa.status,
+        hangarId: hangar.id,
+        grupoId: msg.grupoId,
+        ticket: ocr.ticket,
+        mensagemWhatsapp: previa.mensagemWhatsapp,
+        notificarAdmin: previa.notificarAdmin === true,
+        responder: true,
+        etapa: 'consulta',
+      };
+    }
+
     pendencias.registrar(msg.grupoId, msg.remetenteId, {
       ticket: ocr.ticket,
-      placa: placaPrimeiraFoto,
+      placa: msg.placa || null,       // da legenda, se veio; senão a foto do carro decide
       placaEhGenerica: !msg.placa,
       dataEmissaoIso: ocr.dataEmissaoIso,
       hangarId: hangar.id,
@@ -541,7 +594,9 @@ async function conduzir(body, { aoReceber } = {}) {
       hangarId: hangar.id,
       grupoId: msg.grupoId,
       ticket: ocr.ticket,
-      mensagemWhatsapp: `Li o ticket ${ocr.ticket}. Agora mande uma foto do veículo estacionado no hangar, mostrando um pouco do entorno (piso, parede ou o que aparece ao fundo) — é o que confirma que o carro está no local. Depois dela eu valido.`,
+      mensagemWhatsapp: `Recebi seu ticket ${ocr.ticket} e verifiquei que ele pode ser validado. `
+        + 'Agora mande uma foto do veículo estacionado no hangar, com a placa visível e um pouco do entorno aparecendo. '
+        + 'Vou usar a placa da foto para preencher a validação.',
       notificarAdmin: false,
       responder: true,
       etapa: 'pedido_foto_veiculo',
@@ -560,6 +615,7 @@ async function conduzir(body, { aoReceber } = {}) {
   // carro aparece apenas um pedaço de asfalto ou de parede branca, que existe
   // no aeroporto inteiro, e travar por isso acusaria de fraude cliente
   // honesto por causa do enquadramento da foto.
+  const infoLocalVazio = {};
   const local = avaliarLocal(hangar, ocr.local, ocr.localMotivo);
 
   // O veredito viaja junto do resultado mesmo quando NÃO bloqueia. Antes ele só
