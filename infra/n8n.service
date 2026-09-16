@@ -1,0 +1,27 @@
+[Unit]
+Description=n8n - Validador de Tickets Hangares SBJD
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/validador-hangares
+Environment=NODES_EXCLUDE=[]
+Environment=N8N_USER_FOLDER=/home/ubuntu/validador-hangares/n8n/data
+Environment=N8N_SECURE_COOKIE=false
+Environment=N8N_LOG_LEVEL=debug
+# Expurgo automatico do historico de execucoes (16/09/2026).
+# Motivo NAO e espaco: o banco tem ~6 MB com 57 execucoes. E privacidade —
+# cada execucao guarda o payload do WhatsApp, com nome e telefone de cliente,
+# e nao ha razao para isso viver indefinidamente no servidor.
+Environment=EXECUTIONS_DATA_PRUNE=true
+# 168 horas = 7 dias. A unidade e HORA, nao dia.
+Environment=EXECUTIONS_DATA_MAX_AGE=168
+# Teto de seguranca: mesmo dentro dos 7 dias, nao passa disso.
+Environment=EXECUTIONS_DATA_PRUNE_MAX_COUNT=5000
+ExecStart=/usr/bin/n8n start
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

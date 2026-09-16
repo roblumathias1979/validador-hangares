@@ -49,7 +49,9 @@ git pull
 | `ANTHROPIC_API_KEY` | configurada no `.env` do servidor e **testada com sucesso** |
 | Evolution API | **não instalada** |
 | Número de WhatsApp dedicado | **não providenciado** |
-| Acesso ao servidor | via EC2 Instance Connect (navegador). Sem upload de arquivo. |
+| Acesso ao servidor | via EC2 Instance Connect (navegador) ou SSH com `~/.ssh/validador.pem` |
+| Evolution API | **instalada** (v2.3.7, Docker, com Postgres e Redis), WhatsApp pareado como `BOT_OnePark` |
+| Arquivos de infraestrutura | versionados em `infra/` desde 16/09/2026 — a cópia que vale é a do servidor |
 
 ~~O upgrade de memória é pré-requisito~~ — **feito em 15/09/2026**: a instância
 foi para `t3.small` (1.9 GB) e ganhou um Elastic IP (`3.136.166.82`), que sobrevive
