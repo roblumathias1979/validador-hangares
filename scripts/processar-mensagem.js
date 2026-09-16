@@ -595,6 +595,12 @@ async function conduzir(body, { aoReceber } = {}) {
         hangarId: hangar.id,
         grupoId: msg.grupoId,
         ticket: ocr.ticket,
+        // O motivo TÉCNICO da falha vem junto. Sem ele, um erro na consulta
+        // chegava ao log do n8n e ao administrador como "não conseguimos
+        // consultar" e nada mais — sem timeout, sem seletor, sem nome de
+        // exceção. Aconteceu em 16/09/2026 no AIBM 1: para descobrir a causa
+        // foi preciso rodar o script à mão, e aí já não reproduzia.
+        mensagem: previa.mensagem || null,
         mensagemWhatsapp: previa.mensagemWhatsapp,
         notificarAdmin: previa.notificarAdmin === true,
         responder: true,
