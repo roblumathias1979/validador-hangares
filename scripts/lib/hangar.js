@@ -100,7 +100,7 @@ async function login(page, hangar) {
     if (resultado === 'erro') {
       throw new Error(`Login falhou para o hangar "${hangar.id}" — usuário ou senha incorretos (usuário: ${usuario}).`);
     }
-    const pista = await registrarDiagnostico(page, hangar, tentativa);
+    const pista = await registrarDiagnostico(page, hangar, tentativa, usuario, senha);
     ultimoErro = `Não foi possível confirmar o login do hangar "${hangar.id}" em ${espera / 1000}s `
       + `(tentativa ${tentativa} de ${TENTATIVAS}) — nem o painel nem a mensagem de erro apareceram.${pista}`;
   }
@@ -120,7 +120,7 @@ async function login(page, hangar) {
  * Nunca deixa a falha do diagnóstico virar a falha do login — o erro real é o
  * que interessa, e mascará-lo seria pior que não ter diagnóstico nenhum.
  */
-async function registrarDiagnostico(page, hangar, tentativa) {
+async function registrarDiagnostico(page, hangar, tentativa, usuario, senha) {
   try {
     const pasta = path.join(__dirname, '..', '..', 'data', 'diagnostico');
     fs.mkdirSync(pasta, { recursive: true });
@@ -135,9 +135,25 @@ async function registrarDiagnostico(page, hangar, tentativa) {
     const aindaNoLogin = await page.locator((hangar.seletores || {}).campoUsuario || 'input')
       .first().isVisible().catch(() => null);
 
+    // Quantos caracteres de fato chegaram aos campos. NUNCA o conteúdo: só o
+    // tamanho, comparado com o que devia estar lá. Distingue duas causas que
+    // produzem exatamente a mesma tela — `fill` que entregou o texto pela
+    // metade num campo React, e credencial que o site recusou por inteiro.
+    const preenchido = {};
+    for (const [nome, seletor, esperado] of [
+      ['usuario', (hangar.seletores || {}).campoUsuario, usuario],
+      ['senha', (hangar.seletores || {}).campoSenha, senha],
+    ]) {
+      if (!seletor) continue;
+      const lido = await page.inputValue(seletor).catch(() => null);
+      preenchido[nome] = lido === null
+        ? 'não consegui ler'
+        : `${lido.length} de ${esperado.length} caracteres${lido.length === esperado.length ? '' : ' — INCOMPLETO'}`;
+    }
+
     await page.screenshot({ path: `${base}.png`, fullPage: false }).catch(() => {});
     fs.writeFileSync(`${base}.json`, JSON.stringify({
-      hangar: hangar.id, tentativa, em: new Date().toISOString(), url, titulo, aindaNoLogin,
+      hangar: hangar.id, tentativa, em: new Date().toISOString(), url, titulo, aindaNoLogin, preenchido,
     }, null, 2));
 
     limparDiagnosticosAntigos(pasta);
@@ -180,7 +196,16 @@ async function tentarLogin(page, hangar, seletores, usuario, senha, espera) {
   // visibilidade por padrão, evita o falso positivo).
   return Promise.race([
     page.waitForSelector(seletores.areaVagasDisponiveis, { state: 'visible', timeout: espera }).then(() => 'sucesso'),
-    page.waitForSelector('text=/usu[áa]rio ou senha incorretos?/i', { state: 'visible', timeout: espera }).then(() => 'erro'),
+    // NÃO casar por "usuário": a tela escreve "Usúario" — o acento está no U,
+    // não no A. A regex anterior (`usu[áa]rio`) nunca casou com o site real, e
+    // o efeito foi pior que um erro visível: toda recusa de credencial era
+    // classificada como "não consegui confirmar", esperava os 15s inteiros,
+    // tentava de novo e chegava ao cliente como falha de sistema. O erro ficou
+    // escondido até uma foto de tela mostrar a mensagem escrita na página.
+    //
+    // Agora casa pelo trecho sem acento nenhum, que é o que o site tem de
+    // estável — e sobrevive ao dia em que corrigirem a grafia.
+    page.waitForSelector('text=/ou\\s+senha\\s+incorret/i', { state: 'visible', timeout: espera }).then(() => 'erro'),
   ]).catch(() => 'indeterminado');
 }
 
