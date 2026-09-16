@@ -51,6 +51,7 @@ const SENHA = process.env.PAINEL_SENHA || '';
 const { obterUsoMensal, obterRestante } = require(path.join(RAIZ, 'scripts', 'lib', 'cota-fora-prazo'));
 const registro = require(path.join(RAIZ, 'scripts', 'lib', 'registro'));
 const { lerJson } = require(path.join(RAIZ, 'scripts', 'lib', 'trava-arquivo'));
+const usuarios = require('./usuarios');
 const SAUDE = path.join(RAIZ, 'data', 'saude.json');
 
 // Teto do slider do ValidPark. 20 dias é exatamente o limite — não há folga, e
@@ -151,7 +152,7 @@ const CAMPOS = {
 
 // --------------------------------------------------------------------- estado
 
-function montarEstado() {
+function montarEstado(usuario = null) {
   const config = lerConfig();
   const resumo = registro.resumoPorHangar();
   const hangares = config.hangares.map((h) => ({
@@ -188,22 +189,41 @@ function montarEstado() {
     // funciona mesmo com o WhatsApp caído — justamente quando o aviso por
     // WhatsApp não pode chegar.
     saude: lerJson(SAUDE, null),
+    usuario,
+    semUsuarios: !usuarios.existeAlgum(),
     geradoEm: new Date().toISOString(),
   };
 }
 
 // ---------------------------------------------------------------------- HTTP
 
+/**
+ * Autentica pelo cadastro de usuários. Devolve o usuário ou null.
+ *
+ * PAINEL_SENHA continua valendo como RESGATE, e só enquanto não houver nenhum
+ * usuário cadastrado. Sem isso, o primeiro acesso seria impossível — e se o
+ * último usuário fosse perdido, a única saída seria editar arquivo por SSH.
+ * Assim que o primeiro usuário existe, a senha única para de funcionar.
+ */
 function autorizado(req) {
-  if (!SENHA) return false; // sem senha configurada, ninguém entra
   const cabecalho = req.headers.authorization || '';
-  if (!cabecalho.startsWith('Basic ')) return false;
-  const [, valor] = Buffer.from(cabecalho.slice(6), 'base64').toString().split(':');
-  // Comparação de tempo constante evita vazar o tamanho/prefixo da senha por
-  // diferença de tempo de resposta.
-  const a = Buffer.from(valor || '');
-  const b = Buffer.from(SENHA);
-  return a.length === b.length && require('crypto').timingSafeEqual(a, b);
+  if (!cabecalho.startsWith('Basic ')) return null;
+  const decodificado = Buffer.from(cabecalho.slice(6), 'base64').toString();
+  const corte = decodificado.indexOf(':');
+  const nome = corte >= 0 ? decodificado.slice(0, corte) : '';
+  const valor = corte >= 0 ? decodificado.slice(corte + 1) : '';
+
+  if (!usuarios.existeAlgum()) {
+    if (!SENHA) return null;
+    // Comparação de tempo constante evita vazar o tamanho/prefixo da senha por
+    // diferença de tempo de resposta.
+    const a = Buffer.from(valor || '');
+    const b = Buffer.from(SENHA);
+    const bate = a.length === b.length && require('crypto').timingSafeEqual(a, b);
+    return bate ? { nome: '(senha de resgate)', somenteLeitura: false, resgate: true } : null;
+  }
+
+  return usuarios.autenticar(nome, valor);
 }
 
 function json(res, codigo, corpo) {
@@ -227,7 +247,8 @@ function lerCorpo(req) {
 }
 
 const servidor = http.createServer(async (req, res) => {
-  if (!autorizado(req)) {
+  const usuario = autorizado(req);
+  if (!usuario) {
     res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="Validador"' });
     res.end('Acesso restrito.');
     return;
@@ -235,12 +256,39 @@ const servidor = http.createServer(async (req, res) => {
 
   const url = new URL(req.url, `http://${req.headers.host}`);
 
+  // Escrita exige conta com permissão. Checado aqui, num lugar só, em vez de
+  // em cada rota — esquecer numa rota nova seria fácil demais.
+  if (req.method !== 'GET' && usuario.somenteLeitura) {
+    json(res, 403, { erro: 'Sua conta é somente leitura.' });
+    return;
+  }
+
   try {
     if (req.method === 'GET' && url.pathname === '/') {
       const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf-8');
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(html);
       return;
+    }
+
+    if (url.pathname === '/api/usuarios') {
+      if (req.method === 'GET') {
+        json(res, 200, { usuarios: usuarios.listar(), minSenha: usuarios.MIN_SENHA, eu: usuario.nome });
+        return;
+      }
+      if (req.method === 'POST') {
+        const c = await lerCorpo(req);
+        try {
+          if (c.acao === 'trocarSenha') { json(res, 200, { ok: true, ...usuarios.trocarSenha(c.nome, c.senha) }); return; }
+          if (c.acao === 'remover') {
+            // Remover a si mesmo derrubaria a própria sessão no meio do uso.
+            if (c.nome === usuario.nome) { json(res, 400, { erro: 'Você não pode remover a própria conta.' }); return; }
+            json(res, 200, { ok: true, ...usuarios.remover(c.nome) }); return;
+          }
+          json(res, 200, { ok: true, ...usuarios.criar(c) });
+        } catch (e) { json(res, 400, { erro: e.message }); }
+        return;
+      }
     }
 
     if (req.method === 'GET' && url.pathname === '/api/validacoes') {
@@ -256,7 +304,7 @@ const servidor = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && url.pathname === '/api/estado') {
-      json(res, 200, montarEstado());
+      json(res, 200, montarEstado(usuario));
       return;
     }
 

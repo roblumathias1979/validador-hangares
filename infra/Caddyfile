@@ -9,10 +9,16 @@
 # 8081 e 5678 seguem bloqueadas no security group, e devem continuar.
 
 validador.1park.com.br {
-	# Log de acesso: sem ele nao ha como saber se alguem esta tentando
-	# adivinhar a senha, que e a unica barreira depois do TLS.
+	# Log de acesso no journald, nao em arquivo: a unidade systemd oficial do
+	# Caddy roda com ProtectSystem, que deixa /var/log somente leitura — gravar
+	# em arquivo falha com "permission denied" e o servico nem sobe (testado em
+	# 16/09/2026). O journald nao tem esse problema e ja tem rotacao pronta.
+	#
+	# Sem log nao ha como perceber alguem tentando adivinhar a senha, que e a
+	# unica barreira depois do TLS. Para ver as tentativas:
+	#   sudo journalctl -u caddy -f | grep painel
 	log {
-		output file /var/log/caddy/painel-acesso.log
+		output stderr
 		format json
 	}
 

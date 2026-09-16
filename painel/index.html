@@ -99,6 +99,28 @@
     </div>
     <div id="historico"></div>
   </div>
+
+  <div class="secao" id="sec-usuarios">
+    <h2>Quem pode acessar</h2>
+    <div class="sub" id="sub-usuarios">carregando…</div>
+    <div id="lista-usuarios"></div>
+    <div class="campos" style="margin-top:12px">
+      <div><label for="u-nome">novo usuário</label>
+        <input id="u-nome" type="text" placeholder="ex: maria.silva">
+        <div class="dica">3 a 32 caracteres: letras, números, ponto, hífen, sublinhado.</div></div>
+      <div><label for="u-senha">senha</label>
+        <input id="u-senha" type="password" autocomplete="new-password">
+        <div class="dica" id="dica-senha">mínimo de caracteres carregando…</div></div>
+    </div>
+    <div class="linha-check" style="margin-bottom:10px">
+      <input type="checkbox" id="u-leitura">
+      <label for="u-leitura" style="margin:0">Somente leitura (vê tudo, não altera configuração)</label>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <button onclick="criarUsuario(this)">Criar usuário</button>
+      <span class="msg" id="msg-usuarios"></span>
+    </div>
+  </div>
 </main>
 
 <script>
@@ -283,10 +305,69 @@ async function carregarHistorico() {
     </tr>`).join('')}</tbody></table>`;
 }
 
+async function carregarUsuarios() {
+  const d = await (await fetch('/api/usuarios')).json();
+  $('#dica-senha').textContent = `Mínimo de ${d.minSenha} caracteres.`;
+  $('#sub-usuarios').textContent = d.usuarios.length
+    ? `${d.usuarios.length} conta(s) · você está como "${d.eu}" · 5 tentativas erradas bloqueiam por 15 minutos`
+    : 'Nenhuma conta criada ainda — o acesso está pela senha de resgate do .env. Crie a primeira conta: a senha única deixa de funcionar assim que existir uma.';
+
+  $('#lista-usuarios').innerHTML = d.usuarios.length ? `<table>
+    <thead><tr><th>usuário</th><th>perfil</th><th>último acesso</th><th></th></tr></thead>
+    <tbody>${d.usuarios.map(u => `<tr>
+      <td><b>${u.nome}</b>${u.nome === d.eu ? ' <span class="st">você</span>' : ''}</td>
+      <td>${u.somenteLeitura ? '<span class="st">somente leitura</span>' : '<span class="st bom">pode alterar</span>'}</td>
+      <td>${u.ultimoAcesso ? quando(u.ultimoAcesso) : 'nunca'}</td>
+      <td style="text-align:right;white-space:nowrap">
+        <button class="sec" onclick="trocarSenha('${u.nome}')">trocar senha</button>
+        ${u.nome === d.eu ? '' : `<button class="sec" onclick="removerUsuario('${u.nome}')">remover</button>`}
+      </td></tr>`).join('')}</tbody></table>` : '';
+}
+
+async function acaoUsuario(corpo, msgEl) {
+  msgEl.className = 'msg'; msgEl.textContent = 'enviando…';
+  const r = await fetch('/api/usuarios', {
+    method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(corpo),
+  });
+  const d = await r.json();
+  if (!r.ok) { msgEl.className = 'msg erro'; msgEl.textContent = d.erro || 'erro'; return false; }
+  msgEl.className = 'msg ok'; msgEl.textContent = 'feito';
+  await carregarUsuarios();
+  return true;
+}
+
+async function criarUsuario(botao) {
+  botao.disabled = true;
+  const ok = await acaoUsuario({
+    nome: $('#u-nome').value, senha: $('#u-senha').value, somenteLeitura: $('#u-leitura').checked,
+  }, $('#msg-usuarios'));
+  if (ok) { $('#u-nome').value = ''; $('#u-senha').value = ''; $('#u-leitura').checked = false; }
+  botao.disabled = false;
+}
+
+async function trocarSenha(nome) {
+  const senha = prompt(`Nova senha para "${nome}":`);
+  if (!senha) return;
+  await acaoUsuario({ acao: 'trocarSenha', nome, senha }, $('#msg-usuarios'));
+}
+
+async function removerUsuario(nome) {
+  if (!confirm(`Remover o acesso de "${nome}"?`)) return;
+  await acaoUsuario({ acao: 'remover', nome }, $('#msg-usuarios'));
+}
+
 carregar().then(() => {
   $('#f-hangar').innerHTML = '<option value="">todos os hangares</option>' +
     estado.hangares.filter(h => h.ativo).map(h => `<option value="${h.id}">${h.nome}</option>`).join('');
   carregarHistorico();
+  carregarUsuarios();
+  // Conta somente leitura não deve ver botões que vão falhar com 403.
+  if (estado.usuario && estado.usuario.somenteLeitura) {
+    document.querySelectorAll('button').forEach(b => {
+      if (!b.classList.contains('sec')) b.style.display = 'none';
+    });
+    $('#sec-usuarios').style.display = 'none';
+  }
 });
 </script>
 </body>
