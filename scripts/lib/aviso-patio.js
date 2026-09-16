@@ -47,7 +47,16 @@ function limiteDe(hangar) {
  * `disponiveis` vem da leitura que já foi feita; se vier null (o site mudou o
  * texto, por exemplo), não inventa nada — sem número não há aviso.
  */
-function avaliar(hangar, disponiveis, total = null) {
+/**
+ * `persistir: false` avalia SEM gravar — para simulações.
+ *
+ * Avaliar tem efeito colateral por natureza: marca que o hangar já foi avisado,
+ * e é isso que impede a enxurrada de mensagens repetidas. Uma simulação que
+ * grave esse marcador CONSOME o alerta — a varredura real seguinte acha que já
+ * avisou e fica calada. Aconteceu em 16/09/2026: rodei `--simular` no Alljet
+ * lotado, o timer entrou 90 segundos depois e o grupo não recebeu nada.
+ */
+function avaliar(hangar, disponiveis, total = null, { persistir = true } = {}) {
   if (!Number.isFinite(disponiveis)) return null;
 
   const limite = limiteDe({ ...hangar, totalVagas: total ?? hangar.totalVagas });
@@ -84,7 +93,7 @@ function avaliar(hangar, disponiveis, total = null) {
       avisadoEm: acao && acao !== 'normalizou' ? new Date(agora).toISOString() : (baixo ? anterior.avisadoEm : null),
       em: new Date(agora).toISOString(),
     };
-    salvarAtomico(ARQUIVO, estado);
+    if (persistir) salvarAtomico(ARQUIVO, estado);
 
     if (!acao) return null;
     return { acao, disponiveis, total, limite, hangarId: hangar.id, hangarNome: hangar.hangar || hangar.id };

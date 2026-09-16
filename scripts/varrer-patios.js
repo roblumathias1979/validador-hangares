@@ -43,7 +43,10 @@ async function varrer({ simular = false } = {}) {
       // Sem forçar `--sem-cache`: se um cliente perguntou o status há menos de
       // um minuto, aquele número serve e poupa um navegador.
       const patio = await consultarPatio(hangar.id);
-      const aviso = avisoPatio.avaliar(hangar, patio.disponiveis, patio.total);
+      // Em simulação NÃO grava: avaliar marca o hangar como avisado, e esse
+      // marcador é o que impede a repetição. Simular gravando consumiria o
+      // alerta — a varredura real seguinte acharia que já avisou.
+      const aviso = avisoPatio.avaliar(hangar, patio.disponiveis, patio.total, { persistir: !simular });
 
       const linha = {
         hangar: hangar.id,
