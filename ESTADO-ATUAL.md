@@ -251,6 +251,31 @@ a sessão do WhatsApp não cai — aí entra a validação.
 
 ---
 
+## Reuso de foto — o que está fechado e o que não está
+
+O fluxo de dois passos (ticket primeiro, foto do carro depois) melhorou a ordem
+mas cortou o vínculo entre a foto e o ticket: a foto do carro não tem nada que a
+ligue àquele número. Guardar uma foto e reenviá-la passava na conferência de
+local — porque o local está certo mesmo. Apareceu no AIBM 2, com fotos repetidas
+validadas (16/09/2026).
+
+**Fechado:** a mesma imagem não valida duas vezes. `lib/fotos-usadas.js` guarda o
+SHA-256 de toda foto que validou e recusa o reenvio, em qualquer hangar, por 90
+dias. Pega encaminhamento e reenvio da galeria — a fraude barata.
+
+**Aberto:** foto NOVA do mesmo carro, no mesmo lugar, tirada de novo. Bytes
+diferentes, hash diferente, local correto: passa. Nenhum controle atual pega.
+
+Para fechar é preciso exigir algo imprevisível na foto, e o caminho natural é
+**o próprio ticket visível junto do carro** — era assim antes do fluxo de dois
+passos, e o número do ticket amarra a foto àquela validação específica. Custa
+pedir ao cliente que leve o ticket até o veículo. É decisão de fluxo, do
+usuário, não de código.
+
+Vale lembrar que a conferência de local funciona: medido com a foto real que
+validou o AIBM 1, deu `compativel` no AIBM 1 e `incompativel` no AIBM 2. O
+problema nunca foi distinguir os pátios.
+
 ## Armadilhas já encontradas (não repetir)
 
 - **O n8n congela o `.env` na memória dele** (16/09/2026 — custou uma tarde). O

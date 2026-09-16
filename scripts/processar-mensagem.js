@@ -36,6 +36,7 @@ const { avaliarLocal } = require('./lib/conferir-local');
 const pendencias = require('./lib/pendencias');
 const registro = require('./lib/registro');
 const avisoPatio = require('./lib/aviso-patio');
+const fotosUsadas = require('./lib/fotos-usadas');
 const { lerTicket, lerLocal } = require('./ocr-ticket');
 const { consultarPatio } = require('./consultar-patio');
 
@@ -481,6 +482,37 @@ async function conduzir(body, { aoReceber } = {}) {
     }
 
     const imagemVeiculo = await baixarImagemBase64(msg.messageId);
+
+    // Foto já usada em outra validação: recusa ANTES de conferir o local.
+    //
+    // A conferência de local jamais pegaria isto — ela pergunta "o carro está
+    // neste pátio?", e numa foto reaproveitada do próprio pátio a resposta é
+    // sim. A pergunta que faltava é "esta foto é de agora?". Apareceu no AIBM 2,
+    // com fotos repetidas validadas (relatado em 16/09/2026).
+    //
+    // Antes do modelo de propósito: reenvio não merece uma chamada paga, e a
+    // resposta é a mesma de qualquer jeito.
+    const reuso = fotosUsadas.jaUsada(imagemVeiculo.base64);
+    if (reuso) {
+      pendencias.registrar(msg.grupoId, msg.remetenteId, pedido);
+      return {
+        status: 'foto_reutilizada',
+        hangarId: hangar.id,
+        grupoId: msg.grupoId,
+        ticket: pedido.ticket,
+        fotoUsadaEm: reuso.em,
+        fotoUsadaNoTicket: reuso.ticket,
+        fotoUsadaNoHangar: reuso.hangarId,
+        mensagem: `Foto já usada no ticket ${reuso.ticket} (${reuso.hangarId}) em ${reuso.em}.`,
+        mensagemWhatsapp: fotosUsadas.mensagemRecusa(reuso, pedido.ticket),
+        // Reenviar foto é sinal de fraude, não descuido de enquadramento:
+        // a administração precisa saber, como no local incompatível.
+        notificarAdmin: true,
+        responder: true,
+        etapa: 'conferencia_local',
+      };
+    }
+
     // Esta foto NÃO passa pelo OCR: não há ticket nela, e o número já veio da
     // primeira. Só o local é conferido.
     const r = await lerLocal({ base64: imagemVeiculo.base64, mediaType: imagemVeiculo.mediaType, hangar });
@@ -526,7 +558,27 @@ async function conduzir(body, { aoReceber } = {}) {
       };
     }
 
-    return { ...infoLocal, ...validar(hangar, msg, pedido, false) };
+    const resultado = { ...infoLocal, ...validar(hangar, msg, pedido, false) };
+
+    // Queima a foto SÓ quando validou. Registrar antes faria o cliente perder
+    // uma foto boa por causa de um erro nosso — pátio cheio, site fora do ar —
+    // e na tentativa seguinte ele seria acusado de reusar a própria foto.
+    if (resultado.status === 'validado') {
+      try {
+        fotosUsadas.registrar(imagemVeiculo.base64, {
+          hangarId: hangar.id,
+          ticket: pedido.ticket,
+          grupoId: msg.grupoId,
+          remetente: msg.remetente,
+          placa: placaFinal,
+        });
+      } catch (e) {
+        // O ticket já foi validado; falhar aqui não pode desfazer isso. Perde-se
+        // a proteção para ESTA foto, e só.
+        resultado.fotoNaoRegistrada = e.message;
+      }
+    }
+    return resultado;
   }
 
   // ---- foto chegando com faturamento pendente = é a autorização ----
