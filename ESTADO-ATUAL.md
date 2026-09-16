@@ -88,9 +88,14 @@ Pendências de configuração:
   `identificar-hangar.js` não roteia nada. Só dá para preencher depois de parear
   a Evolution API, que é quem lista os grupos.
 - `AIBM_USUARIO` / `AIBM_SENHA`: login `BOT_AIBM` criado, falta pôr no `.env`.
-- `AIBM_2_USUARIO` / `AIBM_2_SENHA`: **indefinido** se o AIBM 2 tem acesso
-  próprio ou compartilha o do AIBM 1. Se compartilhar, os dois hangares enxergam
-  o mesmo pátio e a mesma lista de tickets — a separação vira só organizacional.
+- ~~`AIBM_2_USUARIO` / `AIBM_2_SENHA`: indefinido se o AIBM 2 tem acesso
+  próprio~~ — **RESOLVIDO em 16/09/2026**: são pátios SEPARADOS, confirmado pelo
+  usuário e por medição. `BOT_AIBM2` autentica e mostra "AIBM 2 | Total de vagas:
+  41". Grupo cadastrado, hangar no ar.
+- ⚠️ **`AIBM_SENHA` está errada** (16/09/2026): o login `BOT_AIBM` falha com
+  "Usúario ou senha incorretos", e a senha no `.env` tem só 5 caracteres —
+  provavelmente truncada. Não afeta nada hoje porque o AIBM 1 não tem grupo, mas
+  precisa ser corrigida antes de cadastrá-lo.
 - `placaGenerica` de `aibm` e `aibm-2` está vazia. No Solojet é `AAA0000`. Se a
   leitura da placa falhar no AIBM, o script fica sem valor para mandar.
 

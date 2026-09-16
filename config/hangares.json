@@ -102,7 +102,9 @@
           "ar-condicionado na parede acima dos carros",
           "telhado curvo azul acima da parede branca"
         ]
-      }
+      },
+      "_observacao_patio": "CONFIRMADO pelo usuário e por medição em 16/09/2026: AIBM 1 e AIBM 2 são pátios SEPARADOS, com login próprio e capacidade própria — não compartilham vagas nem lista de tickets. O AIBM 2 mostra 'AIBM 2 | Total de vagas: 41'. Isso encerra a dúvida registrada no ESTADO-ATUAL.md, que dava como indefinido se o AIBM 2 tinha acesso próprio.",
+      "_observacao_credencial": "⚠️ EM 16/09/2026 o login BOT_AIBM FALHAVA: o site respondeu 'Usúario ou senha incorretos' e a senha no .env tinha apenas 5 caracteres, bem mais curta que a dos outros hangares — provavelmente truncada ao ser preenchida. Não afetava nada porque este hangar ainda não tem grupo, mas precisa ser corrigida ANTES de cadastrar o grupoWhatsappId, senão toda mensagem falha no login."
     },
     {
       "id": "aibm-2",
@@ -155,7 +157,8 @@
           "aeronave ou hangar de portas azuis visível"
         ]
       },
-      "_observacao_grupo": "Grupo criado em 16/09/2026. Login BOT_AIBM2, seletores e leitura de vagas testados contra o site real na mesma data: pátio de 41 vagas, 39 livres. ATENÇÃO: este hangar exige foto do veículo no local (exigeFotoVeiculoNoLocal), e a conferência fica bem melhor com fotos de referência do pátio subidas pelo painel — sem elas, a comparação usa só a descrição em texto de localReferencia."
+      "_observacao_grupo": "Grupo criado em 16/09/2026. Login BOT_AIBM2, seletores e leitura de vagas testados contra o site real na mesma data: pátio de 41 vagas, 39 livres. ATENÇÃO: este hangar exige foto do veículo no local (exigeFotoVeiculoNoLocal), e a conferência fica bem melhor com fotos de referência do pátio subidas pelo painel — sem elas, a comparação usa só a descrição em texto de localReferencia.",
+      "_observacao_patio": "CONFIRMADO pelo usuário e por medição em 16/09/2026: AIBM 1 e AIBM 2 são pátios SEPARADOS, com login próprio e capacidade própria — não compartilham vagas nem lista de tickets. O AIBM 2 mostra 'AIBM 2 | Total de vagas: 41'. Isso encerra a dúvida registrada no ESTADO-ATUAL.md, que dava como indefinido se o AIBM 2 tinha acesso próprio."
     },
     {
       "id": "solojet-shares",
