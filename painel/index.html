@@ -102,6 +102,7 @@
 
   <div class="secao" id="sec-usuarios">
     <h2>Quem pode acessar</h2>
+    <div id="aviso-smtp"></div>
     <div class="sub" id="sub-usuarios">carregando…</div>
     <div id="lista-usuarios"></div>
     <div class="campos" style="margin-top:12px">
@@ -311,12 +312,14 @@ async function carregarHistorico() {
 async function carregarUsuarios() {
   const d = await (await fetch('/api/usuarios')).json();
   $('#dica-senha').textContent = `Mínimo de ${d.minSenha} caracteres.`;
-  if (estado && estado.emailConfigurado === false) {
-    $('#sec-usuarios').insertAdjacentHTML('afterbegin',
-      `<div class="aviso pendente" style="margin-bottom:12px"><b>Recuperação de senha indisponível.</b>
+  // Escreve no container fixo, NÃO insere: carregarUsuarios() roda a cada ação
+  // (criar, trocar senha, definir e-mail), e inserir acumulava um aviso por
+  // chamada — apareciam três empilhados.
+  $('#aviso-smtp').innerHTML = (estado && estado.emailConfigurado === false)
+    ? `<div class="aviso pendente" style="margin-bottom:12px"><b>Recuperação de senha indisponível.</b>
        O SMTP não está configurado no .env do servidor, então "esqueci minha senha" não envia nada.
-       Quem perder a senha vai depender de outra conta de administrador para redefini-la.</div>`);
-  }
+       Quem perder a senha vai depender de outra conta de administrador para redefini-la.</div>`
+    : '';
   $('#sub-usuarios').textContent = d.usuarios.length
     ? `${d.usuarios.length} conta(s) · você está como "${d.eu}" · 5 tentativas erradas bloqueiam por 15 minutos`
     : 'Nenhuma conta criada ainda — o acesso está pela senha de resgate do .env. Crie a primeira conta: a senha única deixa de funcionar assim que existir uma.';
