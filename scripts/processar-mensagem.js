@@ -426,6 +426,7 @@ async function conduzir(body, { aoReceber } = {}) {
     }
 
     const ehFaturamento = pendente.tipo === 'autorizar_faturamento';
+    const ehCotaMensal = pendente.tipo === 'usar_cota_mensal';
 
     if (msg.resposta === 'nao') {
       pendencias.descartar(msg.grupoId, msg.remetenteId);
@@ -434,7 +435,9 @@ async function conduzir(body, { aoReceber } = {}) {
         ticket: pendente.ticket,
         mensagemWhatsapp: ehFaturamento
           ? `Tudo bem, não vou faturar nem validar o ticket ${pendente.ticket}. Se mudar de ideia, é só mandar a foto de novo.`
-          : `Tudo bem, não validei o ticket ${pendente.ticket}. Se mudar de ideia, é só mandar a foto de novo.`,
+          : ehCotaMensal
+            ? `Tudo bem, não validei o ticket ${pendente.ticket} e a cota do mês continua intacta. Se mudar de ideia, é só mandar a foto de novo.`
+            : `Tudo bem, não validei o ticket ${pendente.ticket}. Se mudar de ideia, é só mandar a foto de novo.`,
         notificarAdmin: false, responder: true, etapa: 'resposta',
       };
     }
@@ -460,7 +463,9 @@ async function conduzir(body, { aoReceber } = {}) {
         ticket: pendente.ticket,
         mensagemWhatsapp: ehFaturamento
           ? `Não entendi. Para eu liberar o ticket ${pendente.ticket} e seguir com o faturamento, responda SIM. Para deixar pra lá, responda NÃO.`
-          : `Não entendi. Para validar o ticket ${pendente.ticket} usando uma das validações fora do prazo, responda SIM. Para deixar pra lá, responda NÃO.`,
+          : ehCotaMensal
+            ? `Não entendi. Para validar o ticket ${pendente.ticket} usando uma das validações do mês, responda SIM. Para deixar pra lá, responda NÃO.`
+            : `Não entendi. Para validar o ticket ${pendente.ticket} usando uma das validações fora do prazo, responda SIM. Para deixar pra lá, responda NÃO.`,
         notificarAdmin: false, responder: true, etapa: 'resposta',
       };
     }
@@ -471,6 +476,28 @@ async function conduzir(body, { aoReceber } = {}) {
     if (!pedido) {
       return { status: 'ignorado', motivo: 'pendência já consumida por outra mensagem', grupoId: msg.grupoId, responder: false };
     }
+
+    // SIM na cota mensal NÃO é `usarCota` — aquele parâmetro libera a validação
+    // fora do prazo, que é outra coisa e cobra do hangar. Aqui o cliente só
+    // autorizou gastar uma das validações do mês.
+    if (ehCotaMensal) {
+      // Num hangar que exige foto do veículo, autorizar a cota é o primeiro
+      // passo, não o último: ainda falta a comprovação de que o carro está no
+      // pátio. Hoje nenhum hangar tem cota E foto, mas deixar o caminho certo
+      // custa três linhas e evita que a combinação futura valide sem conferir.
+      if (hangar.exigeFotoVeiculoNoLocal) {
+        pendencias.registrar(msg.grupoId, msg.remetenteId, { ...pedido, tipo: 'foto_local' });
+        return {
+          status: 'aguardando_foto_veiculo', hangarId: hangar.id, grupoId: msg.grupoId, ticket: pedido.ticket,
+          mensagemWhatsapp: 'Combinado. Agora mande uma foto do veículo estacionado no hangar, '
+            + 'com a placa visível e um pouco do entorno aparecendo.\n\n'
+            + `⏱️ Tenho esse pedido aberto por ${pendencias.VALIDADE_MS / 60000} minutos.`,
+          notificarAdmin: false, responder: true, etapa: 'pedido_foto_veiculo',
+        };
+      }
+      return validar(hangar, msg, pedido, false);
+    }
+
     return validar(hangar, msg, pedido, true);
   }
 
@@ -730,6 +757,40 @@ async function conduzir(body, { aoReceber } = {}) {
       notificarAdmin: true,
       responder: true,
       etapa: 'cota_mensal',
+    };
+  }
+
+  // Cota mensal disponível: PERGUNTA antes de gastar.
+  //
+  // Pedido do usuário em 16/09/2026. A cota é do hangar, não do bot: cada
+  // validação consome uma das 20 do mês, e quem manda o ticket pode não ser
+  // quem decide se aquele carro merece gastar uma. Validar direto tiraria essa
+  // escolha de quem paga a conta.
+  //
+  // Mesma mecânica da cota fora do prazo, para o cliente encontrar o
+  // comportamento que já conhece: pergunta, guarda o pedido, e só age no SIM.
+  if (cota.temCota) {
+    pendencias.registrar(msg.grupoId, msg.remetenteId, {
+      ticket: ocr.ticket,
+      placa: msg.placa || null,
+      placaEhGenerica: !msg.placa,
+      dataEmissaoIso: ocr.dataEmissaoIso,
+      hangarId: hangar.id,
+      tipo: 'usar_cota_mensal',
+      hashTicket: fotosUsadas.impressaoDigital(imagem.base64),
+    });
+    return {
+      status: 'requer_decisao_cota_mensal',
+      hangarId: hangar.id,
+      grupoId: msg.grupoId,
+      ticket: ocr.ticket,
+      cotaLimite: cota.limite,
+      cotaRestantes: cota.restantes,
+      mensagemWhatsapp: `Recebi o ticket ${ocr.ticket}. Validar vai usar *1 das ${cota.limite} validações do mês* `
+        + `deste pátio — restam ${cota.restantes}.\n\nPosso validar? Responda *SIM* ou *NÃO*.`,
+      notificarAdmin: false,
+      responder: true,
+      etapa: 'decisao_cota_mensal',
     };
   }
 
