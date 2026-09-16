@@ -259,9 +259,12 @@ ligue àquele número. Guardar uma foto e reenviá-la passava na conferência de
 local — porque o local está certo mesmo. Apareceu no AIBM 2, com fotos repetidas
 validadas (16/09/2026).
 
-**Fechado:** a mesma imagem não valida duas vezes. `lib/fotos-usadas.js` guarda o
-SHA-256 de toda foto que validou e recusa o reenvio, em qualquer hangar, por 90
-dias. Pega encaminhamento e reenvio da galeria — a fraude barata.
+**Fechado:** a validação exige um PAR — a foto do ticket que abriu o pedido e a
+foto do veículo que o fechou. `lib/fotos-usadas.js` guarda o SHA-256 das duas,
+gastas juntas e apontando para o mesmo registro, e recusa o reenvio de qualquer
+uma delas em qualquer hangar por 90 dias. Foto fora do par não é usada: o OCR
+responde `temTicket`, e uma foto sem ticket ouve que o ticket vem primeiro, em
+vez do antigo "reenvie mais de perto" que convidava a repetir o erro.
 
 **Aberto:** foto NOVA do mesmo carro, no mesmo lugar, tirada de novo. Bytes
 diferentes, hash diferente, local correto: passa. Nenhum controle atual pega.
