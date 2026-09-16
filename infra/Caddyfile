@@ -1,0 +1,31 @@
+# Proxy reverso do painel do Validador.
+#
+# O Caddy obtem e RENOVA sozinho o certificado do Let's Encrypt — por isso a
+# porta 80 precisa ficar aberta permanentemente, nao so na emissao: e por ela
+# que a renovacao a cada ~60 dias e validada.
+#
+# O painel continua escutando apenas em 127.0.0.1:8081. Quem fala com a
+# internet e o Caddy; o painel nunca e exposto diretamente. Por isso as portas
+# 8081 e 5678 seguem bloqueadas no security group, e devem continuar.
+
+validador.1park.com.br {
+	# Log de acesso: sem ele nao ha como saber se alguem esta tentando
+	# adivinhar a senha, que e a unica barreira depois do TLS.
+	log {
+		output file /var/log/caddy/painel-acesso.log
+		format json
+	}
+
+	# Cabecalhos de seguranca basicos. O painel e uma pagina administrativa:
+	# nao deve ser embutida em iframe de terceiros nem indexada.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Frame-Options "DENY"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		X-Robots-Tag "noindex, nofollow"
+		-Server
+	}
+
+	reverse_proxy 127.0.0.1:8081
+}
