@@ -50,6 +50,8 @@ const SENHA = process.env.PAINEL_SENHA || '';
 
 const { obterUsoMensal, obterRestante } = require(path.join(RAIZ, 'scripts', 'lib', 'cota-fora-prazo'));
 const registro = require(path.join(RAIZ, 'scripts', 'lib', 'registro'));
+const { lerJson } = require(path.join(RAIZ, 'scripts', 'lib', 'trava-arquivo'));
+const SAUDE = path.join(RAIZ, 'data', 'saude.json');
 
 // Teto do slider do ValidPark. 20 dias é exatamente o limite — não há folga, e
 // pedir mais faz o site recusar a validação inteira.
@@ -182,6 +184,10 @@ function montarEstado() {
       semAdmin: hangares.filter((h) => h.ativo && !h.grupoAdministracao).length,
     },
     commitsPendentes: commitsPendentes(),
+    // Escrito por scripts/monitor-saude.js a cada 5 minutos. É a via que
+    // funciona mesmo com o WhatsApp caído — justamente quando o aviso por
+    // WhatsApp não pode chegar.
+    saude: lerJson(SAUDE, null),
     geradoEm: new Date().toISOString(),
   };
 }

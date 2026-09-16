@@ -25,6 +25,8 @@
   .aviso { padding:10px 12px; border-radius:6px; margin-bottom:14px; font-size:13px;
            border:1px solid var(--borda); background:var(--cartao); }
   .aviso.pendente { border-color:var(--alerta); }
+  .aviso.ruim { border-color:var(--erro); color:var(--erro); }
+  .aviso.ok { border-color:var(--ok); }
   .hangar { background:var(--cartao); border:1px solid var(--borda); border-radius:8px;
             margin-bottom:10px; overflow:hidden; }
   .cab { display:flex; align-items:center; gap:10px; padding:11px 14px; cursor:pointer; }
@@ -123,6 +125,31 @@ function desenhar() {
     `<b>${r.semCredencial}</b> sem credencial · <b>${r.semAdmin}</b> ativos sem destino de aviso`;
 
   const avisos = [];
+
+  const s = estado.saude;
+  if (!s) {
+    avisos.push(`<div class="aviso pendente"><b>Monitor de saúde sem leitura.</b>
+      Nenhuma verificação foi gravada ainda — o serviço pode não estar rodando.</div>`);
+  } else {
+    const idadeMin = Math.round((Date.now() - new Date(s.em).getTime()) / 60000);
+    // Leitura velha é tão preocupante quanto leitura ruim: significa que o
+    // próprio monitor parou, e aí ninguém está vigiando nada.
+    const velha = idadeMin > 15;
+    if (!s.saudavel) {
+      avisos.push(`<div class="aviso ruim"><b>🔴 Sistema com problema</b><br>
+        ${s.problemas.map(p => '• ' + p).join('<br>')}
+        <div style="margin-top:6px;opacity:.75">verificado há ${idadeMin} min</div></div>`);
+    } else if (velha) {
+      avisos.push(`<div class="aviso pendente"><b>Monitor parado.</b>
+        A última verificação foi há ${idadeMin} minutos — deveria ser a cada 5.
+        O sistema pode estar bem, mas ninguém está vigiando.</div>`);
+    } else {
+      avisos.push(`<div class="aviso ok"><b>🟢 Tudo respondendo</b> —
+        ${Object.entries(s.checagens).map(([k,c]) => `${k}: ${c.detalhe}`).join(' · ')}
+        <span style="opacity:.75">(há ${idadeMin} min)</span></div>`);
+    }
+  }
+
   if (estado.commitsPendentes > 0) {
     avisos.push(`<div class="aviso pendente"><b>${estado.commitsPendentes} alteração(ões) ainda não enviadas ao GitHub.</b>
       O servidor não tem credencial de escrita, então as mudanças ficam commitadas só aqui.

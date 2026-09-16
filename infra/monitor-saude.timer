@@ -1,0 +1,11 @@
+[Unit]
+Description=Roda a verificacao de saude do Validador a cada 5 minutos
+
+[Timer]
+# 2min apos o boot: se a maquina reiniciou e algo nao subiu, avisa rapido.
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target
