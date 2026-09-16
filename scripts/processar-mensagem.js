@@ -37,6 +37,7 @@ const pendencias = require('./lib/pendencias');
 const registro = require('./lib/registro');
 const avisoPatio = require('./lib/aviso-patio');
 const fotosUsadas = require('./lib/fotos-usadas');
+const cotaMensal = require('./lib/cota-mensal');
 const { lerTicket, lerLocal } = require('./ocr-ticket');
 const { consultarPatio } = require('./consultar-patio');
 
@@ -146,6 +147,15 @@ function validar(hangar, msg, pedido, usarCota, faturamento = {}) {
   let mensagem = validacao.mensagemWhatsapp;
   if (validacao.status === 'validado' && pedido.placaEhGenerica) {
     mensagem += ` (validei com a placa padrão ${pedido.placa} porque não veio placa na legenda da foto — se precisar corrigir, fale com a administração. Da próxima vez, escreva a placa junto ao enviar a foto.)`;
+  }
+
+  // Quanto sobrou da cota do mês, para o hangar que tem teto. Só perto do fim:
+  // "restam 18 de 20" no começo do mês é ruído numa mensagem que a pessoa lê de
+  // passagem, esperando apenas saber se validou. A contagem é feita DEPOIS da
+  // validação para já incluir esta — dizer "restam 5" logo após gastar a
+  // quinta-de-trás confundiria quem for conferir.
+  if (validacao.status === 'validado') {
+    mensagem += cotaMensal.notaParaCliente(cotaMensal.situacao(hangar));
   }
 
   // Pergunta feita: guardar o pedido para que a resposta do cliente tenha a
@@ -693,6 +703,33 @@ async function conduzir(body, { aoReceber } = {}) {
       notificarAdmin: true,
       responder: true,
       etapa: 'conferencia_duplicidade',
+    };
+  }
+
+  // Teto mensal de validações, para hangares com cota contratada (hoje só o
+  // VOASP, com 20 por mês). Vale antes de qualquer trabalho caro: não faz
+  // sentido pedir foto do veículo e abrir navegador para um ticket que a cota
+  // já não permite validar.
+  //
+  // A renovação é automática porque a contagem é por mês de calendário — não
+  // existe contador a zerar, o mês simplesmente vira. Em horário de São Paulo,
+  // não no do servidor: ver a nota de fuso em lib/cota-mensal.js.
+  const cota = cotaMensal.situacao(hangar);
+  if (cota.esgotada) {
+    return {
+      status: 'cota_mensal_esgotada',
+      hangarId: hangar.id,
+      grupoId: msg.grupoId,
+      ticket: ocr.ticket,
+      cotaLimite: cota.limite,
+      cotaUsadas: cota.usadas,
+      mensagem: `Cota mensal esgotada: ${cota.usadas} de ${cota.limite} validações em ${cota.mes}.`,
+      mensagemWhatsapp: cotaMensal.mensagemEsgotada(hangar, cota),
+      // Precisa de gente: a cota é regra comercial, e só a administração pode
+      // decidir se libera uma exceção ou se o mês acabou mesmo.
+      notificarAdmin: true,
+      responder: true,
+      etapa: 'cota_mensal',
     };
   }
 
