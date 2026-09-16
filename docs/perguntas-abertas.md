@@ -447,13 +447,29 @@ existir.
 ### ⚠️ Limitação conhecida: `jaValidado` pode não detectar tickets recentes
 
 O `consultar-ticket.js` procura o ticket na lista `.card-ticket-validados`
-da tela — mas essa lista mostra só os ~21 mais recentes, e é **compartilhada
-entre hangares** (mesmo totem). Confirmado na prática: um ticket validado há
-poucos minutos já não aparecia mais na lista (provavelmente porque outros
-hangares validaram vários tickets nesse meio tempo). Ou seja, `jaValidado:
-false` não é garantia de que o ticket não foi validado — só garante que não
-está entre os ~21 mais recentes visíveis. Não identificamos um jeito melhor
-de checar isso na interface do ValidPark até agora.
+da tela, e essa lista mostra só os ~21 a 25 mais recentes. `jaValidado: false`
+não é garantia de que o ticket não foi validado — só garante que não está entre
+os visíveis. Não identificamos um jeito melhor de checar isso na interface do
+ValidPark até agora.
+
+**CORRIGIDO em 16/09/2026 — a lista NÃO é compartilhada entre hangares.**
+Registrava-se aqui que ela seria comum a todos os pátios, por virem do mesmo
+totem, e que por isso outros hangares "empurrariam" os tickets recentes para
+fora da lista. Medição nos três hangares no ar desmente:
+
+| Hangar | Validados na lista | Quem validou |
+| --- | --- | --- |
+| Solojet | 25 | alice.grazielly, financeiro.solojet, bruno.mart.solojet… |
+| Alljet | 24 | chym.alv, alljet.daniella, marilene.alljet… |
+| AIBM 2 | 2 | guedes.alpha, BOT_AIBM2 |
+
+**Zero tickets em comum** entre Solojet e Alljet, e os validadores são de cada
+hangar. Como cada um tem login próprio, o ValidPark já mostra apenas o pátio
+daquela conta.
+
+O que continua valendo: o limite de ~21 a 25 itens. Só que agora é o próprio
+hangar que empurra os seus para fora, o que é bem mais lento — e mais lento
+ainda em pátios de pouco movimento, como o AIBM 2, com 2 na lista.
 
 ## Específico do hangar Solojet (necessário para a PoC)
 
