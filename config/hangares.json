@@ -695,6 +695,47 @@
       },
       "diasValidacaoPadrao": 20,
       "exigeFotoVeiculoNoLocal": false
+    },
+    {
+      "id": "voasp",
+      "hangar": "VOASP",
+      "grupoWhatsapp": "",
+      "grupoWhatsappId": "",
+      "validadorUrl": "https://validpark.technext.com.br/login",
+      "usuarioEnvVar": "VOASP_USUARIO",
+      "senhaEnvVar": "VOASP_SENHA",
+      "seletores": {
+        "campoUsuario": "input[name=\"username\"]",
+        "campoSenha": "input[name=\"senha\"]",
+        "botaoLogin": "button[type=\"submit\"]",
+        "campoTicket": "#standard-basic",
+        "modalDialog": ".modal-dialog",
+        "campoPlaca": "#outlined-error-helper-text",
+        "botaoValidar": ".modal-footer .buttons button[type=\"submit\"]",
+        "botaoFecharModal": ".modal-footer .buttons button[type=\"button\"]",
+        "areaErroInline": "#outlined-error-helper-text-helper-text",
+        "areaErroToast": ".Toastify__toast",
+        "areaVagasDisponiveis": ".qtd-veiculo-patio",
+        "sliderHorasThumb": "input[type=\"range\"][aria-label=\"horas\"]",
+        "sliderDiasThumb": "input[type=\"range\"][aria-label=\"dias\"]"
+      },
+      "formatoTicket": {
+        "regex": "^\\d{12}$",
+        "descricao": "12 dígitos numéricos, impresso como 'Ticket/Seq: 011903092521' no ticket real (#1Park, aeroporto de Jundiaí/VOA-SP)."
+      },
+      "placaGenerica": "AAA0000",
+      "prazoValidacaoHoras": 2,
+      "grupoAdministracao": "5511913119423@s.whatsapp.net",
+      "cotaMensalForaPrazo": 5,
+      "asaas": {
+        "customerId": "",
+        "cnpj": "",
+        "razaoSocial": "",
+        "email": ""
+      },
+      "diasValidacaoPadrao": 20,
+      "exigeFotoVeiculoNoLocal": false,
+      "_observacao_cadastro": "Criado em 16/09/2026 a pedido do usuario. Faltam, para entrar em operacao: a senha em VOASP_SENHA no .env do servidor e o grupo do WhatsApp em grupoWhatsappId. Ate la o hangar fica invisivel para o bot — buscarHangarPorGrupo so considera hangares com grupoWhatsappId preenchido, entao um cadastro incompleto nao atrapalha nada."
     }
   ],
   "_observacao_faturamento": "Cota de validações fora do prazo (cotaMensalForaPrazo, padrão 5/mês por hangar) e dados do Asaas (asaas.customerId ou asaas.cnpj+razaoSocial+email para criar o cliente automaticamente) usados por scripts/lib/cota-fora-prazo.js e scripts/lib/asaas.js quando um ticket fica fora do prazo de validação (ver docs/perguntas-abertas.md, seção sobre faturamento, adicionada em 11/09/2026)."
