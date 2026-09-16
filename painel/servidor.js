@@ -52,6 +52,7 @@ const { obterUsoMensal, obterRestante } = require(path.join(RAIZ, 'scripts', 'li
 const registro = require(path.join(RAIZ, 'scripts', 'lib', 'registro'));
 const { lerJson } = require(path.join(RAIZ, 'scripts', 'lib', 'trava-arquivo'));
 const usuarios = require('./usuarios');
+const referencias = require(path.join(RAIZ, 'scripts', 'lib', 'referencias'));
 const SAUDE = path.join(RAIZ, 'data', 'saude.json');
 
 // Teto do slider do ValidPark. 20 dias é exatamente o limite — não há folga, e
@@ -237,7 +238,8 @@ function lerCorpo(req) {
     let dados = '';
     req.on('data', (c) => {
       dados += c;
-      if (dados.length > 100000) reject(new Error('Corpo grande demais.'));
+      // 6 MB: uma foto de 3 MB vira ~4 MB em base64, mais folga para o json.
+      if (dados.length > 6 * 1024 * 1024) reject(new Error('Corpo grande demais.'));
     });
     req.on('end', () => {
       try { resolve(dados ? JSON.parse(dados) : {}); } catch (e) { reject(new Error('Corpo não é json válido.')); }
@@ -269,6 +271,28 @@ const servidor = http.createServer(async (req, res) => {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(html);
       return;
+    }
+
+    if (url.pathname.startsWith('/api/referencias/')) {
+      const partes = url.pathname.slice('/api/referencias/'.length).split('/');
+      const hangarId = decodeURIComponent(partes[0] || '');
+
+      if (req.method === 'GET' && partes[1]) {
+        // Serve o arquivo para a miniatura aparecer na tela.
+        const c = referencias.conteudo(hangarId, decodeURIComponent(partes[1]));
+        res.writeHead(200, { 'Content-Type': c.mimetype, 'Cache-Control': 'private, max-age=300' });
+        res.end(c.dados);
+        return;
+      }
+      if (req.method === 'GET') { json(res, 200, { arquivos: referencias.listar(hangarId), max: referencias.MAX_IMAGENS }); return; }
+      if (req.method === 'POST') {
+        const c = await lerCorpo(req);
+        try {
+          if (c.acao === 'apagar') { json(res, 200, { ok: true, ...referencias.apagar(hangarId, c.nome) }); return; }
+          json(res, 200, { ok: true, ...referencias.guardar(hangarId, c) });
+        } catch (e) { json(res, 400, { erro: e.message }); }
+        return;
+      }
     }
 
     if (url.pathname === '/api/usuarios') {

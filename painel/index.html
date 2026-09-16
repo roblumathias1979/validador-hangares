@@ -72,6 +72,14 @@
   .st.meio { color:var(--alerta); border-color:var(--alerta); }
   .vazio { color:var(--fraco); font-size:13px; padding:8px; }
   .filtros { display:flex; gap:8px; align-items:center; margin-bottom:10px; flex-wrap:wrap; }
+  .refs { border:1px solid var(--borda); border-radius:6px; padding:12px; margin-top:10px; }
+  .refs h3 { margin:0 0 3px; font-size:13px; }
+  .refs .sub { font-size:12px; color:var(--fraco); margin-bottom:10px; }
+  .miniaturas { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
+  .mini { border:1px solid var(--borda); border-radius:6px; padding:6px; width:132px; font-size:11px; }
+  .mini img { width:100%; height:88px; object-fit:cover; border-radius:4px; display:block; }
+  .mini .arq { color:var(--fraco); word-break:break-all; margin:4px 0; }
+  .video-aviso { background:rgba(180,120,8,.12); border-radius:4px; padding:4px 6px; margin:4px 0; }
   select { padding:6px 8px; border:1px solid var(--borda); border-radius:5px;
            background:var(--fundo); color:var(--texto); font:inherit; font-size:13px; }
 </style>
@@ -215,9 +223,11 @@ function desenhar() {
           ${campo('grupoAdministracao','text',h.grupoAdministracao)}
         </div>
         <div class="linha-check">
-          <input type="checkbox" id="${h.id}-foto" data-campo="exigeFotoVeiculoNoLocal" ${h.exigeFotoVeiculoNoLocal?'checked':''}>
+          <input type="checkbox" id="${h.id}-foto" data-campo="exigeFotoVeiculoNoLocal" ${h.exigeFotoVeiculoNoLocal?'checked':''}
+                 onchange="alternarReferencias('${h.id}', this.checked)">
           <label for="${h.id}-foto" style="margin:0">Exige foto do veículo no local (antifraude)</label>
         </div>
+        <div id="ref-${h.id}" class="refs" style="display:${h.exigeFotoVeiculoNoLocal?'block':'none'}"></div>
         <div style="margin-top:12px; display:flex; gap:8px; align-items:center;">
           <button onclick="salvar('${h.id}', this)">Salvar</button>
           <span class="msg" id="msg-${h.id}"></span>
@@ -307,6 +317,70 @@ async function carregarHistorico() {
       <td><span class="st ${classeStatus(e.status)}">${e.status}</span>${e.usouCota ? ' <span class="st meio">usou cota</span>' : ''}${e.escalado ? ' <span class="st ruim">escalado</span>' : ''}</td>
       <td>${e.remetente || '—'}</td>
     </tr>`).join('')}</tbody></table>`;
+}
+
+async function alternarReferencias(id, ligado) {
+  const caixa = $(`#ref-${id}`);
+  caixa.style.display = ligado ? 'block' : 'none';
+  if (ligado) await carregarReferencias(id);
+}
+
+async function carregarReferencias(id) {
+  const caixa = $(`#ref-${id}`);
+  const d = await (await fetch('/api/referencias/' + encodeURIComponent(id))).json();
+  const imagens = d.arquivos.filter(a => a.usadoNaConferencia);
+
+  caixa.innerHTML = `
+    <h3>Fotos de referência do pátio</h3>
+    <div class="sub">
+      O bot compara a foto do cliente com estas. Até ${d.max} imagens — cada uma entra em
+      toda chamada ao modelo, então mais não significa melhor: prefira ângulos diferentes
+      do mesmo lugar. ${imagens.length ? `Hoje: ${imagens.length} de ${d.max}.` : 'Nenhuma ainda — a conferência usa só a descrição em texto.'}
+    </div>
+    <div class="miniaturas">
+      ${d.arquivos.map(a => `<div class="mini">
+        ${a.usadoNaConferencia
+          ? `<img src="/api/referencias/${encodeURIComponent(id)}/${encodeURIComponent(a.nome)}" alt="referência">`
+          : `<div class="video-aviso">vídeo — <b>não</b> entra na conferência automática, serve só para consulta</div>`}
+        <div class="arq">${a.nome}</div>
+        <button class="sec" onclick="apagarReferencia('${id}','${a.nome}')">apagar</button>
+      </div>`).join('') || '<div class="sub">nenhum arquivo</div>'}
+    </div>
+    <input type="file" id="arq-${id}" accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime"
+           onchange="enviarReferencia('${id}', this)">
+    <span class="msg" id="msgref-${id}"></span>`;
+}
+
+async function enviarReferencia(id, input) {
+  const arquivo = input.files[0];
+  if (!arquivo) return;
+  const msg = $(`#msgref-${id}`);
+  msg.className = 'msg'; msg.textContent = 'enviando…';
+  const base64 = await new Promise((ok, falha) => {
+    const leitor = new FileReader();
+    leitor.onload = () => ok(String(leitor.result).split(',')[1]);
+    leitor.onerror = falha;
+    leitor.readAsDataURL(arquivo);
+  });
+  const r = await fetch('/api/referencias/' + encodeURIComponent(id), {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ mimetype: arquivo.type, base64, rotulo: arquivo.name.replace(/\.[^.]+$/, '') }),
+  });
+  const d = await r.json();
+  input.value = '';
+  if (!r.ok) { msg.className = 'msg erro'; msg.textContent = d.erro || 'erro'; return; }
+  msg.className = 'msg ok';
+  msg.textContent = d.usadoNaConferencia ? 'foto adicionada à conferência' : 'vídeo guardado (não entra na conferência)';
+  await carregarReferencias(id);
+}
+
+async function apagarReferencia(id, nome) {
+  if (!confirm(`Apagar "${nome}"?`)) return;
+  await fetch('/api/referencias/' + encodeURIComponent(id), {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ acao: 'apagar', nome }),
+  });
+  await carregarReferencias(id);
 }
 
 async function carregarUsuarios() {

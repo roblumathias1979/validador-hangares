@@ -79,13 +79,21 @@ function referenciaDe(hangar) {
  * o veículo. Fica na MESMA chamada que lê o ticket: uma foto, uma chamada, um
  * custo. Separar em duas chamadas dobraria preço e tempo sem ganho nenhum.
  */
-function blocoPromptLocal(hangar) {
+function blocoPromptLocal(hangar, temFotosReferencia = false) {
   const ref = referenciaDe(hangar);
   if (!ref) return '';
+
+  // Quando há fotos do pátio, elas viram a evidência principal e o texto passa
+  // a dizer O QUE olhar nelas. Sem fotos, o texto é tudo o que existe.
+  const sobreFotos = temFotosReferencia
+    ? '\n\nVocê recebeu também FOTOS DE REFERÊNCIA deste pátio. Compare o cenário ao redor do veículo com elas: piso, demarcação, parede ou ausência dela, cobertura e o que aparece ao fundo. As fotos valem mais que a descrição abaixo, que serve para dizer o que observar.'
+    : '';
 
   const sinais = (ref.sinaisFortes || []).map((s) => `- ${s}`).join('\n');
 
   return `
+
+${sobreFotos}
 
 Nesta foto o cliente também deve aparecer com o VEÍCULO estacionado no hangar. Além do ticket, faça o seguinte.
 

@@ -32,6 +32,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const { carregarConfig, buscarHangar } = require('./lib/hangar');
 
 const { blocoPromptLocal } = require('./lib/conferir-local');
+const referencias = require('./lib/referencias');
 
 const MODELO = 'claude-sonnet-5';
 
@@ -67,7 +68,7 @@ function lerImagemBase64(caminho) {
   return { mediaType, dados };
 }
 
-function chamarClaude({ mediaType, dados, prompt }) {
+function chamarClaude({ mediaType, dados, prompt, referencias: refs = [] }) {
   return new Promise((resolve, reject) => {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
@@ -82,7 +83,14 @@ function chamarClaude({ mediaType, dados, prompt }) {
         {
           role: 'user',
           content: [
+            // A foto do cliente vem PRIMEIRO e é rotulada, senão o modelo pode
+            // confundir qual imagem deve ler o ticket.
+            { type: 'text', text: 'FOTO DO CLIENTE (é nesta que está o ticket):' },
             { type: 'image', source: { type: 'base64', media_type: mediaType, data: dados } },
+            ...refs.flatMap((r, i) => ([
+              { type: 'text', text: `FOTO DE REFERÊNCIA ${i + 1} do pátio deste hangar:` },
+              { type: 'image', source: { type: 'base64', media_type: r.mimetype, data: r.base64 } },
+            ])),
             { type: 'text', text: prompt || PROMPT },
           ],
         },
@@ -236,8 +244,16 @@ async function lerTicket(origem) {
   // foto mostre o veículo no local. A conferência vai na MESMA chamada que lê
   // o ticket: uma foto, uma chamada, um custo. Separar em duas dobraria preço
   // e tempo sem ganho nenhum.
-  const extraLocal = blocoPromptLocal(entrada.hangar || null);
-  const resposta = await chamarClaude({ ...imagem, prompt: PROMPT + extraLocal });
+  
+  // Fotos do próprio pátio, quando existirem. Comparar imagem com imagem é o
+  // que uma pessoa faria; a descrição em texto sozinha depende de alguém ter
+  // descrito o lugar bem. Cada imagem entra na conta da chamada, por isso o
+  // limite de 3 em referencias.js.
+  const refs = (entrada.hangar && entrada.hangar.exigeFotoVeiculoNoLocal)
+    ? referencias.imagensParaConferencia(entrada.hangar.id)
+    : [];
+  const extraLocal = blocoPromptLocal(entrada.hangar || null, refs.length > 0);
+  const resposta = await chamarClaude({ ...imagem, prompt: PROMPT + extraLocal, referencias: refs });
 
   const textoResposta = (resposta.content || []).map((b) => b.text || '').join('');
   let extraido;
