@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Painel do Validador</title>
+<style>
+  :root {
+    --fundo: #f6f7f9; --cartao: #fff; --borda: #d8dce3; --texto: #1a1d21;
+    --fraco: #667085; --ok: #067647; --alerta: #b54708; --erro: #b42318;
+    --acento: #1f6feb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --fundo:#15171a; --cartao:#1e2125; --borda:#333940; --texto:#e8eaed;
+            --fraco:#9aa3af; --ok:#4ade80; --alerta:#fbbf24; --erro:#f87171; --acento:#58a6ff; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--fundo); color:var(--texto);
+         font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+  header { padding:18px 20px; border-bottom:1px solid var(--borda); background:var(--cartao); }
+  h1 { margin:0 0 6px; font-size:17px; }
+  .resumo { color:var(--fraco); font-size:13px; }
+  .resumo b { color:var(--texto); }
+  main { padding:16px; max-width:1100px; margin:0 auto; }
+  .aviso { padding:10px 12px; border-radius:6px; margin-bottom:14px; font-size:13px;
+           border:1px solid var(--borda); background:var(--cartao); }
+  .aviso.pendente { border-color:var(--alerta); }
+  .hangar { background:var(--cartao); border:1px solid var(--borda); border-radius:8px;
+            margin-bottom:10px; overflow:hidden; }
+  .cab { display:flex; align-items:center; gap:10px; padding:11px 14px; cursor:pointer; }
+  .cab:hover { background:rgba(127,127,127,.06); }
+  .nome { font-weight:600; flex:1; }
+  .etq { font-size:11px; padding:2px 7px; border-radius:99px; border:1px solid var(--borda);
+         color:var(--fraco); white-space:nowrap; }
+  .etq.on { color:var(--ok); border-color:var(--ok); }
+  .etq.off { color:var(--fraco); }
+  .etq.aviso { color:var(--alerta); border-color:var(--alerta); }
+  .corpo { display:none; padding:4px 14px 14px; border-top:1px solid var(--borda); }
+  .corpo.aberto { display:block; }
+  .campos { display:grid; grid-template-columns:repeat(auto-fit,minmax(215px,1fr)); gap:12px; margin:12px 0; }
+  label { display:block; font-size:12px; color:var(--fraco); margin-bottom:3px; }
+  input[type=text], input[type=number] {
+    width:100%; padding:7px 9px; border:1px solid var(--borda); border-radius:5px;
+    background:var(--fundo); color:var(--texto); font:inherit; font-size:13px; }
+  .dica { font-size:11px; color:var(--fraco); margin-top:3px; }
+  .linha-check { display:flex; align-items:center; gap:7px; font-size:13px; }
+  button { padding:7px 14px; border-radius:5px; border:1px solid var(--acento);
+           background:var(--acento); color:#fff; font:inherit; font-size:13px; cursor:pointer; }
+  button:disabled { opacity:.5; cursor:default; }
+  button.sec { background:transparent; color:var(--acento); }
+  .msg { margin-top:9px; font-size:13px; }
+  .msg.ok { color:var(--ok); } .msg.erro { color:var(--erro); }
+  .somente-leitura { font-size:12px; color:var(--fraco); border-top:1px solid var(--borda);
+                     padding-top:9px; margin-top:4px; }
+  code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Painel do Validador — hangares SBJD</h1>
+  <div class="resumo" id="resumo">carregando…</div>
+</header>
+
+<main>
+  <div id="avisos"></div>
+  <div id="lista"></div>
+</main>
+
+<script>
+const $ = (s, r=document) => r.querySelector(s);
+let estado = null;
+
+// Campos editáveis e suas regras — repetidas aqui só para orientar quem
+// preenche. Quem valida de verdade é o servidor; esta tela não é a barreira.
+const DICAS = {
+  cotaMensalForaPrazo: 'Validações fora do prazo gratuitas por mês. Inteiro, 0 a 100.',
+  diasValidacaoPadrao: 'Tolerância concedida ao validar. Máximo 20 — é o teto do slider do ValidPark.',
+  prazoValidacaoHoras: 'Janela para validar após a emissão. Vazio = sem limite.',
+  placaGenerica: 'Usada quando o cliente não informa a placa na legenda. Formato AAA1234 ou AAA1A23.',
+  grupoWhatsappId: 'Grupo de onde chegam os tickets. Sem ele o hangar não recebe nada.',
+  grupoAdministracao: 'Quem recebe os avisos de erro. Grupo (@g.us) ou pessoa (@s.whatsapp.net).',
+};
+
+function etiqueta(texto, classe) { return `<span class="etq ${classe||''}">${texto}</span>`; }
+
+function desenhar() {
+  const r = estado.resumo;
+  $('#resumo').innerHTML =
+    `<b>${r.ativos}</b> de <b>${r.total}</b> hangares recebendo mensagens · ` +
+    `<b>${r.semCredencial}</b> sem credencial · <b>${r.semAdmin}</b> ativos sem destino de aviso`;
+
+  const avisos = [];
+  if (estado.commitsPendentes > 0) {
+    avisos.push(`<div class="aviso pendente"><b>${estado.commitsPendentes} alteração(ões) ainda não enviadas ao GitHub.</b>
+      O servidor não tem credencial de escrita, então as mudanças ficam commitadas só aqui.
+      Elas valem em produção normalmente — o que falta é o envio para o repositório remoto.</div>`);
+  }
+  $('#avisos').innerHTML = avisos.join('');
+
+  $('#lista').innerHTML = estado.hangares.map(h => {
+    const etqs = [
+      h.ativo ? etiqueta('recebendo', 'on') : etiqueta('sem grupo', 'off'),
+      h.temCredencial ? '' : etiqueta('sem credencial', 'aviso'),
+      h.ativo && !h.grupoAdministracao ? etiqueta('sem aviso de erro', 'aviso') : '',
+      h.exigeFotoVeiculoNoLocal ? etiqueta('exige foto do local') : '',
+      etiqueta(`cota ${h.cotaUsada}/${h.cotaMensalForaPrazo ?? '?'}`),
+    ].filter(Boolean).join(' ');
+
+    const campo = (n, tipo, valor) => `
+      <div>
+        <label for="${h.id}-${n}">${n}</label>
+        <input id="${h.id}-${n}" type="${tipo}" value="${valor ?? ''}" data-campo="${n}">
+        <div class="dica">${DICAS[n] || ''}</div>
+      </div>`;
+
+    return `
+    <div class="hangar" data-id="${h.id}">
+      <div class="cab" onclick="this.nextElementSibling.classList.toggle('aberto')">
+        <span class="nome">${h.nome}</span> ${etqs}
+      </div>
+      <div class="corpo">
+        <div class="campos">
+          ${campo('cotaMensalForaPrazo','number',h.cotaMensalForaPrazo)}
+          ${campo('diasValidacaoPadrao','number',h.diasValidacaoPadrao)}
+          ${campo('prazoValidacaoHoras','number',h.prazoValidacaoHoras)}
+          ${campo('placaGenerica','text',h.placaGenerica)}
+          ${campo('grupoWhatsappId','text',h.grupoWhatsappId)}
+          ${campo('grupoAdministracao','text',h.grupoAdministracao)}
+        </div>
+        <div class="linha-check">
+          <input type="checkbox" id="${h.id}-foto" data-campo="exigeFotoVeiculoNoLocal" ${h.exigeFotoVeiculoNoLocal?'checked':''}>
+          <label for="${h.id}-foto" style="margin:0">Exige foto do veículo no local (antifraude)</label>
+        </div>
+        <div style="margin-top:12px; display:flex; gap:8px; align-items:center;">
+          <button onclick="salvar('${h.id}', this)">Salvar</button>
+          <span class="msg" id="msg-${h.id}"></span>
+        </div>
+        <div class="somente-leitura">
+          Não editável aqui: credenciais (ficam no <code>.env</code>), seletores da página
+          (são código, quebram o hangar em silêncio se errados) e dados do Asaas
+          (erro emite cobrança para o CNPJ errado).
+          ${h.temAsaas ? 'Cliente Asaas cadastrado.' : 'Sem cliente Asaas — faturamento vai pedir cadastro à administração.'}
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function carregar() {
+  const r = await fetch('/api/estado');
+  estado = await r.json();
+  desenhar();
+}
+
+async function salvar(id, botao) {
+  const raiz = document.querySelector(`.hangar[data-id="${id}"]`);
+  const msg = $(`#msg-${id}`);
+  const corpo = {};
+  raiz.querySelectorAll('[data-campo]').forEach(el => {
+    corpo[el.dataset.campo] = el.type === 'checkbox' ? el.checked : el.value;
+  });
+
+  botao.disabled = true; msg.className = 'msg'; msg.textContent = 'salvando…';
+  try {
+    const r = await fetch('/api/hangar/' + encodeURIComponent(id), {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(corpo),
+    });
+    const d = await r.json();
+    if (!r.ok) { msg.className = 'msg erro'; msg.textContent = d.erro || 'erro'; }
+    else if (d.semMudanca) { msg.className = 'msg'; msg.textContent = 'nada mudou'; }
+    else {
+      msg.className = 'msg ok';
+      msg.textContent = `salvo e commitado (${d.commit}) — ${d.aplicadas.length} campo(s)`;
+      await carregar();
+      // redesenhar fecha os painéis; reabre o que estava sendo editado
+      document.querySelector(`.hangar[data-id="${id}"] .corpo`).classList.add('aberto');
+    }
+  } catch (e) {
+    msg.className = 'msg erro'; msg.textContent = 'falha de rede: ' + e.message;
+  } finally { botao.disabled = false; }
+}
+
+carregar();
+</script>
+</body>
+</html>

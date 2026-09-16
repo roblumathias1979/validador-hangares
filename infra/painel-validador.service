@@ -1,0 +1,17 @@
+[Unit]
+Description=Painel do Validador - hangares SBJD
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/validador-hangares
+# Escuta apenas em 127.0.0.1 (ver painel/servidor.js). O acesso e por tunel SSH;
+# nada deste sistema esta exposto a internet, e o painel nao vai ser o primeiro.
+Environment=PAINEL_PORTA=8081
+ExecStart=/usr/bin/node /home/ubuntu/validador-hangares/painel/servidor.js
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
