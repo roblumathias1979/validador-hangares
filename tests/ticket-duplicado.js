@@ -97,11 +97,12 @@ async function main() {
   conferir('avisa que foi em outro pátio', /outro p[áa]tio/i.test(segunda.mensagemWhatsapp || ''));
   conferir('guarda onde foi validado', segunda.validadoNoHangar === 'alljet');
 
-  console.log('\nMesmo ticket, mesmo pátio: recusa sem alarme');
+  console.log('\nMesmo ticket, mesmo pátio: recusa e avisa também');
   const repetida = await processar(payload(GRUPO_ALLJET), {});
   conferir('não valida', repetida.status === 'ticket_ja_validado', `veio "${repetida.status}"`);
-  conferir('NÃO aciona a administração', repetida.notificarAdmin === false);
-  conferir('não fala em outro pátio', !/outro p[áa]tio/i.test(repetida.mensagemWhatsapp || ''));
+  conferir('também aciona a administração', repetida.notificarAdmin === true);
+  conferir('não fala em outro pátio para o cliente', !/outro p[áa]tio/i.test(repetida.mensagemWhatsapp || ''));
+  conferir('o detalhe ao admin diz que é o mesmo pátio', /mesmo p[áa]tio/i.test(repetida.mensagem || ''));
 
   console.log('\nTicket diferente segue validando');
   respostaDoOcr = { status: 'ocr_ok', ticket: '011609999888', dataEmissaoIso: new Date().toISOString() };

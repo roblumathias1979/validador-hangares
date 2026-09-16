@@ -684,9 +684,13 @@ async function conduzir(body, { aoReceber } = {}) {
           + 'Um ticket vale para um pátio só. Nossa equipe foi avisada — se houver engano, ela resolve.'
         : `Esse ticket já foi validado em ${quando}. Não é preciso validar de novo. `
           + 'Se precisar estender o prazo, fale com a administração.',
-      // Pátio diferente é sinal de fraude e precisa de gente. Repetição no
-      // mesmo pátio costuma ser reenvio por engano, e a resposta já resolve.
-      notificarAdmin: outroPatio,
+      // Avisa nos DOIS casos (escolha do usuário em 16/09/2026). A ideia
+      // anterior era poupar o administrador da repetição no mesmo pátio, por
+      // ser quase sempre reenvio por engano — mas quem decide o que é engano é
+      // quem conhece o pátio, e ticket validado duas vezes é dinheiro em jogo
+      // nas duas formas. O texto do `mensagem` diz qual dos dois casos é, então
+      // dá para distinguir num relance sem precisar de dois tratamentos.
+      notificarAdmin: true,
       responder: true,
       etapa: 'conferencia_duplicidade',
     };
