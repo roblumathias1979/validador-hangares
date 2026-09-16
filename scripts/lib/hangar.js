@@ -77,6 +77,37 @@ async function login(page, hangar) {
     throw new Error(`Credenciais ausentes para "${hangar.id}" (variáveis ${hangar.usuarioEnvVar} / ${hangar.senhaEnvVar}).`);
   }
 
+  // Uma tentativa a mais quando o login fica INDETERMINADO.
+  //
+  // Em 16/09/2026 uma consulta do AIBM 1 falhou sozinha, no meio de dezenas
+  // que funcionaram: o painel não apareceu em 15s e o cliente recebeu "não
+  // conseguimos consultar", com a administração acionada. Rodado à mão logo
+  // depois, o mesmo ticket respondeu em 5s, quatro vezes seguidas. A máquina
+  // tem 2 GB e já usa swap; com o Chromium disputando memória, 15s deixa de
+  // ser folgado e vira aposta.
+  //
+  // Repetir só faz sentido no indeterminado. Senha errada é senha errada —
+  // insistir gastaria mais 25s para dar a mesma resposta, e em site que trava
+  // conta após tentativas seguidas seria pior que inútil.
+  const TENTATIVAS = 2;
+  let ultimoErro = null;
+
+  for (let tentativa = 1; tentativa <= TENTATIVAS; tentativa += 1) {
+    const espera = tentativa === 1 ? 15000 : 25000;
+    const resultado = await tentarLogin(page, hangar, seletores, usuario, senha, espera);
+
+    if (resultado === 'sucesso') return;
+    if (resultado === 'erro') {
+      throw new Error(`Login falhou para o hangar "${hangar.id}" — usuário ou senha incorretos (usuário: ${usuario}).`);
+    }
+    ultimoErro = `Não foi possível confirmar o login do hangar "${hangar.id}" em ${espera / 1000}s `
+      + `(tentativa ${tentativa} de ${TENTATIVAS}) — nem o painel nem a mensagem de erro apareceram.`;
+  }
+
+  throw new Error(ultimoErro);
+}
+
+async function tentarLogin(page, hangar, seletores, usuario, senha, espera) {
   await page.goto(hangar.validadorUrl, { waitUntil: 'networkidle' });
   await page.fill(seletores.campoUsuario, usuario);
   await page.fill(seletores.campoSenha, senha);
@@ -96,17 +127,10 @@ async function login(page, hangar) {
   // vem estática no HTML da tela de login, escondida via CSS, e
   // `textContent()` não distingue isso — só waitForSelector, que respeita
   // visibilidade por padrão, evita o falso positivo).
-  const resultado = await Promise.race([
-    page.waitForSelector(seletores.areaVagasDisponiveis, { state: 'visible', timeout: 15000 }).then(() => 'sucesso'),
-    page.waitForSelector('text=/usu[áa]rio ou senha incorretos?/i', { state: 'visible', timeout: 15000 }).then(() => 'erro'),
+  return Promise.race([
+    page.waitForSelector(seletores.areaVagasDisponiveis, { state: 'visible', timeout: espera }).then(() => 'sucesso'),
+    page.waitForSelector('text=/usu[áa]rio ou senha incorretos?/i', { state: 'visible', timeout: espera }).then(() => 'erro'),
   ]).catch(() => 'indeterminado');
-
-  if (resultado === 'erro') {
-    throw new Error(`Login falhou para o hangar "${hangar.id}" — usuário ou senha incorretos (usuário: ${usuario}).`);
-  }
-  if (resultado === 'indeterminado') {
-    throw new Error(`Não foi possível confirmar o login do hangar "${hangar.id}" em 15s — nem o painel nem a mensagem de erro apareceram.`);
-  }
 }
 
 module.exports = { carregarConfig, buscarHangar, buscarHangarPorGrupo, login, salvarAsaasCustomerId };
