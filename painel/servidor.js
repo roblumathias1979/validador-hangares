@@ -42,7 +42,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 
 const RAIZ = path.join(__dirname, '..');
-require('dotenv').config({ path: path.join(RAIZ, '.env') });
+require('dotenv').config({ path: path.join(RAIZ, '.env'), override: true });
 
 const CONFIG = path.join(RAIZ, 'config', 'hangares.json');
 const PORTA = Number(process.env.PAINEL_PORTA) || 8081;

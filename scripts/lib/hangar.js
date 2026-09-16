@@ -1,7 +1,21 @@
 const fs = require('fs');
 const path = require('path');
 
-require('dotenv').config({ path: path.join(__dirname, '..', '..', '.env') });
+// `override: true` NÃO é detalhe. O n8n embute o seu próprio dotenv e roda com
+// este diretório como working directory, então ele carrega o .env NA MEMÓRIA
+// DELE quando sobe — e todo script que ele dispara herda esse ambiente. Sem
+// override, o dotenv daqui respeita o que já está definido e o arquivo em disco
+// é ignorado: o valor congelado no start do n8n vence para sempre.
+//
+// Custou uma tarde em 16/09/2026. O n8n subiu às 13:02, a senha do AIBM 1 foi
+// corrigida no .env às 15:51, e a partir daí TODA validação daquele hangar
+// falhava com "usuário ou senha incorretos" — enquanto o mesmo comando rodado
+// no terminal entrava sem problema, porque o terminal não herda nada do n8n.
+// Passei por memória, sessões simultâneas e a grafia da mensagem de erro antes
+// de medir quantos caracteres chegavam ao campo: 5, quando o arquivo tinha 8.
+//
+// Aqui o .env é a fonte da verdade. Quem edita o arquivo espera que valha.
+require('dotenv').config({ path: path.join(__dirname, '..', '..', '.env'), override: true });
 
 const CONFIG_PATH = path.join(__dirname, '..', '..', 'config', 'hangares.json');
 

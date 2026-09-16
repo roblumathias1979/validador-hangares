@@ -23,7 +23,7 @@ const http = require('http');
 const path = require('path');
 
 const RAIZ = path.join(__dirname, '..');
-require('dotenv').config({ path: path.join(RAIZ, '.env') });
+require('dotenv').config({ path: path.join(RAIZ, '.env'), override: true });
 
 const { carregarConfig } = require('./lib/hangar');
 const { salvarAtomico, lerJson } = require('./lib/trava-arquivo');

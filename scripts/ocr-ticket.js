@@ -27,7 +27,7 @@ const path = require('path');
 // por lib/hangar.js (não recebe hangarId) — e é lib/hangar.js quem carrega o
 // dotenv. O resultado era "ANTHROPIC_API_KEY não configurada" mesmo com a
 // chave preenchida corretamente no .env.
-require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
+require('dotenv').config({ path: path.join(__dirname, '..', '.env'), override: true });
 
 const { carregarConfig, buscarHangar } = require('./lib/hangar');
 
