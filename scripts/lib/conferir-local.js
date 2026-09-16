@@ -28,6 +28,17 @@
  *
  * `indeterminado` é resultado legítimo, não falha. Forçar um veredito onde não
  * há evidência é pior que admitir a dúvida: acusaria cliente honesto de fraude.
+ *
+ * MAS `indeterminado` NÃO VALIDA (desde 16/09/2026, decisão do usuário). Antes
+ * passava, para não penalizar quem tirou uma foto mal enquadrada — só que isso
+ * esvaziava o controle: se a foto não confirma que o carro está no local,
+ * validar equivale a não ter conferência nenhuma, e num hangar com histórico de
+ * fraude é o oposto do que se quer.
+ *
+ * A diferença entre `indeterminado` e `incompativel` continua importando, e é
+ * por isso que os dois vereditos seguem separados: incompatível é sinal de
+ * fraude e aciona a administração; indeterminado é só enquadramento ruim, e o
+ * cliente apenas reenvia a foto — sem precisar mandar o ticket de novo.
  */
 
 // Descrições escritas a partir das fotos de referência tiradas em 15/09/2026.

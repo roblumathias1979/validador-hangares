@@ -495,12 +495,34 @@ async function conduzir(body, { aoReceber } = {}) {
     pedido.placaEhGenerica = !r.placa && !pedido.placa;
     if (r.placa) infoLocal.placaLidaDaFoto = r.placa;
 
-    if (local.bloqueia) {
+    // SÓ `compativel` valida.
+    //
+    // Antes o `indeterminado` passava, para não acusar cliente honesto por causa
+    // do enquadramento. Mas isso esvaziava o controle: se a foto não confirma
+    // que o carro está no local, validar é o mesmo que não ter conferência
+    // nenhuma — e num hangar com histórico de fraude é justamente o contrário
+    // do que se quer. Decisão do usuário em 16/09/2026.
+    //
+    // A pendência é REGRAVADA nos dois casos de recusa: o cliente reenvia só a
+    // foto do carro, sem precisar mandar o ticket de novo. Ela vence em 30 min.
+    if (local.local !== 'compativel') {
+      pendencias.registrar(msg.grupoId, msg.remetenteId, pedido);
+      const incompativel = local.local === 'incompativel';
       return {
         ...infoLocal,
-        status: 'local_incompativel', hangarId: hangar.id, grupoId: msg.grupoId, ticket: pedido.ticket,
-        mensagemWhatsapp: local.mensagemWhatsapp,
-        notificarAdmin: local.notificarAdmin === true, responder: true, etapa: 'conferencia_local',
+        status: incompativel ? 'local_incompativel' : 'local_indeterminado',
+        hangarId: hangar.id, grupoId: msg.grupoId, ticket: pedido.ticket,
+        mensagemWhatsapp: incompativel
+          ? local.mensagemWhatsapp
+          : 'Não consegui confirmar pela foto que o veículo está no hangar — '
+            + `${local.motivo ? `${local.motivo} ` : ''}`
+            + 'Mande outra foto um pouco mais afastada, mostrando o carro e o entorno (piso, parede ou o que aparece ao fundo). '
+            + `O ticket ${pedido.ticket} continua aguardando.`,
+        // Local que CONTRADIZ a referência é sinal de fraude e precisa de gente.
+        // Enquadramento ruim é só enquadramento ruim — não vale acionar ninguém.
+        notificarAdmin: incompativel,
+        responder: true,
+        etapa: 'conferencia_local',
       };
     }
 

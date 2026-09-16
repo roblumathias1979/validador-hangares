@@ -180,11 +180,16 @@ Os dois locais são visualmente bem distintos:
 - **AIBM 2**: asfalto com vagas em faixa amarela, cobertura isolada em campo
   aberto sem parede, cerca viva, gramado em declive, morros ao fundo.
 
-Três vereditos: `compativel`, `incompativel`, `indeterminado`. Só `incompativel`
-bloqueia e notifica o admin. `indeterminado` é resposta **legítima e esperada** —
-num close aparece só um pedaço de asfalto ou parede branca, que existe no
-aeroporto inteiro. O prompt insiste nisso de propósito: dizer `incompativel` sem
-base acusaria de fraude um cliente honesto.
+Três vereditos: `compativel`, `incompativel`, `indeterminado`. **Só
+`compativel` valida** (desde 16/09/2026). `incompativel` bloqueia e notifica o
+admin — é sinal de fraude. `indeterminado` não valida, mas não aciona ninguém:
+é enquadramento ruim, e o cliente reenvia só a foto do carro, sem repetir o
+ticket.
+
+O prompt continua instruindo a responder `indeterminado` quando não há
+evidência, em vez de forçar um veredito — dizer `incompativel` sem base
+acusaria de fraude um cliente honesto. O que mudou foi a consequência: antes
+`indeterminado` passava, e isso esvaziava o controle.
 
 Havia uma aeronave `PT-07` visível na foto do AIBM 2 — não foi usada como sinal
 porque, se ela voar, vira falso negativo.
