@@ -154,6 +154,7 @@ let estado = null;
 // preenche. Quem valida de verdade é o servidor; esta tela não é a barreira.
 const DICAS = {
   cotaMensalForaPrazo: 'Validações fora do prazo gratuitas por mês. Inteiro, 0 a 100.',
+  cotaMensalValidacoes: 'Teto de validações do mês INTEIRO (não só as fora do prazo). Antes de gastar cada uma, o bot pergunta ao cliente se pode. Vazio = sem limite. Renova sozinho na virada do mês.',
   diasValidacaoPadrao: 'Tolerância concedida ao validar. Máximo 20 — é o teto do slider do ValidPark.',
   prazoValidacaoHoras: 'Janela para validar após a emissão. Vazio = sem limite.',
   placaGenerica: 'Usada quando o cliente não informa a placa na legenda. Formato AAA1234 ou AAA1A23.',
@@ -209,7 +210,15 @@ function desenhar() {
       h.temCredencial ? '' : etiqueta('sem credencial', 'aviso'),
       h.ativo && !h.grupoAdministracao ? etiqueta('sem aviso de erro', 'aviso') : '',
       h.exigeFotoVeiculoNoLocal ? etiqueta('exige foto do local') : '',
-      etiqueta(`cota ${h.cotaUsada}/${h.cotaMensalForaPrazo ?? '?'}`),
+      // Duas cotas diferentes, e confundir uma com a outra muda a leitura por
+      // completo. A de fora do prazo é a exceção que custa dinheiro; a do mês
+      // é o teto comercial do pátio. A etiqueta agora diz qual é qual, e a do
+      // mês só aparece em quem tem teto — nos outros seria um "sem limite"
+      // repetido em quinze linhas.
+      etiqueta(`fora do prazo ${h.cotaUsada}/${h.cotaMensalForaPrazo ?? '?'}`),
+      h.mes.limite !== null
+        ? etiqueta(`mês ${h.mes.usadas}/${h.mes.limite}`, h.mes.esgotada ? 'ruim' : h.mes.restantes <= 5 ? 'aviso' : 'on')
+        : '',
       h.historico.validados ? etiqueta(`${h.historico.validados} validado(s)`, 'on') : '',
     ].filter(Boolean).join(' ');
 
@@ -227,6 +236,7 @@ function desenhar() {
       </div>
       <div class="corpo">
         <div class="campos">
+          ${campo('cotaMensalValidacoes','number',h.cotaMensalValidacoes)}
           ${campo('cotaMensalForaPrazo','number',h.cotaMensalForaPrazo)}
           ${campo('diasValidacaoPadrao','number',h.diasValidacaoPadrao)}
           ${campo('prazoValidacaoHoras','number',h.prazoValidacaoHoras)}

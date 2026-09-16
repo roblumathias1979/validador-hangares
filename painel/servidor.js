@@ -49,6 +49,7 @@ const PORTA = Number(process.env.PAINEL_PORTA) || 8081;
 const SENHA = process.env.PAINEL_SENHA || '';
 
 const { obterUsoMensal, obterRestante } = require(path.join(RAIZ, 'scripts', 'lib', 'cota-fora-prazo'));
+const cotaMensal = require('../scripts/lib/cota-mensal');
 const registro = require(path.join(RAIZ, 'scripts', 'lib', 'registro'));
 const { lerJson } = require(path.join(RAIZ, 'scripts', 'lib', 'trava-arquivo'));
 const usuarios = require('./usuarios');
@@ -110,6 +111,15 @@ function salvarEComitar(config, resumo) {
  * com uma mensagem que explica o limite — o painel mostra ao usuário.
  */
 const CAMPOS = {
+  // Teto de validações do mês INTEIRO, diferente da cota fora do prazo logo
+  // abaixo. Vazio significa SEM TETO, que é o caso de quase todos — por isso
+  // o campo aceita string vazia em vez de exigir um número grande.
+  cotaMensalValidacoes: (v) => {
+    if (v === '' || v === null) return null;
+    const n = Number(v);
+    if (!Number.isInteger(n) || n < 0 || n > 10000) throw new Error('Cota mensal deve ser um inteiro de 0 a 10000, ou vazio para sem limite.');
+    return n;
+  },
   cotaMensalForaPrazo: (v) => {
     const n = Number(v);
     if (!Number.isInteger(n) || n < 0 || n > 100) throw new Error('Cota deve ser um inteiro de 0 a 100.');
@@ -181,6 +191,10 @@ function montarEstado(usuario = null) {
     ativo: Boolean((h.grupoWhatsappId || '').trim()),
     cotaUsada: obterUsoMensal(h.id),
     cotaRestante: obterRestante(h),
+    // Cota do mês inteiro. `null` em limite significa sem teto — o painel
+    // precisa distinguir "sem limite" de "limite zero", que são opostos.
+    cotaMensalValidacoes: h.cotaMensalValidacoes ?? null,
+    mes: (() => { const m = cotaMensal.situacao(h); return { limite: m.limite, usadas: m.usadas, restantes: m.restantes, esgotada: m.esgotada, competencia: m.mes }; })(),
     historico: resumo[h.id] || { total: 0, validados: 0, comCota: 0, ultimo: null },
   }));
 
