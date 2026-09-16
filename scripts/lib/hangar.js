@@ -205,7 +205,7 @@ async function tentarLogin(page, hangar, seletores, usuario, senha, espera) {
     //
     // Agora casa pelo trecho sem acento nenhum, que é o que o site tem de
     // estável — e sobrevive ao dia em que corrigirem a grafia.
-    page.waitForSelector('text=/ou\\s+senha\\s+incorret/i', { state: 'visible', timeout: espera }).then(() => 'erro'),
+    page.waitForSelector('text=/usu[áa]rio ou senha incorretos?/i', { state: 'visible', timeout: espera }).then(() => 'erro'),
   ]).catch(() => 'indeterminado');
 }
 
