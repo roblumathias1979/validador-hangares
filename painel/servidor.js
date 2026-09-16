@@ -149,6 +149,12 @@ const CAMPOS = {
     return s;
   },
   exigeFotoVeiculoNoLocal: (v) => v === true || v === 'true',
+  avisarVagasAbaixoDe: (v) => {
+    if (v === '' || v === null) return null; // vazio = calcula 10% do total
+    const n = Number(v);
+    if (!Number.isInteger(n) || n < 0 || n > 500) throw new Error('Aviso de vagas deve ser um inteiro de 0 a 500, ou vazio para automático.');
+    return n;
+  },
 };
 
 // --------------------------------------------------------------------- estado
@@ -167,6 +173,7 @@ function montarEstado(usuario = null) {
     diasValidacaoPadrao: h.diasValidacaoPadrao ?? null,
     prazoValidacaoHoras: h.prazoValidacaoHoras ?? null,
     exigeFotoVeiculoNoLocal: h.exigeFotoVeiculoNoLocal === true,
+    avisarVagasAbaixoDe: h.avisarVagasAbaixoDe ?? null,
     temCredencial: Boolean(process.env[h.usuarioEnvVar]),
     temAsaas: Boolean((h.asaas || {}).customerId),
     // Só os hangares com grupo cadastrado recebem mensagem; os demais são

@@ -34,6 +34,7 @@ const { interpretarMensagem } = require('./lib/whatsapp');
 const { avaliarLocal } = require('./lib/conferir-local');
 const pendencias = require('./lib/pendencias');
 const registro = require('./lib/registro');
+const avisoPatio = require('./lib/aviso-patio');
 const { lerTicket, lerLocal } = require('./ocr-ticket');
 const { consultarPatio } = require('./consultar-patio');
 
@@ -291,6 +292,28 @@ async function processar(body, opcoes = {}) {
   // resposta mais do que nós do registro.
   registro.registrar(resultado);
 
+  // Aviso de pátio cheio. Usa o número que a validação ou a consulta JÁ leram —
+  // sem login extra. Vai para a administração, que é quem pode agir, e uma nota
+  // curta acompanha a resposta do cliente.
+  if (Number.isFinite(resultado.vagasDisponiveis)) {
+    try {
+      const hangarAviso = buscarHangarPorGrupo(carregarConfig(), resultado.grupoId);
+      const aviso = avisoPatio.avaliar(hangarAviso, resultado.vagasDisponiveis, resultado.totalVagas);
+      if (aviso) {
+        resultado.avisoPatio = aviso.acao;
+        if (opcoes.aoNotificarAdmin && (hangarAviso.grupoAdministracao || '').trim()) {
+          await opcoes.aoNotificarAdmin(hangarAviso.grupoAdministracao, avisoPatio.mensagemAdmin(aviso))
+            .catch(() => { resultado.avisoPatioEnviado = false; });
+        }
+      }
+      if (resultado.mensagemWhatsapp && resultado.status === 'validado') {
+        resultado.mensagemWhatsapp += avisoPatio.notaParaCliente(
+          resultado.vagasDisponiveis, avisoPatio.limiteDe({ ...hangarAviso, totalVagas: resultado.totalVagas })
+        );
+      }
+    } catch (e) { /* aviso é acessório: nunca pode derrubar a resposta */ }
+  }
+
   if (resultado.notificarAdmin) {
     // O hangar só é conhecido quando a mensagem chegou de um grupo cadastrado;
     // fora disso não há para quem avisar.
@@ -331,6 +354,7 @@ async function conduzir(body, { aoReceber } = {}) {
       responder: true,
       etapa: `status_patio_${msg.pedidoPatio}`,
       vagasDisponiveis: patio.disponiveis ?? null,
+      totalVagas: patio.total ?? null,
     };
   }
 

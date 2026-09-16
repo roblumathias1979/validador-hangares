@@ -427,8 +427,15 @@ async function validarTicket(hangarId, ticket, placa, dataEmissaoIso, horasAdici
       .textContent(seletores.areaVagasDisponiveis)
       .catch(() => null);
     const vagasMatch = (vagasTexto || '').match(REGEX_VAGAS_DISPONIVEIS);
+    // Guardado para quem chamou: o número já foi lido aqui, e consultá-lo de
+    // novo lá fora custaria outro login e outro Chromium.
+    let vagasLidas = null;
+    let totalLido = null;
+    const totalMatch = (vagasTexto || '').match(/Total de vagas:\s*(\d+)/i);
+    if (totalMatch) totalLido = Number(totalMatch[1]);
     if (vagasMatch) {
       const vagasDisponiveis = Number(vagasMatch[1]);
+      vagasLidas = vagasDisponiveis;
       if (vagasDisponiveis <= 0) {
         return finalizar({
           status: 'sem_vagas',
@@ -567,6 +574,8 @@ async function validarTicket(hangarId, ticket, placa, dataEmissaoIso, horasAdici
       hangar: hangarId,
       ticket,
       placa,
+      vagasDisponiveis: vagasLidas,
+      totalVagas: totalLido,
       mensagem: resultado.mensagem,
       mensagemWhatsapp: mensagensWhatsapp[resultado.status],
       notificarAdmin: resultado.status === 'indeterminado' || cotaEstourada,

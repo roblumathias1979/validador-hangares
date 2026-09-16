@@ -148,6 +148,7 @@ const DICAS = {
   placaGenerica: 'Usada quando o cliente não informa a placa na legenda. Formato AAA1234 ou AAA1A23.',
   grupoWhatsappId: 'Grupo de onde chegam os tickets. Sem ele o hangar não recebe nada.',
   grupoAdministracao: 'Quem recebe os avisos de erro. Grupo (@g.us) ou pessoa (@s.whatsapp.net).',
+  avisarVagasAbaixoDe: 'Avisa a administração quando as vagas livres chegarem a este número. Vazio = 10% do total, no mínimo 3.',
 };
 
 function etiqueta(texto, classe) { return `<span class="etq ${classe||''}">${texto}</span>`; }
@@ -221,6 +222,7 @@ function desenhar() {
           ${campo('placaGenerica','text',h.placaGenerica)}
           ${campo('grupoWhatsappId','text',h.grupoWhatsappId)}
           ${campo('grupoAdministracao','text',h.grupoAdministracao)}
+          ${campo('avisarVagasAbaixoDe','number',h.avisarVagasAbaixoDe)}
         </div>
         <div class="linha-check">
           <input type="checkbox" id="${h.id}-foto" data-campo="exigeFotoVeiculoNoLocal" ${h.exigeFotoVeiculoNoLocal?'checked':''}
