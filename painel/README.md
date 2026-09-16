@@ -57,6 +57,30 @@ envio. As mudanças valem em produção normalmente; o que falta é só o envio 
 o repositório remoto. Para resolver de vez, é preciso cadastrar uma deploy key
 do servidor no GitHub.
 
+## Não há "esqueci minha senha"
+
+Foi implementado e **removido em 16/09/2026**, porque não funcionava: o SMTP da
+Locaweb recusa autenticação a partir deste servidor com
+`535 5.7.8 authentication failed`, embora as mesmas credenciais funcionem no
+webmail.
+
+O diagnóstico descartou as causas simples — testadas as quatro combinações de
+usuário (completo e sem domínio) e método (PLAIN e LOGIN), todas recusadas, com
+a conexão e o STARTTLS funcionando. A explicação mais provável é bloqueio por
+origem: o servidor está na AWS, nos Estados Unidos, e provedores brasileiros
+costumam recusar SMTP de IP estrangeiro ou de nuvem.
+
+As rotas de recuperação eram **públicas, sem autenticação**, num painel exposto
+à internet. Mantê-las sem funcionar seria superfície de ataque por nada.
+
+**Como recuperar acesso hoje:** outra conta de administrador redefine a senha
+pelo painel. Por isso o painel avisa enquanto existir uma conta só — com apenas
+uma, perder a senha significa voltar editando arquivo no servidor por SSH.
+
+Se um dia for necessário, o caminho é o **Amazon SES**: o servidor já está na
+AWS e alcança o SES na porta 587 (testado). Exige verificar o domínio e sair do
+sandbox.
+
 ## Serviço
 
 ```bash

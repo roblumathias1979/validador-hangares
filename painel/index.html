@@ -100,28 +100,6 @@
     <div id="historico"></div>
   </div>
 
-  <div class="secao" id="sec-email">
-    <h2>E-mail</h2>
-    <div class="sub">Usado para enviar o link de "esqueci minha senha". A senha é guardada no servidor e nunca volta para esta tela.</div>
-    <div class="campos">
-      <div><label for="e-host">servidor</label><input id="e-host" type="text" placeholder="smtp.1park.com.br">
-        <div class="dica">Porta 587 — a 465 está bloqueada na saída deste servidor.</div></div>
-      <div><label for="e-porta">porta</label><input id="e-porta" type="number" value="587" onchange="avisarPorta()">
-        <div class="dica" id="dica-porta">587 (recomendada). A 465 está bloqueada na saída deste servidor.</div></div>
-      <div><label for="e-usuario">usuário</label><input id="e-usuario" type="text" placeholder="nao-responda@1park.com.br"
-        autocomplete="username"></div>
-      <div><label for="e-senha">senha</label><input id="e-senha" type="password" autocomplete="new-password">
-        <div class="dica" id="dica-senha-smtp">Deixe em branco para manter a atual.</div></div>
-      <div><label for="e-remetente">remetente</label><input id="e-remetente" type="text" placeholder="nao-responda@1park.com.br">
-        <div class="dica">Aparece como quem enviou. Normalmente igual ao usuário.</div></div>
-    </div>
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-      <button onclick="salvarEmail(this)">Salvar</button>
-      <button class="sec" onclick="testarEmail(this)">Salvar e enviar teste para mim</button>
-      <span class="msg" id="msg-email"></span>
-    </div>
-  </div>
-
   <div class="secao" id="sec-usuarios">
     <h2>Quem pode acessar</h2>
     <div id="aviso-smtp"></div>
@@ -133,7 +111,7 @@
         <div class="dica">3 a 32 caracteres: letras, números, ponto, hífen, sublinhado.</div></div>
       <div><label for="u-email">e-mail</label>
         <input id="u-email" type="email" placeholder="para recuperar a senha">
-        <div class="dica">Sem e-mail, a pessoa não consegue usar "esqueci minha senha".</div></div>
+        <div class="dica">Opcional — serve só como contato.</div></div>
       <div><label for="u-senha">senha</label>
         <input id="u-senha" type="password" autocomplete="new-password">
         <div class="dica" id="dica-senha">mínimo de caracteres carregando…</div></div>
@@ -331,83 +309,27 @@ async function carregarHistorico() {
     </tr>`).join('')}</tbody></table>`;
 }
 
-function avisarPorta() {
-  const p = Number($('#e-porta').value);
-  const d = $('#dica-porta');
-  if (p === 465) {
-    d.innerHTML = '<b style="color:var(--erro)">A porta 465 está BLOQUEADA na saída deste servidor</b> — o envio vai falhar com "Greeting never received". Use 587.';
-  } else {
-    d.textContent = '587 (recomendada). A 465 está bloqueada na saída deste servidor.';
-  }
-}
-
-async function carregarEmail() {
-  const d = await (await fetch('/api/email')).json();
-  $('#e-host').value = d.host || '';
-  $('#e-porta').value = d.porta || 587;
-  $('#e-usuario').value = d.usuario || '';
-  $('#e-remetente').value = d.remetente || '';
-  avisarPorta();
-  $('#dica-senha-smtp').textContent = d.temSenha
-    ? 'Já existe uma senha salva. Deixe em branco para mantê-la.'
-    : 'Nenhuma senha salva ainda.';
-}
-
-function dadosEmail() {
-  return {
-    host: $('#e-host').value, porta: $('#e-porta').value, usuario: $('#e-usuario').value,
-    senha: $('#e-senha').value, remetente: $('#e-remetente').value,
-  };
-}
-
-async function salvarEmail(botao, silencioso) {
-  const msg = $('#msg-email');
-  botao.disabled = true; msg.className = 'msg'; msg.textContent = 'salvando…';
-  const r = await fetch('/api/email', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(dadosEmail()) });
-  const d = await r.json();
-  botao.disabled = false;
-  if (!r.ok) { msg.className='msg erro'; msg.textContent = d.erro || 'erro'; return false; }
-  $('#e-senha').value = '';
-  if (!silencioso) { msg.className='msg ok'; msg.textContent = 'salvo'; }
-  await carregarEmail(); await carregar();
-  return true;
-}
-
-async function testarEmail(botao) {
-  const msg = $('#msg-email');
-  // Salva antes de testar: testar com o que está na tela mas não salvo daria um
-  // resultado que não corresponde ao que o sistema vai usar de verdade.
-  if (!await salvarEmail(botao, true)) return;
-  const para = prompt('Enviar o teste para qual e-mail?', estado.usuario && estado.usuario.email || '');
-  if (!para) return;
-  botao.disabled = true; msg.className='msg'; msg.textContent = 'enviando…';
-  const r = await fetch('/api/email', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({acao:'testar', para}) });
-  const d = await r.json();
-  botao.disabled = false;
-  if (d.ok) { msg.className='msg ok'; msg.textContent = `enviado para ${para} — confira a caixa (e o lixo eletrônico)`; }
-  else { msg.className='msg erro'; msg.textContent = d.erro || 'falhou'; }
-}
-
 async function carregarUsuarios() {
   const d = await (await fetch('/api/usuarios')).json();
   $('#dica-senha').textContent = `Mínimo de ${d.minSenha} caracteres.`;
-  // Escreve no container fixo, NÃO insere: carregarUsuarios() roda a cada ação
-  // (criar, trocar senha, definir e-mail), e inserir acumulava um aviso por
-  // chamada — apareciam três empilhados.
-  $('#aviso-smtp').innerHTML = (estado && estado.emailConfigurado === false)
-    ? `<div class="aviso pendente" style="margin-bottom:12px"><b>Recuperação de senha indisponível.</b>
-       O SMTP não está configurado no .env do servidor, então "esqueci minha senha" não envia nada.
-       Quem perder a senha vai depender de outra conta de administrador para redefini-la.</div>`
+  // Não existe "esqueci minha senha": o SMTP da Locaweb recusa autenticação a
+  // partir deste servidor (ver painel/README.md). Quem perde a senha depende
+  // de outra conta de administrador — por isso o aviso fica sempre visível
+  // quando há uma só.
+  $('#aviso-smtp').innerHTML = d.usuarios.length < 2
+    ? `<div class="aviso pendente" style="margin-bottom:12px"><b>Só existe uma conta de administrador.</b>
+       Não há recuperação de senha por e-mail: se esta senha se perder, o acesso ao painel
+       só volta editando arquivo no servidor por SSH. Crie uma segunda conta.</div>`
     : '';
   $('#sub-usuarios').textContent = d.usuarios.length
-    ? `${d.usuarios.length} conta(s) · você está como "${d.eu}" · 5 tentativas erradas bloqueiam por 15 minutos`
+    ? `${d.usuarios.length} conta(s) · você está como "${d.eu}" · 5 tentativas erradas bloqueiam por 15 minutos · sem recuperação por e-mail`
     : 'Nenhuma conta criada ainda — o acesso está pela senha de resgate do .env. Crie a primeira conta: a senha única deixa de funcionar assim que existir uma.';
 
   $('#lista-usuarios').innerHTML = d.usuarios.length ? `<table>
     <thead><tr><th>usuário</th><th>e-mail</th><th>perfil</th><th>último acesso</th><th></th></tr></thead>
     <tbody>${d.usuarios.map(u => `<tr>
       <td><b>${u.nome}</b>${u.nome === d.eu ? ' <span class="st">você</span>' : ''}</td>
-      <td>${u.email || '<span class="st">sem e-mail — não recupera senha</span>'}</td>
+      <td>${u.email || '<span class="st">—</span>'}</td>
       <td>${u.somenteLeitura ? '<span class="st">somente leitura</span>' : '<span class="st bom">pode alterar</span>'}</td>
       <td>${u.ultimoAcesso ? quando(u.ultimoAcesso) : 'nunca'}</td>
       <td style="text-align:right;white-space:nowrap">
@@ -461,14 +383,12 @@ carregar().then(() => {
     estado.hangares.filter(h => h.ativo).map(h => `<option value="${h.id}">${h.nome}</option>`).join('');
   carregarHistorico();
   carregarUsuarios();
-  carregarEmail();
   // Conta somente leitura não deve ver botões que vão falhar com 403.
   if (estado.usuario && estado.usuario.somenteLeitura) {
     document.querySelectorAll('button').forEach(b => {
       if (!b.classList.contains('sec')) b.style.display = 'none';
     });
     $('#sec-usuarios').style.display = 'none';
-    $('#sec-email').style.display = 'none';
   }
 });
 </script>
