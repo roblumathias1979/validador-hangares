@@ -27,9 +27,19 @@ const { comTrava, salvarAtomico, lerJson } = require('./trava-arquivo');
 
 const ARQUIVO = path.join(__dirname, '..', '..', 'data', 'pendencias.json');
 
-// 30 minutos: folgado para quem está no celular e foi atender um cliente,
-// curto o bastante para não sobreviver a uma troca de assunto.
-const VALIDADE_MS = 30 * 60 * 1000;
+// 5 minutos (era 30, encurtado em 16/09/2026 a pedido do usuário).
+//
+// O pedido aberto é uma AUTORIZAÇÃO: enquanto ele existe, a próxima foto
+// daquela pessoa naquele grupo vale como foto do veículo e pode validar um
+// ticket. Meia hora de autorização em aberto é meia hora em que uma foto
+// mandada por outro motivo entra no lugar da certa — e, no controle antifraude,
+// é a janela que alguém usaria para preparar a foto com calma.
+//
+// Cinco minutos é o tempo de ir até o carro, fotografar e voltar, que é
+// exatamente o que o fluxo pede. Quem passar disso reenvia a foto do ticket: a
+// impressão digital dela só é gasta quando a validação SAI, então repetir o
+// primeiro passo funciona sem esbarrar na proteção de reuso.
+const VALIDADE_MS = 5 * 60 * 1000;
 
 function chaveDe(grupoId, remetenteId) {
   return `${grupoId}|${remetenteId || 'desconhecido'}`;

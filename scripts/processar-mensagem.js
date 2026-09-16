@@ -536,7 +536,7 @@ async function conduzir(body, { aoReceber } = {}) {
     // do que se quer. Decisão do usuário em 16/09/2026.
     //
     // A pendência é REGRAVADA nos dois casos de recusa: o cliente reenvia só a
-    // foto do carro, sem precisar mandar o ticket de novo. Ela vence em 30 min.
+    // foto do carro, sem precisar mandar o ticket de novo. Ela vence em 5 min.
     if (local.local !== 'compativel') {
       pendencias.registrar(msg.grupoId, msg.remetenteId, pedido);
       const incompativel = local.local === 'incompativel';
@@ -549,7 +549,7 @@ async function conduzir(body, { aoReceber } = {}) {
           : 'Não consegui confirmar pela foto que o veículo está no hangar — '
             + `${local.motivo ? `${local.motivo} ` : ''}`
             + 'Mande outra foto um pouco mais afastada, mostrando o carro e o entorno (piso, parede ou o que aparece ao fundo). '
-            + `O ticket ${pedido.ticket} continua aguardando.`,
+            + `O ticket ${pedido.ticket} continua aguardando por ${pendencias.VALIDADE_MS / 60000} minutos.`,
         // Local que CONTRADIZ a referência é sinal de fraude e precisa de gente.
         // Enquadramento ruim é só enquadramento ruim — não vale acionar ninguém.
         notificarAdmin: incompativel,
@@ -699,9 +699,13 @@ async function conduzir(body, { aoReceber } = {}) {
       hangarId: hangar.id,
       grupoId: msg.grupoId,
       ticket: ocr.ticket,
+      // O prazo vai na mensagem: sem ele a expiração chega como surpresa, e a
+      // pessoa descobre que perdeu a vez só quando manda a foto.
       mensagemWhatsapp: `Recebi seu ticket ${ocr.ticket} e verifiquei que ele pode ser validado. `
         + 'Agora mande uma foto do veículo estacionado no hangar, com a placa visível e um pouco do entorno aparecendo. '
-        + 'Vou usar a placa da foto para preencher a validação.',
+        + 'Vou usar a placa da foto para preencher a validação.\n\n'
+        + `⏱️ Tenho esse pedido aberto por ${pendencias.VALIDADE_MS / 60000} minutos. `
+        + 'Passando disso, é só mandar a foto do ticket de novo.',
       notificarAdmin: false,
       responder: true,
       etapa: 'pedido_foto_veiculo',
