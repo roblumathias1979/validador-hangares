@@ -328,8 +328,8 @@
     {
       "id": "hangar-1",
       "hangar": "Hangar 1",
-      "grupoWhatsapp": "",
-      "grupoWhatsappId": "",
+      "grupoWhatsapp": "Bot_Hangar1",
+      "grupoWhatsappId": "120363410198746053@g.us",
       "validadorUrl": "https://validpark.technext.com.br/login",
       "usuarioEnvVar": "HANGAR_1_USUARIO",
       "senhaEnvVar": "HANGAR_1_SENHA",
@@ -352,9 +352,9 @@
         "regex": "^\\d{12}$",
         "descricao": "12 dígitos numéricos, impresso como 'Ticket/Seq: 011903092521' no ticket real (#1Park, aeroporto de Jundiaí/VOA-SP)."
       },
-      "placaGenerica": "",
+      "placaGenerica": "AAA0000",
       "prazoValidacaoHoras": 2,
-      "grupoAdministracao": "",
+      "grupoAdministracao": "5511913119423@s.whatsapp.net",
       "_observacao_validador_compartilhado": "URL e seletores herdados do Solojet: CONFIRMADO pelo usuário (11/09/2026) que o ValidPark (validpark.technext.com.br) é o MESMO site para todos os pátios do aeroporto — só login/senha mudam por hangar. Os seletores foram copiados 1:1 dos do Solojet (mesma UI React/MUI); ainda não testados de verdade contra o login real deste hangar especificamente, então vale reconfirmar no primeiro teste real (pode haver pequenas diferenças de layout por pátio).",
       "cotaMensalForaPrazo": 2,
       "asaas": {
