@@ -103,6 +103,35 @@ function ultimos(limite = 50, filtro = {}) {
   return linhas.slice(-limite).reverse();
 }
 
+/**
+ * Este ticket já foi validado por nós? Devolve o registro da primeira vez.
+ *
+ * POR QUE ISTO EXISTE
+ * Cada hangar tem seu próprio login no ValidPark, e cada login enxerga SÓ as
+ * validações do próprio pátio — medido em 15/09/2026, sobreposição zero entre
+ * as listas. Mas o número do ticket é global: quem gera é o servidor central do
+ * aeroporto, e o mesmo papel serve em qualquer pátio.
+ *
+ * O resultado apareceu em 16/09/2026: o ticket 011609161628 foi validado no
+ * Alljet às 19:25 e de novo no Hangar 1 às 19:36. Nenhum dos dois sites tinha
+ * como saber do outro, e o carro não pode estar nos dois lugares.
+ *
+ * Também pega repetição no MESMO pátio — o ValidPark aceita revalidar e só
+ * estende a tolerância, sem reclamar. Aconteceu com o 011609151252 no AIBM 2,
+ * validado duas vezes com 15 minutos de diferença.
+ *
+ * LIMITE HONESTO: só enxerga o que ESTE sistema validou, a partir do dia em que
+ * o histórico passou a existir. Validação feita à mão no site, ou anterior a
+ * isso, é invisível daqui.
+ */
+function jaValidado(ticket) {
+  if (!ticket) return null;
+  for (const l of lerLinhas()) {
+    if (l.status === 'validado' && l.ticket === ticket) return l;
+  }
+  return null;
+}
+
 function resumoPorHangar() {
   const resumo = {};
   for (const l of lerLinhas()) {
@@ -134,4 +163,4 @@ function expurgar() {
   });
 }
 
-module.exports = { registrar, ultimos, resumoPorHangar, expurgar, valeRegistrar, ARQUIVO, RETENCAO_DIAS };
+module.exports = { registrar, ultimos, jaValidado, resumoPorHangar, expurgar, valeRegistrar, ARQUIVO, RETENCAO_DIAS };

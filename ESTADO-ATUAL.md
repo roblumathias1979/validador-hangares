@@ -251,6 +251,28 @@ a sessão do WhatsApp não cai — aí entra a validação.
 
 ---
 
+## Um ticket, um pátio — e por que só nós sabemos disso
+
+Cada hangar tem seu próprio login no ValidPark, e cada login enxerga SÓ as
+validações do próprio pátio (sobreposição zero entre as listas, medida em
+15/09/2026). O número do ticket, porém, é GLOBAL: quem gera é o servidor central
+do aeroporto, e o mesmo papel serve em qualquer pátio.
+
+Consequência descoberta em 16/09/2026: o ticket `011609161628` foi validado no
+Alljet às 19:25 e de novo no Hangar 1 às 19:36. Nenhum dos dois sites tinha como
+perceber o outro, e o carro não estava nos dois lugares. O ValidPark também
+aceita revalidar no MESMO pátio, estendendo a tolerância sem reclamar — o
+`011609151252` foi validado duas vezes no AIBM 2 com 15 minutos de diferença.
+
+**O histórico deste sistema é a única barreira contra isso.** `registro.jaValidado()`
+é consultado antes de qualquer validação, em todos os hangares — inclusive os que
+não pedem foto do veículo, que foram justamente onde o caso apareceu.
+
+**Limite honesto:** só enxerga o que ESTE sistema validou, a partir do dia em que
+o histórico passou a existir. Validação feita à mão no site, ou anterior a isso,
+é invisível daqui. Se a Technext um dia expuser a validação por API, a checagem
+no lado deles seria mais forte que a nossa.
+
 ## Reuso de foto — o que está fechado e o que não está
 
 O fluxo de dois passos (ticket primeiro, foto do carro depois) melhorou a ordem

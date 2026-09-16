@@ -654,6 +654,44 @@ async function conduzir(body, { aoReceber } = {}) {
     };
   }
 
+  // Ticket que JÁ FOI VALIDADO por nós, em qualquer pátio.
+  //
+  // Cada hangar tem seu login no ValidPark, e cada login enxerga só o próprio
+  // pátio. O número do ticket, porém, é global — quem gera é o servidor central
+  // do aeroporto. Então o mesmo papel vale em qualquer pátio, e nenhum dos
+  // sites tem como perceber. Em 16/09/2026 o ticket 011609161628 foi validado
+  // no Alljet às 19:25 e no Hangar 1 às 19:36; o carro não estava nos dois.
+  //
+  // Esta é a ÚNICA barreira contra isso: é o nosso histórico que sabe o que
+  // aconteceu nos outros pátios. Vale antes da conferência antifraude porque o
+  // problema atinge todos os hangares, inclusive os que não pedem foto — foram
+  // justamente esses dois.
+  const validadoAntes = registro.jaValidado(ocr.ticket);
+  if (validadoAntes) {
+    const outroPatio = validadoAntes.hangarId && validadoAntes.hangarId !== hangar.id;
+    const quando = new Date(validadoAntes.em).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+    return {
+      status: 'ticket_ja_validado',
+      hangarId: hangar.id,
+      grupoId: msg.grupoId,
+      ticket: ocr.ticket,
+      validadoEm: validadoAntes.em,
+      validadoNoHangar: validadoAntes.hangarId,
+      mensagem: `Ticket ${ocr.ticket} já validado em ${validadoAntes.hangarId} às ${quando}`
+        + `${outroPatio ? ' — PÁTIO DIFERENTE deste pedido.' : ' (mesmo pátio).'}`,
+      mensagemWhatsapp: outroPatio
+        ? `Esse ticket já foi validado em outro pátio, em ${quando}. `
+          + 'Um ticket vale para um pátio só. Nossa equipe foi avisada — se houver engano, ela resolve.'
+        : `Esse ticket já foi validado em ${quando}. Não é preciso validar de novo. `
+          + 'Se precisar estender o prazo, fale com a administração.',
+      // Pátio diferente é sinal de fraude e precisa de gente. Repetição no
+      // mesmo pátio costuma ser reenvio por engano, e a resposta já resolve.
+      notificarAdmin: outroPatio,
+      responder: true,
+      etapa: 'conferencia_duplicidade',
+    };
+  }
+
   // Hangar antifraude: CONSULTA primeiro, pede a foto depois.
   //
   // A ordem importa. Pedir a foto do carro antes de saber se o ticket serve
