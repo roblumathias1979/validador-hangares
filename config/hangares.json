@@ -699,8 +699,8 @@
     {
       "id": "voasp",
       "hangar": "VOASP",
-      "grupoWhatsapp": "",
-      "grupoWhatsappId": "",
+      "grupoWhatsapp": "Bot Voa_SP",
+      "grupoWhatsappId": "120363413246656441@g.us",
       "validadorUrl": "https://validpark.technext.com.br/login",
       "usuarioEnvVar": "VOASP_USUARIO",
       "senhaEnvVar": "VOASP_SENHA",
