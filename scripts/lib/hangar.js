@@ -196,17 +196,46 @@ async function tentarLogin(page, hangar, seletores, usuario, senha, espera) {
   // visibilidade por padrão, evita o falso positivo).
   return Promise.race([
     page.waitForSelector(seletores.areaVagasDisponiveis, { state: 'visible', timeout: espera }).then(() => 'sucesso'),
-    // NÃO casar por "usuário": a tela escreve "Usúario" — o acento está no U,
-    // não no A. A regex anterior (`usu[áa]rio`) nunca casou com o site real, e
-    // o efeito foi pior que um erro visível: toda recusa de credencial era
-    // classificada como "não consegui confirmar", esperava os 15s inteiros,
-    // tentava de novo e chegava ao cliente como falha de sistema. O erro ficou
-    // escondido até uma foto de tela mostrar a mensagem escrita na página.
-    //
-    // Agora casa pelo trecho sem acento nenhum, que é o que o site tem de
-    // estável — e sobrevive ao dia em que corrigirem a grafia.
-    page.waitForSelector('text=/usu[áa]rio ou senha incorretos?/i', { state: 'visible', timeout: espera }).then(() => 'erro'),
+    esperarRecusaQuePersiste(page, espera),
   ]).catch(() => 'indeterminado');
+}
+
+// A mensagem de recusa, pelo ELEMENTO e não por texto solto. `text=/.../` casa
+// qualquer elemento que CONTENHA o trecho, inclusive um ancestral visível de um
+// filho escondido; o helper text do MUI é o elemento exato.
+//
+// Note "Usúario": o acento está no U. O site escreve assim, e uma regex com
+// "usuário" nunca casa — por isso o trecho procurado não tem acento nenhum.
+const SELETOR_RECUSA = 'p.Mui-error:has-text("senha incorret")';
+// Quanto a mensagem precisa SOBREVIVER para valer como recusa de verdade.
+const RECUSA_PRECISA_DURAR_MS = 2500;
+
+/**
+ * Só considera recusa a mensagem que PERSISTE.
+ *
+ * O ValidPark mostra "*Usúario ou senha incorretos" por cerca de um segundo
+ * mesmo quando o login DÁ CERTO — medido em 16/09/2026: a mensagem está lá no
+ * instante do clique, continua aos 300ms, e some por volta de 1,5s, quando a
+ * API responde 200 e a tela troca para o painel. É artefato de renderização do
+ * React, não o resultado da autenticação.
+ *
+ * Essa armadilha já tinha mordido em 12/09/2026, no hangar "indaia". Na época
+ * foi contornada por acidente: a regex escrita com "usuário" jamais casava com
+ * a grafia do site, então o falso positivo sumiu — e junto com ele a capacidade
+ * de detectar recusa de verdade, que passou a chegar ao cliente como "não
+ * consegui confirmar o login" depois de 40s de espera inútil. Quem tentasse
+ * consertar só a grafia derrubaria todos os logins de uma vez; foi o que
+ * aconteceu hoje, por alguns minutos, antes desta versão.
+ *
+ * Quando a mensagem some, esta promessa nunca resolve: a corrida fica por conta
+ * do painel, que é quem sabe dizer se entrou.
+ */
+async function esperarRecusaQuePersiste(page, espera) {
+  await page.waitForSelector(SELETOR_RECUSA, { state: 'visible', timeout: espera });
+  await page.waitForTimeout(RECUSA_PRECISA_DURAR_MS);
+  const aindaVisivel = await page.locator(SELETOR_RECUSA).first().isVisible().catch(() => false);
+  if (!aindaVisivel) return new Promise(() => {});
+  return 'erro';
 }
 
 module.exports = { carregarConfig, buscarHangar, buscarHangarPorGrupo, login, salvarAsaasCustomerId };
