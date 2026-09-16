@@ -92,10 +92,9 @@ Pendências de configuração:
   próprio~~ — **RESOLVIDO em 16/09/2026**: são pátios SEPARADOS, confirmado pelo
   usuário e por medição. `BOT_AIBM2` autentica e mostra "AIBM 2 | Total de vagas:
   41". Grupo cadastrado, hangar no ar.
-- ⚠️ **`AIBM_SENHA` está errada** (16/09/2026): o login `BOT_AIBM` falha com
-  "Usúario ou senha incorretos", e a senha no `.env` tem só 5 caracteres —
-  provavelmente truncada. Não afeta nada hoje porque o AIBM 1 não tem grupo, mas
-  precisa ser corrigida antes de cadastrá-lo.
+- ~~`AIBM_SENHA` está errada~~ — **corrigida em 16/09/2026** e testada contra o
+  site real: `BOT_AIBM` autentica e o pátio responde "AIBM | Total de vagas: 12".
+  Falta só o grupo do WhatsApp para este hangar entrar no ar.
 - `placaGenerica` de `aibm` e `aibm-2` está vazia. No Solojet é `AAA0000`. Se a
   leitura da placa falhar no AIBM, o script fica sem valor para mandar.
 
