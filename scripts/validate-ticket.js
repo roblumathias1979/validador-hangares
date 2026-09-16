@@ -56,7 +56,13 @@ const DIAS_VALIDACAO_PADRAO = 20;
 // "Disponiveis" SEM acento — o [íi] cobre as duas grafias caso mudem.
 // Uma constante só para que a espera e a leitura do número não possam
 // divergir de padrão (ver COMO_ESPERAR_VAGAS abaixo).
-const REGEX_VAGAS_DISPONIVEIS = /Dispon[íi]veis:\s*(\d+)/i;
+// O `-?` não é zelo: o ValidPark mostra vagas NEGATIVAS quando o pátio passa da
+// capacidade — o Alljet apareceu com "Disponiveis: -1" (38 veículos em 37
+// vagas) em 16/09/2026. Sem aceitar o sinal, o número não casava, a leitura
+// virava null e o guarda de pátio cheio ficava SEM BLOQUEAR. Ou seja: falhava
+// aberto exatamente na situação que ele existe para impedir, e quanto pior o
+// estouro, mais certo era o bot validar.
+const REGEX_VAGAS_DISPONIVEIS = /Dispon[íi]veis:\s*(-?\d+)/i;
 const TIMEOUT_VAGAS_MS = 15000;
 
 // Depois de clicar em VALIDAR, o ValidPark usa o MESMO toast

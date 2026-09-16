@@ -24,7 +24,9 @@ const CACHE_MS = 60 * 1000;
 
 const REGEX_CONTADORES = {
   total: /Total de vagas:\s*(\d+)/i,
-  disponiveis: /Dispon[íi]veis:\s*(\d+)/i,
+  // Aceita negativo: o site mostra "Disponiveis: -1" quando o pátio passa da
+  // capacidade. Ver a nota em validate-ticket.js — lá isso desligava o guarda.
+  disponiveis: /Dispon[íi]veis:\s*(-?\d+)/i,
   utilizadas: /Utilizadas:\s*(\d+)/i,
   tickets: /Tickets:\s*(\d+)/i,
   credenciados: /Credenciados:\s*(\d+)/i,
