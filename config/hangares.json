@@ -612,8 +612,8 @@
     {
       "id": "alljet",
       "hangar": "Alljet",
-      "grupoWhatsapp": "",
-      "grupoWhatsappId": "",
+      "grupoWhatsapp": "Bot_Alljet",
+      "grupoWhatsappId": "120363411486868499@g.us",
       "validadorUrl": "https://validpark.technext.com.br/login",
       "usuarioEnvVar": "ALLJET_USUARIO",
       "senhaEnvVar": "ALLJET_SENHA",
@@ -636,9 +636,9 @@
         "regex": "^\\d{12}$",
         "descricao": "12 dígitos numéricos, impresso como 'Ticket/Seq: 011903092521' no ticket real (#1Park, aeroporto de Jundiaí/VOA-SP)."
       },
-      "placaGenerica": "",
+      "placaGenerica": "AAA0000",
       "prazoValidacaoHoras": 2,
-      "grupoAdministracao": "",
+      "grupoAdministracao": "5511913119423@s.whatsapp.net",
       "_observacao_validador_compartilhado": "URL e seletores herdados do Solojet: CONFIRMADO pelo usuário (11/09/2026) que o ValidPark (validpark.technext.com.br) é o MESMO site para todos os pátios do aeroporto — só login/senha mudam por hangar. Os seletores foram copiados 1:1 dos do Solojet (mesma UI React/MUI); ainda não testados de verdade contra o login real deste hangar especificamente, então vale reconfirmar no primeiro teste real (pode haver pequenas diferenças de layout por pátio).",
       "cotaMensalForaPrazo": 5,
       "asaas": {
@@ -648,7 +648,8 @@
         "email": ""
       },
       "diasValidacaoPadrao": 20,
-      "exigeFotoVeiculoNoLocal": false
+      "exigeFotoVeiculoNoLocal": false,
+      "_observacao_grupo": "Grupo criado em 16/09/2026. O roteamento usa grupoWhatsappId, não o nome — renomear é inofensivo, apagar e recriar gera ID novo e quebra. Login BOT_ALLJET, seletores e leitura de vagas testados contra o site real na mesma data: pátio de 37 vagas (bem menor que as 90 do Solojet, então a proteção de pátio cheio pesa mais aqui)."
     },
     {
       "id": "aerie-aviacao-executiva",
