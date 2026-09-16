@@ -331,6 +331,33 @@ const servidor = http.createServer(async (req, res) => {
       return;
     }
 
+    if (url.pathname === '/api/email') {
+      if (req.method === 'GET') { json(res, 200, email.configuracaoVisivel()); return; }
+      if (req.method === 'POST') {
+        const c = await lerCorpo(req);
+        try {
+          if (c.acao === 'testar') {
+            const r = await email.testar();
+            // Teste de verdade: além de validar a conexão e o login, manda uma
+            // mensagem para o e-mail de quem pediu. Só "conectou" não prova que
+            // a mensagem sai — e é a saída que importa.
+            if (r.ok && c.para) {
+              await email.enviar({
+                para: c.para,
+                assunto: 'Teste — Painel do Validador',
+                texto: 'Se você recebeu esta mensagem, a recuperação de senha do painel está funcionando.',
+              });
+            }
+            json(res, 200, r);
+            return;
+          }
+          email.salvarConfig(c);
+          json(res, 200, { ok: true, ...email.configuracaoVisivel() });
+        } catch (e) { json(res, 400, { erro: e.message }); }
+        return;
+      }
+    }
+
     if (url.pathname === '/api/usuarios') {
       if (req.method === 'GET') {
         json(res, 200, { usuarios: usuarios.listar(), minSenha: usuarios.MIN_SENHA, eu: usuario.nome });

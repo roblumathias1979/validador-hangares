@@ -11,31 +11,81 @@
  * (verificado em 16/09/2026 — dá timeout). A 587 responde.
  */
 
+const path = require('path');
 const nodemailer = require('nodemailer');
+const { comTrava, salvarAtomico, lerJson } = require('../scripts/lib/trava-arquivo');
+
+// Guardado em arquivo, não no .env, por um motivo prático: editar o .env exige
+// um editor num terminal com TTY, o que nem sempre está disponível. Assim a
+// senha é digitada num campo de senha do navegador, sobre HTTPS — não passa
+// por chat nem fica no histórico do shell.
+//
+// data/ está no .gitignore: a senha do e-mail nunca vai para o repositório.
+const ARQUIVO = path.join(__dirname, '..', 'data', 'smtp.json');
+
+function lerConfig() {
+  const a = lerJson(ARQUIVO, {});
+  // O .env continua valendo como alternativa, para quem preferir configurar
+  // por lá. O arquivo tem precedência por ser o caminho do painel.
+  return {
+    host: a.host || process.env.SMTP_HOST || '',
+    porta: Number(a.porta || process.env.SMTP_PORTA) || 587,
+    usuario: a.usuario || process.env.SMTP_USUARIO || '',
+    senha: a.senha || process.env.SMTP_SENHA || '',
+    remetente: a.remetente || process.env.SMTP_REMETENTE || a.usuario || process.env.SMTP_USUARIO || '',
+  };
+}
+
+function salvarConfig({ host, porta, usuario, senha, remetente }) {
+  return comTrava(ARQUIVO, () => {
+    const atual = lerJson(ARQUIVO, {});
+    const novo = {
+      host: String(host || '').trim(),
+      porta: Number(porta) || 587,
+      usuario: String(usuario || '').trim(),
+      // Senha vazia significa "manter a que já existe" — assim dá para corrigir
+      // o remetente sem precisar redigitar a senha.
+      senha: senha ? String(senha) : (atual.senha || ''),
+      remetente: String(remetente || '').trim(),
+    };
+    salvarAtomico(ARQUIVO, novo);
+    return true;
+  });
+}
+
+/** Para a tela: tudo menos a senha, que nunca volta ao navegador. */
+function configuracaoVisivel() {
+  const c = lerConfig();
+  return {
+    host: c.host, porta: c.porta, usuario: c.usuario, remetente: c.remetente,
+    temSenha: Boolean(c.senha),
+  };
+}
 
 function configurado() {
-  return Boolean(process.env.SMTP_HOST && process.env.SMTP_USUARIO && process.env.SMTP_SENHA);
+  const c = lerConfig();
+  return Boolean(c.host && c.usuario && c.senha);
 }
 
 function transporte() {
-  const porta = Number(process.env.SMTP_PORTA) || 587;
+  const c = lerConfig();
   return nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: porta,
+    host: c.host,
+    port: c.porta,
     // secure=false + requireTLS: conecta em claro e SOBE para TLS com STARTTLS,
     // que é como a porta 587 funciona. `secure: true` seria para a 465, que
     // está bloqueada aqui.
     secure: false,
     requireTLS: true,
-    auth: { user: process.env.SMTP_USUARIO, pass: process.env.SMTP_SENHA },
+    auth: { user: c.usuario, pass: c.senha },
     connectionTimeout: 15000,
     greetingTimeout: 15000,
   });
 }
 
 async function enviar({ para, assunto, texto }) {
-  if (!configurado()) throw new Error('SMTP não configurado no .env (SMTP_HOST, SMTP_USUARIO, SMTP_SENHA).');
-  const remetente = process.env.SMTP_REMETENTE || process.env.SMTP_USUARIO;
+  if (!configurado()) throw new Error('E-mail não configurado — preencha servidor, usuário e senha no painel.');
+  const remetente = lerConfig().remetente;
   const info = await transporte().sendMail({ from: remetente, to: para, subject: assunto, text: texto });
   return { id: info.messageId, aceito: info.accepted };
 }
@@ -46,7 +96,7 @@ async function enviar({ para, assunto, texto }) {
  * alguém precisar dela.
  */
 async function testar() {
-  if (!configurado()) return { ok: false, erro: 'SMTP não configurado no .env.' };
+  if (!configurado()) return { ok: false, erro: 'E-mail não configurado.' };
   try {
     await transporte().verify();
     return { ok: true };
@@ -70,4 +120,4 @@ function textoRecuperacao({ nome, link, minutos }) {
   ].join('\n');
 }
 
-module.exports = { enviar, testar, configurado, textoRecuperacao };
+module.exports = { enviar, testar, configurado, textoRecuperacao, lerConfig, salvarConfig, configuracaoVisivel };
