@@ -253,6 +253,33 @@ a sessão do WhatsApp não cai — aí entra a validação.
 
 ## Armadilhas já encontradas (não repetir)
 
+- **O n8n congela o `.env` na memória dele** (16/09/2026 — custou uma tarde). O
+  n8n embute o próprio dotenv e roda com o diretório do projeto como working
+  directory, então carrega o `.env` ao subir e todo script que dispara herda
+  esse ambiente. Sem `override: true`, o dotenv do script respeita o que já está
+  definido e o arquivo em disco é ignorado — o valor congelado no start vence
+  para sempre. A senha do AIBM 1 foi corrigida às 15:51 com o n8n no ar desde as
+  13:02, e a partir daí toda validação daquele hangar falhava com "usuário ou
+  senha incorretos" enquanto o mesmo comando no terminal entrava, porque o
+  terminal não herda nada do n8n. **Depois de editar o `.env`, reinicie o n8n** —
+  e os cinco pontos que carregam o arquivo usam `override: true` desde então.
+- **A mensagem de erro do ValidPark aparece mesmo em login BEM-SUCEDIDO**
+  (16/09/2026). "*Usúario ou senha incorretos" surge no instante do clique,
+  continua aos 300ms e some por volta de 1,5s, quando a API responde 200. É
+  artefato de renderização do React. Casar por ela sem esperar derruba TODOS os
+  logins — aconteceu por quatro minutos em produção. Só conta se persistir 2,5s.
+  Note ainda a grafia: o site escreve **Usúario**, com o acento no U; uma regex
+  com "usuário" nunca casa, e foi assim que recusas reais passaram meses sendo
+  reportadas como "não consegui confirmar o login".
+- **Variável `const` usada acima da declaração** (zona morta temporal): só
+  explode no ramo que a usa, então passa nos testes que não percorrem aquele
+  caminho. Derrubou o AIBM 1 em silêncio — o cliente mandava o ticket e o grupo
+  não respondia nada, porque o tratamento de erro também não respondia.
+- **Teste que chama `processar()` escreve em PRODUÇÃO**: grava no histórico e
+  deixa pendências vivas. Uma pendência de teste faz a próxima foto de um cliente
+  real ser lida como resposta a um ticket que ninguém mandou. `registro` e
+  `pendencias` têm que ser substituídos no teste.
+
 - **`process.exit(1)` depois de imprimir JSON**: o nó Execute Command do n8n trata
   código != 0 como falha e engole a saída, então a mensagem amigável nunca chega
   ao cliente. Todos os scripts agora saem com 0 e quem decide é o campo `status`.
