@@ -78,7 +78,13 @@ function chamarClaude({ mediaType, dados, prompt, referencias: refs = [] }) {
 
     const corpo = JSON.stringify({
       model: MODELO,
-      max_tokens: 500,
+      // 500 bastava quando a resposta tinha 4 campos curtos. Com a conferência
+      // de local ligada, o modelo passou a devolver também `cenario` e
+      // `localMotivo`, que são descrições em TEXTO LIVRE — a resposta estourava
+      // o limite e vinha cortada no meio, produzindo um json inválido
+      // (16/09/2026: o ticket era lido corretamente e se perdia na hora de
+      // interpretar). O dobro dá folga para a descrição do pátio.
+      max_tokens: refs.length || (prompt && prompt.length > PROMPT.length) ? 1500 : 500,
       messages: [
         {
           role: 'user',
@@ -262,7 +268,11 @@ async function lerTicket(origem) {
   } catch (erro) {
     return {
       status: 'ocr_falhou',
-      mensagem: `Não consegui interpretar a resposta do modelo: ${textoResposta.slice(0, 300)}`,
+      // Mostra o INÍCIO e o FIM: resposta cortada por limite de tokens só se
+      // denuncia no fim, e antes só o começo aparecia — o que fez a causa real
+      // (max_tokens baixo demais) passar despercebida em 16/09/2026.
+      mensagem: `Não consegui interpretar a resposta do modelo (${textoResposta.length} caracteres). `
+        + `Início: ${textoResposta.slice(0, 120)} ... Fim: ${textoResposta.slice(-120)}`,
       mensagemWhatsapp: '⚠️ Não conseguimos ler essa foto do ticket. Pode reenviar, tentando deixar o número e a data bem visíveis?',
       notificarAdmin: true,
     };
