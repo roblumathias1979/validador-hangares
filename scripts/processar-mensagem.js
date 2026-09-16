@@ -33,6 +33,7 @@ const { carregarConfig, buscarHangarPorGrupo } = require('./lib/hangar');
 const { interpretarMensagem } = require('./lib/whatsapp');
 const { avaliarLocal } = require('./lib/conferir-local');
 const pendencias = require('./lib/pendencias');
+const registro = require('./lib/registro');
 const { lerTicket } = require('./ocr-ticket');
 
 const EVOLUTION_URL = process.env.EVOLUTION_URL || 'http://127.0.0.1:8080';
@@ -280,6 +281,14 @@ async function processar(body, opcoes = {}) {
   // carregar o remetente por todos os pontos de retorno de conduzir().
   const quem = interpretarMensagem(body).remetente;
   escalar(resultado, quem);
+  if (!resultado.remetente && quem) resultado.remetente = quem;
+
+  // Histórico do que o bot fez com o ticket. Fica aqui, no invólucro, para
+  // valer para TODOS os caminhos de saída — validação, consulta, recusa,
+  // faturamento — em vez de precisar lembrar de chamar em cada return.
+  // Nunca lança: o ticket já pode ter sido validado, e o cliente precisa da
+  // resposta mais do que nós do registro.
+  registro.registrar(resultado);
 
   if (resultado.notificarAdmin) {
     // O hangar só é conhecido quando a mensagem chegou de um grupo cadastrado;

@@ -49,6 +49,7 @@ const PORTA = Number(process.env.PAINEL_PORTA) || 8081;
 const SENHA = process.env.PAINEL_SENHA || '';
 
 const { obterUsoMensal, obterRestante } = require(path.join(RAIZ, 'scripts', 'lib', 'cota-fora-prazo'));
+const registro = require(path.join(RAIZ, 'scripts', 'lib', 'registro'));
 
 // Teto do slider do ValidPark. 20 dias é exatamente o limite — não há folga, e
 // pedir mais faz o site recusar a validação inteira.
@@ -150,6 +151,7 @@ const CAMPOS = {
 
 function montarEstado() {
   const config = lerConfig();
+  const resumo = registro.resumoPorHangar();
   const hangares = config.hangares.map((h) => ({
     id: h.id,
     nome: h.hangar || h.id,
@@ -168,6 +170,7 @@ function montarEstado() {
     ativo: Boolean((h.grupoWhatsappId || '').trim()),
     cotaUsada: obterUsoMensal(h.id),
     cotaRestante: obterRestante(h),
+    historico: resumo[h.id] || { total: 0, validados: 0, comCota: 0, ultimo: null },
   }));
 
   return {
@@ -231,6 +234,18 @@ const servidor = http.createServer(async (req, res) => {
       const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf-8');
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(html);
+      return;
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/validacoes') {
+      const limite = Math.min(Number(url.searchParams.get('limite')) || 50, 500);
+      json(res, 200, {
+        eventos: registro.ultimos(limite, {
+          hangarId: url.searchParams.get('hangar') || undefined,
+          apenasValidados: url.searchParams.get('apenasValidados') === 'true',
+        }),
+        retencaoDias: registro.RETENCAO_DIAS,
+      });
       return;
     }
 
