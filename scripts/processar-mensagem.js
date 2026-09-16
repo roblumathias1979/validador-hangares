@@ -34,7 +34,7 @@ const { interpretarMensagem } = require('./lib/whatsapp');
 const { avaliarLocal } = require('./lib/conferir-local');
 const pendencias = require('./lib/pendencias');
 const registro = require('./lib/registro');
-const { lerTicket } = require('./ocr-ticket');
+const { lerTicket, lerLocal } = require('./ocr-ticket');
 
 const EVOLUTION_URL = process.env.EVOLUTION_URL || 'http://127.0.0.1:8080';
 const EVOLUTION_INSTANCE = process.env.EVOLUTION_INSTANCE || 'validador-hangares';
@@ -322,6 +322,16 @@ async function conduzir(body, { aoReceber } = {}) {
       return { status: 'ignorado', motivo: 'texto sem pendência para esta pessoa', grupoId: msg.grupoId, responder: false };
     }
 
+    // Pendência de foto não se responde com texto: reforça o que falta em vez
+    // de tratar "sim" como resposta a uma pergunta que não foi feita.
+    if (pendente.tipo === 'foto_local') {
+      return {
+        status: 'aguardando_foto_veiculo', hangarId: hangar.id, grupoId: msg.grupoId, ticket: pendente.ticket,
+        mensagemWhatsapp: `Ainda preciso da FOTO do veículo estacionado no hangar para validar o ticket ${pendente.ticket}. Mande a foto mostrando um pouco do entorno.`,
+        notificarAdmin: false, responder: true, etapa: 'resposta',
+      };
+    }
+
     const ehFaturamento = pendente.tipo === 'autorizar_faturamento';
 
     if (msg.resposta === 'nao') {
@@ -369,6 +379,42 @@ async function conduzir(body, { aoReceber } = {}) {
       return { status: 'ignorado', motivo: 'pendência já consumida por outra mensagem', grupoId: msg.grupoId, responder: false };
     }
     return validar(hangar, msg, pedido, true);
+  }
+
+  // ---- foto chegando com pedido de foto do veículo = é a comprovação ----
+  // Fluxo de dois passos dos hangares antifraude: a primeira foto traz o
+  // ticket, esta traz o carro no pátio. Uma foto só não serve para as duas
+  // coisas — o OCR precisa de close para ler 12 dígitos e a conferência precisa
+  // de enquadramento aberto para ver piso, parede e fundo. Tentar as duas numa
+  // só garante que uma sai ruim (confirmado no primeiro teste real do AIBM 2,
+  // que voltou "indeterminado" por ser um close do ticket).
+  const pedidoFoto = pendencias.buscar(msg.grupoId, msg.remetenteId);
+  if (pedidoFoto && pedidoFoto.tipo === 'foto_local') {
+    const pedido = pendencias.consumir(msg.grupoId, msg.remetenteId);
+    if (!pedido) {
+      return { status: 'ignorado', motivo: 'pendência já consumida por outra mensagem', grupoId: msg.grupoId, responder: false };
+    }
+    if (aoReceber) {
+      try { await aoReceber(msg.grupoId, '🔎 Recebi a foto do veículo, conferindo o local...'); } catch (e) { /* aviso é conforto */ }
+    }
+
+    const imagemVeiculo = await baixarImagemBase64(msg.messageId);
+    // Esta foto NÃO passa pelo OCR: não há ticket nela, e o número já veio da
+    // primeira. Só o local é conferido.
+    const r = await lerLocal({ base64: imagemVeiculo.base64, mediaType: imagemVeiculo.mediaType, hangar });
+    const local = avaliarLocal(hangar, r.local, r.localMotivo);
+    const infoLocal = { local: local.local, localMotivo: local.motivo || null, cenario: r.cenario || null };
+
+    if (local.bloqueia) {
+      return {
+        ...infoLocal,
+        status: 'local_incompativel', hangarId: hangar.id, grupoId: msg.grupoId, ticket: pedido.ticket,
+        mensagemWhatsapp: local.mensagemWhatsapp,
+        notificarAdmin: local.notificarAdmin === true, responder: true, etapa: 'conferencia_local',
+      };
+    }
+
+    return { ...infoLocal, ...validar(hangar, msg, pedido, false) };
   }
 
   // ---- foto chegando com faturamento pendente = é a autorização ----
@@ -419,6 +465,31 @@ async function conduzir(body, { aoReceber } = {}) {
       notificarAdmin: ocr.notificarAdmin === true,
       responder: true,
       ocr,
+    };
+  }
+
+  // Hangar antifraude: em vez de validar agora, pede a foto do veículo. O
+  // ticket já está lido e fica guardado na pendência — a segunda foto só
+  // precisa mostrar o carro no pátio.
+  if (hangar.exigeFotoVeiculoNoLocal) {
+    const placaPrimeiraFoto = msg.placa || hangar.placaGenerica || 'AAA0000';
+    pendencias.registrar(msg.grupoId, msg.remetenteId, {
+      ticket: ocr.ticket,
+      placa: placaPrimeiraFoto,
+      placaEhGenerica: !msg.placa,
+      dataEmissaoIso: ocr.dataEmissaoIso,
+      hangarId: hangar.id,
+      tipo: 'foto_local',
+    });
+    return {
+      status: 'aguardando_foto_veiculo',
+      hangarId: hangar.id,
+      grupoId: msg.grupoId,
+      ticket: ocr.ticket,
+      mensagemWhatsapp: `Li o ticket ${ocr.ticket}. Agora mande uma foto do veículo estacionado no hangar, mostrando um pouco do entorno (piso, parede ou o que aparece ao fundo) — é o que confirma que o carro está no local. Depois dela eu valido.`,
+      notificarAdmin: false,
+      responder: true,
+      etapa: 'pedido_foto_veiculo',
     };
   }
 

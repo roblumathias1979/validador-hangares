@@ -31,7 +31,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 const { carregarConfig, buscarHangar } = require('./lib/hangar');
 
-const { blocoPromptLocal } = require('./lib/conferir-local');
+const { blocoPromptLocal, promptSomenteLocal } = require('./lib/conferir-local');
 const referencias = require('./lib/referencias');
 
 const MODELO = 'claude-sonnet-5';
@@ -323,6 +323,40 @@ async function lerTicket(origem) {
   };
 }
 
+/**
+ * Confere APENAS o local, na foto do veículo enviada no segundo passo. Não
+ * procura ticket: ele já foi lido na primeira foto e está guardado na pendência.
+ */
+async function lerLocal({ base64, mediaType, hangar }) {
+  if (!hangar) throw new Error('lerLocal precisa do hangar.');
+  const refs = hangar.exigeFotoVeiculoNoLocal ? referencias.imagensParaConferencia(hangar.id) : [];
+  const prompt = promptSomenteLocal(hangar, refs.length > 0);
+  if (!prompt) return { status: 'sem_referencia', local: null };
+
+  const resposta = await chamarClaude({
+    mediaType: mediaType || 'image/jpeg',
+    dados: base64,
+    prompt,
+    referencias: refs,
+  });
+  const texto = (resposta.content || []).map((b) => b.text || '').join('');
+  let extraido;
+  try {
+    extraido = extrairJson(texto);
+  } catch (e) {
+    // Sem veredito legível, tratamos como indeterminado — que passa com aviso.
+    // Bloquear por falha nossa de interpretação seria acusar o cliente de algo
+    // que ele não fez.
+    return { status: 'local_ilegivel', local: 'indeterminado', localMotivo: 'Não consegui interpretar a resposta do modelo.', cenario: null };
+  }
+  return {
+    status: 'local_ok',
+    local: extraido.local || 'indeterminado',
+    localMotivo: extraido.localMotivo || null,
+    cenario: extraido.cenario || null,
+  };
+}
+
 async function main() {
   const [caminhoImagem, mimetypeArg, hangarIdArg] = process.argv.slice(2);
 
@@ -377,4 +411,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { lerTicket, paraIso, extrairJson, conferirTicketComData };
+module.exports = { lerTicket, lerLocal, paraIso, extrairJson, conferirTicketComData };

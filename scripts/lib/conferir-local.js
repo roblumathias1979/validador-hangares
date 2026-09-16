@@ -165,4 +165,44 @@ function avaliarLocal(hangar, local, localMotivo) {
   };
 }
 
-module.exports = { blocoPromptLocal, avaliarLocal, referenciaDe, REFERENCIAS_PADRAO };
+/**
+ * Prompt para a foto do VEÍCULO, enviada num segundo passo.
+ *
+ * Diferente de blocoPromptLocal(), que acompanha a leitura do ticket: aqui a
+ * foto não tem ticket nenhum, e a única pergunta é se o lugar bate. Separar os
+ * dois passos existe porque uma foto só não serve para ambos — o OCR precisa de
+ * close para ler 12 dígitos, e a conferência precisa de enquadramento aberto
+ * para ver piso, parede e fundo.
+ */
+function promptSomenteLocal(hangar, temFotosReferencia = false) {
+  const ref = referenciaDe(hangar);
+  if (!ref) return '';
+  const sinais = (ref.sinaisFortes || []).map((s) => `- ${s}`).join('\n');
+  const sobreFotos = temFotosReferencia
+    ? '\n\nVocê recebeu também FOTOS DE REFERÊNCIA deste pátio. Compare com elas: piso, demarcação, parede ou ausência dela, cobertura e o que aparece ao fundo. As fotos valem mais que a descrição abaixo, que serve para dizer o que observar.'
+    : '';
+
+  return `Esta é a foto de um VEÍCULO estacionado, enviada por um cliente para comprovar que o carro está no hangar "${hangar.hangar || hangar.id}". NÃO há ticket nesta foto — não procure por um.${sobreFotos}
+
+Responda APENAS com um JSON (sem markdown, sem texto antes ou depois) neste formato exato:
+{
+  "cenario": "<uma ou duas frases sobre o que se vê ao redor do veículo: tipo de piso, se há demarcação pintada, se há parede atrás e de que material, o que aparece ao fundo. Descreva o que REALMENTE vê, sem tentar encaixar na referência>",
+  "local": "compativel" | "incompativel" | "indeterminado",
+  "localMotivo": "<por que escolheu esse valor, citando o que viu>"
+}
+
+Referência deste hangar:
+
+${ref.resumo}
+
+Sinais característicos deste local:
+${sinais}
+
+Use "incompativel" apenas quando o cenário CONTRADIZ a referência de forma clara (por exemplo, a referência diz piso de concreto encostado numa parede branca e a foto mostra asfalto com faixa amarela em campo aberto, ou vice-versa).
+
+Use "indeterminado" sempre que a foto não permitir decidir — close que mostre apenas um pedaço de chão, de parede ou do próprio carro, sem contexto. Um pedaço de asfalto ou de parede branca, sozinho, existe em vários pontos do aeroporto e NÃO serve para confirmar nem para negar.
+
+IMPORTANTE: "indeterminado" é uma resposta correta e esperada. Não escolha "compativel" só porque nada contradiz, e não escolha "incompativel" por falta de evidência — nesses dois casos a resposta é "indeterminado". Dizer "incompativel" sem base acusaria de fraude um cliente honesto.`;
+}
+
+module.exports = { blocoPromptLocal, promptSomenteLocal, avaliarLocal, referenciaDe, REFERENCIAS_PADRAO };
