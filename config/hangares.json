@@ -131,7 +131,7 @@
         "regex": "^\\d{12}$",
         "descricao": "12 dígitos numéricos, impresso como 'Ticket/Seq: 011903092521' no ticket real (#1Park, aeroporto de Jundiaí/VOA-SP)."
       },
-      "placaGenerica": "",
+      "placaGenerica": "AAA0000",
       "prazoValidacaoHoras": 2,
       "exigeFotoVeiculoNoLocal": true,
       "_observacao_fraude": "Pátio distinto de 'aibm' — CONFIRMADO pelo usuário (11/09/2026) que são dois pátios separados, não o mesmo hangar duplicado. Mesmo requisito do AIBM: exigir foto do veículo estacionado no local antes de validar. Ainda faltam: login/senha próprios, URL do validador e foto de referência da fachada.",
