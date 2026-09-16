@@ -435,6 +435,15 @@ async function conduzir(body, { aoReceber } = {}) {
   // no aeroporto inteiro, e travar por isso acusaria de fraude cliente
   // honesto por causa do enquadramento da foto.
   const local = avaliarLocal(hangar, ocr.local, ocr.localMotivo);
+
+  // O veredito viaja junto do resultado mesmo quando NÃO bloqueia. Antes ele só
+  // aparecia no caminho de bloqueio, e um "indeterminado" ficava invisível —
+  // indistinguível de "a conferência não rodou". Para um controle antifraude
+  // isso é grave: quem olha depois não sabe se houve checagem.
+  const infoLocal = local.aplicavel
+    ? { local: local.local, localMotivo: local.motivo || null, cenario: ocr.cenario || null }
+    : {};
+
   if (local.bloqueia) {
     return {
       status: 'local_incompativel',
@@ -461,6 +470,7 @@ async function conduzir(body, { aoReceber } = {}) {
 
   if (jaResolvido) {
     return {
+      ...infoLocal,
       status: consulta.status,
       hangarId: hangar.id,
       grupoId: msg.grupoId,
@@ -477,12 +487,15 @@ async function conduzir(body, { aoReceber } = {}) {
   // para poder corrigir com a administração.
   const placa = msg.placa || hangar.placaGenerica || 'AAA0000';
 
-  return validar(hangar, msg, {
-    ticket: ocr.ticket,
-    placa,
-    placaEhGenerica: !msg.placa,
-    dataEmissaoIso: ocr.dataEmissaoIso,
-  }, false);
+  return {
+    ...infoLocal,
+    ...validar(hangar, msg, {
+      ticket: ocr.ticket,
+      placa,
+      placaEhGenerica: !msg.placa,
+      dataEmissaoIso: ocr.dataEmissaoIso,
+    }, false),
+  };
 }
 
 async function main() {

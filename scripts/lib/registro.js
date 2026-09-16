@@ -61,6 +61,11 @@ function registrar(resultado) {
     // Guardado para diferenciar "validou de graça" de "gastou cota do hangar",
     // que é a informação que falta quando alguém contesta a conta no fim do mês.
     usouCota: resultado.etapa === 'validacao_com_cota',
+    // Conferência de local (só nos hangares que a exigem). Guardado mesmo
+    // quando não bloqueia: "indeterminado" precisa ser auditável, senão não dá
+    // para saber se a checagem antifraude está funcionando ou só passando tudo.
+    local: resultado.local || null,
+    localMotivo: resultado.localMotivo || null,
   };
 
   try {

@@ -314,7 +314,8 @@ async function carregarHistorico() {
       <td>${e.hangarId || '—'}</td>
       <td><code>${e.ticket || '—'}</code></td>
       <td>${e.placa || '—'}${e.placaEhGenerica ? ' <span class="st">genérica</span>' : ''}</td>
-      <td><span class="st ${classeStatus(e.status)}">${e.status}</span>${e.usouCota ? ' <span class="st meio">usou cota</span>' : ''}${e.escalado ? ' <span class="st ruim">escalado</span>' : ''}</td>
+      <td><span class="st ${classeStatus(e.status)}">${e.status}</span>${e.usouCota ? ' <span class="st meio">usou cota</span>' : ''}${e.escalado ? ' <span class="st ruim">escalado</span>' : ''}${
+        e.local ? ` <span class="st ${e.local==='compativel'?'bom':e.local==='incompativel'?'ruim':'meio'}" title="${(e.localMotivo||'').replace(/"/g,'')}">local: ${e.local}</span>` : ''}</td>
       <td>${e.remetente || '—'}</td>
     </tr>`).join('')}</tbody></table>`;
 }
