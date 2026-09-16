@@ -293,20 +293,29 @@ async function processar(body, opcoes = {}) {
   registro.registrar(resultado);
 
   // Aviso de pátio cheio. Usa o número que a validação ou a consulta JÁ leram —
-  // sem login extra. Vai para a administração, que é quem pode agir, e uma nota
-  // curta acompanha a resposta do cliente.
+  // sem login extra.
+  //
+  // Vai para o GRUPO dos clientes, por escolha do usuário em 16/09/2026: quem
+  // está no grupo é quem vai chegar com o carro, e saber que o pátio está no
+  // limite muda o que essa pessoa faz. Não duplicamos no privado da
+  // administração para não dizer a mesma coisa em dois lugares.
   if (Number.isFinite(resultado.vagasDisponiveis)) {
     try {
       const hangarAviso = buscarHangarPorGrupo(carregarConfig(), resultado.grupoId);
       const aviso = avisoPatio.avaliar(hangarAviso, resultado.vagasDisponiveis, resultado.totalVagas);
+
       if (aviso) {
         resultado.avisoPatio = aviso.acao;
-        if (opcoes.aoNotificarAdmin && (hangarAviso.grupoAdministracao || '').trim()) {
-          await opcoes.aoNotificarAdmin(hangarAviso.grupoAdministracao, avisoPatio.mensagemAdmin(aviso))
+        if (opcoes.aoNotificarAdmin) {
+          await opcoes.aoNotificarAdmin(resultado.grupoId, avisoPatio.mensagemAdmin(aviso))
             .catch(() => { resultado.avisoPatioEnviado = false; });
         }
       }
-      if (resultado.mensagemWhatsapp && resultado.status === 'validado') {
+
+      // A nota curta na confirmação só entra quando NÃO houve alerta agora.
+      // Com alerta, o grupo acabou de receber a informação completa, e repetir
+      // na linha seguinte seria dizer duas vezes a mesma coisa.
+      if (!aviso && resultado.mensagemWhatsapp && resultado.status === 'validado') {
         resultado.mensagemWhatsapp += avisoPatio.notaParaCliente(
           resultado.vagasDisponiveis, avisoPatio.limiteDe({ ...hangarAviso, totalVagas: resultado.totalVagas })
         );

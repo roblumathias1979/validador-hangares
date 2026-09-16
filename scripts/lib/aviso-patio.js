@@ -91,7 +91,12 @@ function avaliar(hangar, disponiveis, total = null) {
   });
 }
 
-/** Mensagem para a administração — quem pode agir. */
+/**
+ * Mensagem do alerta. Vai para o GRUPO dos clientes (escolha do usuário em
+ * 16/09/2026): quem está lá é quem chega com o carro, e saber que o pátio está
+ * no limite muda o que a pessoa faz. O nome da função ficou de quando o destino
+ * era o privado da administração.
+ */
 function mensagemAdmin(aviso) {
   if (aviso.acao === 'normalizou') {
     return `🟢 *${aviso.hangarNome}* — pátio normalizado: ${aviso.disponiveis} vagas livres.`;
