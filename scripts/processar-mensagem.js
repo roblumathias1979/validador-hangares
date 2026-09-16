@@ -591,7 +591,6 @@ async function conduzir(body, { aoReceber } = {}) {
     const naoServe = previa.status !== 'consulta_ok' || previa.jaValidado === true;
     if (naoServe) {
       return {
-        ...infoLocalVazio,
         status: previa.status,
         hangarId: hangar.id,
         grupoId: msg.grupoId,
@@ -637,7 +636,6 @@ async function conduzir(body, { aoReceber } = {}) {
   // carro aparece apenas um pedaço de asfalto ou de parede branca, que existe
   // no aeroporto inteiro, e travar por isso acusaria de fraude cliente
   // honesto por causa do enquadramento da foto.
-  const infoLocalVazio = {};
   const local = avaliarLocal(hangar, ocr.local, ocr.localMotivo);
 
   // O veredito viaja junto do resultado mesmo quando NÃO bloqueia. Antes ele só
@@ -702,6 +700,42 @@ async function conduzir(body, { aoReceber } = {}) {
   };
 }
 
+/**
+ * O que devolver quando `processar` estoura.
+ *
+ * Um erro aqui costuma ser bug nosso, e até 16/09/2026 o cliente não recebia
+ * NADA: mandava o ticket e o grupo ficava mudo. Silêncio no WhatsApp é lido
+ * como "ainda processando", então a pessoa espera em vez de procurar a
+ * administração — foi exatamente o que aconteceu no AIBM 1, com um bug que só
+ * disparava quando a consulta prévia dizia que o ticket não servia.
+ *
+ * Responder exige saber PARA ONDE. Só respondemos em grupo de hangar
+ * CADASTRADO: sem essa condição, um erro numa mensagem qualquer viraria
+ * mensagem do bot em conversa que não é nossa.
+ */
+function resultadoDeErro(erro, payloadBase64) {
+  const resultado = {
+    status: 'erro',
+    mensagem: erro.message,
+    mensagemWhatsapp: '⚠️ Não conseguimos processar sua mensagem no momento. Nossa equipe foi avisada.',
+    notificarAdmin: true,
+    responder: false,
+  };
+  try {
+    const body = JSON.parse(Buffer.from(payloadBase64, 'base64').toString('utf-8'));
+    const grupoId = body && body.data && body.data.key && body.data.key.remoteJid;
+    if (grupoId && String(grupoId).endsWith('@g.us')) {
+      buscarHangarPorGrupo(carregarConfig(), grupoId); // lança se não for nosso
+      resultado.grupoId = grupoId;
+      resultado.responder = true;
+    }
+  } catch (e) {
+    // Payload ilegível ou grupo não cadastrado: segue mudo, que para esses
+    // casos é o comportamento certo.
+  }
+  return resultado;
+}
+
 async function main() {
   const [payloadBase64, ...flags] = process.argv.slice(2);
   const enviar = flags.includes('--enviar');
@@ -725,13 +759,7 @@ async function main() {
       aoNotificarAdmin: enviar ? (destino, texto) => enviarTexto(destino, texto) : null,
     });
   } catch (erro) {
-    resultado = {
-      status: 'erro',
-      mensagem: erro.message,
-      mensagemWhatsapp: '⚠️ Não conseguimos processar sua mensagem no momento. Nossa equipe foi avisada.',
-      notificarAdmin: true,
-      responder: false, // sem grupoId confiável, não há para onde responder
-    };
+    resultado = resultadoDeErro(erro, payloadBase64);
   }
 
   if (enviar && resultado.responder && resultado.grupoId && resultado.mensagemWhatsapp) {
@@ -754,4 +782,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { processar, avisarAdmin, escalar, STATUS_QUE_ESCALAM };
+module.exports = { processar, avisarAdmin, escalar, resultadoDeErro, STATUS_QUE_ESCALAM };
