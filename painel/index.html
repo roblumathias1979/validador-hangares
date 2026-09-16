@@ -106,7 +106,8 @@
     <div class="campos">
       <div><label for="e-host">servidor</label><input id="e-host" type="text" placeholder="smtp.1park.com.br">
         <div class="dica">Porta 587 — a 465 está bloqueada na saída deste servidor.</div></div>
-      <div><label for="e-porta">porta</label><input id="e-porta" type="number" value="587"></div>
+      <div><label for="e-porta">porta</label><input id="e-porta" type="number" value="587" onchange="avisarPorta()">
+        <div class="dica" id="dica-porta">587 (recomendada). A 465 está bloqueada na saída deste servidor.</div></div>
       <div><label for="e-usuario">usuário</label><input id="e-usuario" type="text" placeholder="nao-responda@1park.com.br"
         autocomplete="username"></div>
       <div><label for="e-senha">senha</label><input id="e-senha" type="password" autocomplete="new-password">
@@ -330,12 +331,23 @@ async function carregarHistorico() {
     </tr>`).join('')}</tbody></table>`;
 }
 
+function avisarPorta() {
+  const p = Number($('#e-porta').value);
+  const d = $('#dica-porta');
+  if (p === 465) {
+    d.innerHTML = '<b style="color:var(--erro)">A porta 465 está BLOQUEADA na saída deste servidor</b> — o envio vai falhar com "Greeting never received". Use 587.';
+  } else {
+    d.textContent = '587 (recomendada). A 465 está bloqueada na saída deste servidor.';
+  }
+}
+
 async function carregarEmail() {
   const d = await (await fetch('/api/email')).json();
   $('#e-host').value = d.host || '';
   $('#e-porta').value = d.porta || 587;
   $('#e-usuario').value = d.usuario || '';
   $('#e-remetente').value = d.remetente || '';
+  avisarPorta();
   $('#dica-senha-smtp').textContent = d.temSenha
     ? 'Já existe uma senha salva. Deixe em branco para mantê-la.'
     : 'Nenhuma senha salva ainda.';

@@ -72,11 +72,14 @@ function transporte() {
   return nodemailer.createTransport({
     host: c.host,
     port: c.porta,
-    // secure=false + requireTLS: conecta em claro e SOBE para TLS com STARTTLS,
-    // que é como a porta 587 funciona. `secure: true` seria para a 465, que
-    // está bloqueada aqui.
-    secure: false,
-    requireTLS: true,
+    // 465 usa TLS desde o primeiro byte; 587 conecta em claro e SOBE para TLS
+    // com STARTTLS. Tratar os dois igual faz a conexão travar sem erro claro.
+    //
+    // ⚠️ Neste servidor a SAÍDA na 465 está BLOQUEADA (verificado em
+    // 16/09/2026: email-ssl.com.br e smtp.email-ssl.com.br dão timeout na 465
+    // e respondem na 587). Use 587.
+    secure: c.porta === 465,
+    requireTLS: c.porta !== 465,
     auth: { user: c.usuario, pass: c.senha },
     connectionTimeout: 15000,
     greetingTimeout: 15000,
@@ -97,10 +100,20 @@ async function enviar({ para, assunto, texto }) {
  */
 async function testar() {
   if (!configurado()) return { ok: false, erro: 'E-mail não configurado.' };
+  const c = lerConfig();
   try {
     await transporte().verify();
     return { ok: true };
   } catch (e) {
+    // "Greeting never received" na 465 é sempre a mesma coisa aqui, e a
+    // mensagem crua não ajuda ninguém a resolver.
+    if (c.porta === 465) {
+      return {
+        ok: false,
+        erro: `${e.message} — a porta 465 está BLOQUEADA na saída deste servidor. `
+          + 'Troque para 587, que é a porta de submissão e funciona (testado com este mesmo servidor de e-mail).',
+      };
+    }
     return { ok: false, erro: e.message };
   }
 }
