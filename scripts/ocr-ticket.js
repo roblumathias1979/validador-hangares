@@ -53,9 +53,12 @@ Responda APENAS com um JSON (sem markdown, sem texto antes ou depois) neste form
 {
   "ticket": "<os 12 dígitos, só números, ou null se não conseguir ler com certeza>",
   "dataEmissaoDDMMAAHHMMSS": "<string exatamente como impressa, ex: 19/03/26 09:25:21, ou null>",
+  "temTicket": true | false,
   "confianca": "alta" | "baixa",
   "motivo": "<se confianca=baixa, explique brevemente por quê (borrado, cortado, não é um ticket #1Park, etc); se alta, string vazia>"
 }
+
+Sobre "temTicket": responda false quando NÃO houver nenhum ticket de estacionamento na imagem — uma foto só de veículo, de pessoa, de documento ou de qualquer outra coisa. Responda true quando houver um ticket na foto, mesmo que ilegível, borrado ou cortado. A pergunta é se o ticket ESTÁ na imagem, não se dá para lê-lo.
 
 Se a imagem não for claramente um ticket #1Park, ou se qualquer um dos dois campos não puder ser lido com certeza, use confianca "baixa" e ticket/dataEmissaoDDMMAAHHMMSS null — não adivinhe dígitos.`;
 
@@ -285,12 +288,21 @@ async function lerTicket(origem) {
   const ticketValido = REGEX_TICKET.test(ticket);
 
   if (!confiancaAlta || !ticketValido || !dataEmissaoIso) {
+    // "Não há ticket nesta foto" e "o ticket está ilegível" pedem respostas
+    // opostas, e até 16/09/2026 as duas recebiam "reenvie mais de perto". Quem
+    // mandou foto de carro fora de hora era convidado a mandar OUTRA foto de
+    // carro, mais perto — e repetia o erro. `temTicket` separa os dois casos.
+    const semTicket = extraido.temTicket === false;
     return {
-      status: 'ocr_confianca_baixa',
+      status: semTicket ? 'sem_ticket_na_foto' : 'ocr_confianca_baixa',
       mensagem: extraido.motivo || 'Confiança baixa ou campos incompletos.',
       ticketLido: ticket || null,
       dataEmissaoLida: extraido.dataEmissaoDDMMAAHHMMSS || null,
-      mensagemWhatsapp: '⚠️ Não consegui ler o ticket com certeza nessa foto. Pode reenviar mais de perto, com o número e a data bem visíveis?',
+      temTicket: extraido.temTicket !== false,
+      mensagemWhatsapp: semTicket
+        ? 'Não vi nenhum ticket nessa foto. Para validar, mande primeiro a *foto do ticket* — '
+          + 'depois que eu confirmar que ele pode ser validado, eu peço a foto do veículo.'
+        : '⚠️ Não consegui ler o ticket com certeza nessa foto. Pode reenviar mais de perto, com o número e a data bem visíveis?',
       notificarAdmin: false,
     };
   }

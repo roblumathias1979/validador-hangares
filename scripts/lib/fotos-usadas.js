@@ -63,22 +63,47 @@ function jaUsada(base64) {
  * validação falha, a foto continua valendo, senão o cliente perderia uma foto
  * boa por causa de um erro nosso.
  */
-function registrar(base64, { hangarId, ticket, grupoId, remetente, placa }) {
-  const hash = impressaoDigital(base64);
+function registrar(base64, dados) {
+  return registrarPar({ ...dados, hashes: [impressaoDigital(base64)] });
+}
+
+/**
+ * Registra o PAR de fotos de uma validação: a do ticket e a do veículo.
+ *
+ * As duas são gastas JUNTAS porque juntas é que provam alguma coisa. A foto do
+ * ticket sozinha não diz onde o carro está; a do veículo sozinha não diz a que
+ * ticket pertence. Gastar só uma deixaria a outra livre para ser reaproveitada
+ * na próxima validação, que é exatamente o buraco que se está fechando.
+ *
+ * Os dois hashes apontam para o MESMO registro, então a recusa consegue dizer
+ * qual ticket aquela foto validou, seja qual das duas venha de volta.
+ */
+function registrarPar({ hashes, hangarId, ticket, grupoId, remetente, placa }) {
+  const lista = (hashes || []).filter(Boolean);
+  if (!lista.length) return { registrada: false };
+
   return comTrava(ARQUIVO, () => {
     const usadas = lerJson(ARQUIVO, {});
-    usadas[hash] = {
+    const registro = {
       hangarId: hangarId || null,
       ticket: ticket || null,
       grupoId: grupoId || null,
       remetente: remetente || null,
       placa: placa || null,
       em: new Date().toISOString(),
+      par: lista,
     };
+    for (const hash of lista) usadas[hash] = registro;
     expurgarEm(usadas);
     salvarAtomico(ARQUIVO, usadas);
-    return { hash, registrada: true };
+    return { hashes: lista, registrada: true };
   });
+}
+
+/** Como `jaUsada`, mas para quem já tem o hash em mãos. */
+function jaUsadaPorHash(hash) {
+  const anterior = lerJson(ARQUIVO, {})[hash];
+  return anterior ? { hash, ...anterior } : null;
 }
 
 function expurgarEm(usadas) {
@@ -108,4 +133,4 @@ function mensagemRecusa(anterior, ticketAtual) {
     + 'com a placa visível e um pouco do entorno aparecendo.';
 }
 
-module.exports = { impressaoDigital, jaUsada, registrar, mensagemRecusa, RETENCAO_DIAS, ARQUIVO };
+module.exports = { impressaoDigital, jaUsada, jaUsadaPorHash, registrar, registrarPar, mensagemRecusa, RETENCAO_DIAS, ARQUIVO };

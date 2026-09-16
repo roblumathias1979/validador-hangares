@@ -565,7 +565,8 @@ async function conduzir(body, { aoReceber } = {}) {
     // e na tentativa seguinte ele seria acusado de reusar a própria foto.
     if (resultado.status === 'validado') {
       try {
-        fotosUsadas.registrar(imagemVeiculo.base64, {
+        fotosUsadas.registrarPar({
+          hashes: [pedido.hashTicket, fotosUsadas.impressaoDigital(imagemVeiculo.base64)],
           hangarId: hangar.id,
           ticket: pedido.ticket,
           grupoId: msg.grupoId,
@@ -616,6 +617,27 @@ async function conduzir(body, { aoReceber } = {}) {
   }
 
   const imagem = await baixarImagemBase64(msg.messageId);
+
+  // Foto de ticket já usada numa validação: recusa antes do OCR.
+  //
+  // O par ticket+veículo é gasto junto (ver lib/fotos-usadas.js). Aceitar de
+  // volta a foto do ticket deixaria metade do par livre para reabrir um pedido
+  // — e o pedido é justamente o que autoriza a foto do veículo a valer.
+  const ticketReusado = fotosUsadas.jaUsada(imagem.base64);
+  if (ticketReusado) {
+    return {
+      status: 'foto_reutilizada',
+      hangarId: hangar.id,
+      grupoId: msg.grupoId,
+      ticket: ticketReusado.ticket,
+      mensagem: `Foto de ticket já usada na validação do ticket ${ticketReusado.ticket} (${ticketReusado.hangarId}) em ${ticketReusado.em}.`,
+      mensagemWhatsapp: fotosUsadas.mensagemRecusa(ticketReusado, ticketReusado.ticket || 'novo'),
+      notificarAdmin: true,
+      responder: true,
+      etapa: 'leitura_ticket',
+    };
+  }
+
   // O hangar vai junto: nos que exigem foto do veículo no local (AIBM 1 e 2),
   // a conferência do cenário é feita na mesma chamada que lê o ticket.
   const ocr = await lerTicket({ base64: imagem.base64, mediaType: imagem.mediaType, hangar });
@@ -667,6 +689,10 @@ async function conduzir(body, { aoReceber } = {}) {
       dataEmissaoIso: ocr.dataEmissaoIso,
       hangarId: hangar.id,
       tipo: 'foto_local',
+      // A impressão digital da foto do ticket viaja com o pedido para ser
+      // gasta JUNTO com a do veículo quando a validação sair. É isto que
+      // agrupa as duas: uma validação, um par, nenhuma das duas reaproveitável.
+      hashTicket: fotosUsadas.impressaoDigital(imagem.base64),
     });
     return {
       status: 'aguardando_foto_veiculo',
