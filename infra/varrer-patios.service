@@ -1,0 +1,12 @@
+[Unit]
+Description=Varre os patios e avisa o grupo quando as vagas cruzam o limite
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/validador-hangares
+ExecStart=/usr/bin/node /home/ubuntu/validador-hangares/scripts/varrer-patios.js
+# Abre um Chromium por hangar, em sequencia. Com 4 hangares da ~30s; o teto
+# cobre um site lento sem deixar a unidade presa para sempre.
+TimeoutStartSec=8min

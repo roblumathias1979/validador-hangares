@@ -1,0 +1,15 @@
+[Unit]
+Description=Varre os patios a cada 15 minutos
+
+[Timer]
+# 5min apos o boot: o n8n e a Evolution precisam estar de pe para o aviso sair.
+OnBootSec=5min
+OnUnitActiveSec=15min
+# 15min e o intervalo em que um patio pequeno (AIBM 1, 12 vagas) ainda pode
+# passar de folgado a lotado sem ser visto, mas encurtar multiplica logins no
+# ValidPark sem ganho proporcional: o aviso serve para dar tempo de agir, e
+# quem age nao age em 5 minutos.
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

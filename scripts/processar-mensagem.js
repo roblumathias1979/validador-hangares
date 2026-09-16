@@ -788,4 +788,8 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { processar, avisarAdmin, escalar, resultadoDeErro, STATUS_QUE_ESCALAM };
+// `enviarTexto` sai daqui para a varredura de pátios usar o MESMO cliente da
+// Evolution. Reescrever aquelas 80 linhas noutro arquivo criaria uma segunda
+// fonte para o mesmo comportamento — inclusive para o `Connection: close`,
+// que existe por um bug real de socket reaproveitado.
+module.exports = { processar, avisarAdmin, escalar, resultadoDeErro, enviarTexto, STATUS_QUE_ESCALAM };
