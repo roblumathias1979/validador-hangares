@@ -317,11 +317,11 @@ async function conduzir(body, { aoReceber } = {}) {
   // Vem ANTES das pendências: quem tem um ticket em aberto também pode querer
   // saber das vagas, e responder "ainda preciso da foto" a uma pergunta sobre
   // o pátio seria ignorar o que foi perguntado.
-  if (msg.tipo === 'texto' && msg.pedeStatusPatio) {
+  if (msg.tipo === 'texto' && msg.pedidoPatio) {
     if (aoReceber) {
       try { await aoReceber(msg.grupoId, '🔎 Consultando o pátio...'); } catch (e) { /* aviso é conforto */ }
     }
-    const patio = await consultarPatio(hangar.id);
+    const patio = await consultarPatio(hangar.id, { formato: msg.pedidoPatio });
     return {
       status: patio.status,
       hangarId: hangar.id,
@@ -329,7 +329,7 @@ async function conduzir(body, { aoReceber } = {}) {
       mensagemWhatsapp: patio.mensagemWhatsapp,
       notificarAdmin: patio.notificarAdmin === true,
       responder: true,
-      etapa: 'status_patio',
+      etapa: `status_patio_${msg.pedidoPatio}`,
       vagasDisponiveis: patio.disponiveis ?? null,
     };
   }

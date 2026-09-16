@@ -72,16 +72,41 @@ function interpretarResposta(texto) {
   return null;
 }
 
-// Pedido de situação do pátio. Exige a palavra "pátio" ou "vagas" junto de um
-// verbo de consulta, em vez de reagir a qualquer menção: num grupo as pessoas
-// conversam, e "acabou a vaga aí?" entre elas não deve disparar uma consulta
-// que abre navegador e loga no site.
-const REGEX_STATUS_PATIO = /\b(status|situa[çc][ãa]o|como\s+est[áa]|quantas?|tem)\b[^?!.]{0,40}\b(p[áa]tio|vagas?|estacionamento)\b/i;
+// Pergunta sobre o pátio. Exige um ASSUNTO conhecido junto de um VERBO de
+// consulta, em vez de reagir a qualquer menção: num grupo as pessoas conversam,
+// e "o pátio fica lá atrás" não pode disparar uma consulta que abre navegador e
+// faz login no site.
+//
+// A lista de verbos nasceu curta demais (16/09/2026): "me fale quais são os
+// credenciados que estão no pátio" não era reconhecido, porque "quais" não
+// estava nela. Ampliada com as formas que as pessoas realmente usam.
+const VERBOS = '(status|situa[çc][ãa]o|como\\s+est[áa]|quant[ao]s?|tem|quais|qual|liste?|lista|'
+  + 'me\\s+(fale|diga|informe|mostre?|d[êe])|informe|mostrar?|mostre|ver|saber)';
+const ASSUNTO_PATIO = '(p[áa]tio|vagas?|estacionamento)';
+const ASSUNTO_CREDENCIADOS = '(credenciad[oa]s?|mensalistas?)';
+
+const REGEX_PATIO = new RegExp(`\\b${VERBOS}\\b[^?!.]{0,50}\\b${ASSUNTO_PATIO}\\b`, 'i');
+const REGEX_CREDENCIADOS = new RegExp(`\\b${VERBOS}\\b[^?!.]{0,50}\\b${ASSUNTO_CREDENCIADOS}\\b`, 'i');
+
+/**
+ * Devolve null, 'status' ou 'credenciados'.
+ *
+ * A distinção existe porque o site expõe coisas diferentes: dos tickets
+ * validados há a lista completa; dos credenciados, apenas a CONTAGEM. Quem
+ * pergunta "quais são os credenciados" precisa ouvir que essa lista não existe
+ * ali, não receber outra coisa no lugar.
+ */
+function interpretarPedidoPatio(texto) {
+  const t = (texto || '').trim();
+  // Frase longa raramente é comando; é conversa que por acaso cita o pátio.
+  if (!t || t.length > 140) return null;
+  if (REGEX_CREDENCIADOS.test(t)) return 'credenciados';
+  if (REGEX_PATIO.test(t)) return 'status';
+  return null;
+}
 
 function ehPedidoDeStatus(texto) {
-  const t = (texto || '').trim();
-  if (!t || t.length > 120) return false; // frase longa raramente é comando
-  return REGEX_STATUS_PATIO.test(t);
+  return interpretarPedidoPatio(texto) !== null;
 }
 
 function ehGrupo(remoteJid) {
@@ -160,7 +185,7 @@ function interpretarMensagem(body) {
     // houver nenhuma para esta pessoa, aí sim a mensagem é ignorada em
     // silêncio, sem o bot responder a toda conversa do grupo.
     if (textoLivre) {
-      return { ...base, tipo: 'texto', texto: textoLivre, resposta: interpretarResposta(textoLivre), pedeStatusPatio: ehPedidoDeStatus(textoLivre) };
+      return { ...base, tipo: 'texto', texto: textoLivre, resposta: interpretarResposta(textoLivre), pedidoPatio: interpretarPedidoPatio(textoLivre) };
     }
     return {
       ...base,
@@ -186,4 +211,4 @@ function interpretarMensagem(body) {
   };
 }
 
-module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus };
+module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus, interpretarPedidoPatio };

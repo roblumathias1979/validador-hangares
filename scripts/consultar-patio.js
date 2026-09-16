@@ -100,12 +100,44 @@ function montarMensagem(hangar, d) {
   return linhas.join('\n');
 }
 
-async function consultarPatio(hangarId, { usarCache = true } = {}) {
+/**
+ * Resposta para quem pergunta QUEM são os credenciados.
+ *
+ * O ValidPark mostra apenas a CONTAGEM deles — não há lista, tabela ou seletor
+ * com os nomes ou placas (verificado varrendo a página em 16/09/2026). Dos
+ * tickets validados existe a lista completa; dos credenciados, só o número.
+ *
+ * Dizer isso é melhor que responder outra coisa no lugar: quem perguntou fica
+ * sabendo onde procurar, em vez de achar que o bot falhou.
+ */
+function montarMensagemCredenciados(hangar, d) {
+  const linhas = [`📊 *${hangar.hangar || hangar.id}*`, ''];
+  if (d.credenciados !== null) {
+    linhas.push(`Credenciados no pátio agora: *${d.credenciados}*`);
+    if (d.utilizadas !== null && d.tickets !== null) {
+      linhas.push(`(das ${d.utilizadas} vagas ocupadas, ${d.tickets} são por ticket)`);
+    }
+  } else {
+    linhas.push('Não consegui ler a contagem de credenciados no site.');
+  }
+  linhas.push(
+    '',
+    'A *lista* de quem são não aparece na tela do ValidPark — só esse total. '
+    + 'Para saber as placas, é preciso consultar o cadastro de credenciados direto com a administração.'
+  );
+  if (d.doCache) linhas.push('', '_dados de até 1 minuto atrás_');
+  return linhas.join('\n');
+}
+
+async function consultarPatio(hangarId, { usarCache = true, formato = 'status' } = {}) {
   const hangar = buscarHangar(carregarConfig(), hangarId);
 
   if (usarCache) {
     const c = lerCache(hangarId);
-    if (c) return { ...c, doCache: true, mensagemWhatsapp: montarMensagem(hangar, { ...c, doCache: true }) };
+    if (c) {
+      const m = formato === 'credenciados' ? montarMensagemCredenciados : montarMensagem;
+      return { ...c, doCache: true, mensagemWhatsapp: m(hangar, { ...c, doCache: true }) };
+    }
   }
 
   const seletores = hangar.seletores || {};
@@ -133,7 +165,8 @@ async function consultarPatio(hangarId, { usarCache = true } = {}) {
 
     const dados = { status: 'patio_ok', hangar: hangarId, ...numeros, validados, em: new Date().toISOString() };
     gravarCache(hangarId, dados);
-    return { ...dados, doCache: false, mensagemWhatsapp: montarMensagem(hangar, { ...dados, doCache: false }) };
+    const montar = formato === 'credenciados' ? montarMensagemCredenciados : montarMensagem;
+    return { ...dados, doCache: false, mensagemWhatsapp: montar(hangar, { ...dados, doCache: false }) };
   } finally {
     await navegador.close();
   }
