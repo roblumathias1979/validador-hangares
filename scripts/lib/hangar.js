@@ -100,11 +100,62 @@ async function login(page, hangar) {
     if (resultado === 'erro') {
       throw new Error(`Login falhou para o hangar "${hangar.id}" — usuário ou senha incorretos (usuário: ${usuario}).`);
     }
+    const pista = await registrarDiagnostico(page, hangar, tentativa);
     ultimoErro = `Não foi possível confirmar o login do hangar "${hangar.id}" em ${espera / 1000}s `
-      + `(tentativa ${tentativa} de ${TENTATIVAS}) — nem o painel nem a mensagem de erro apareceram.`;
+      + `(tentativa ${tentativa} de ${TENTATIVAS}) — nem o painel nem a mensagem de erro apareceram.${pista}`;
   }
 
   throw new Error(ultimoErro);
+}
+
+/**
+ * Guarda o que o navegador estava vendo quando o login não confirmou.
+ *
+ * Existe porque em 16/09/2026 o login do AIBM 1 falhou três vezes dentro do
+ * fluxo do bot enquanto, rodado à mão, acertava nove de nove. Sem enxergar a
+ * tela do momento da falha, investigar virou adivinhação: memória? CPU? o site?
+ * Uma imagem do que estava na tela responde em segundos o que duas hipóteses
+ * erradas não responderam.
+ *
+ * Nunca deixa a falha do diagnóstico virar a falha do login — o erro real é o
+ * que interessa, e mascará-lo seria pior que não ter diagnóstico nenhum.
+ */
+async function registrarDiagnostico(page, hangar, tentativa) {
+  try {
+    const pasta = path.join(__dirname, '..', '..', 'data', 'diagnostico');
+    fs.mkdirSync(pasta, { recursive: true });
+
+    const carimbo = new Date().toISOString().replace(/[:.]/g, '-');
+    const base = path.join(pasta, `login-${hangar.id}-${carimbo}-t${tentativa}`);
+
+    const url = page.url();
+    const titulo = await page.title().catch(() => null);
+    // Sinal mais direto do que uma imagem: se o campo de usuário ainda está na
+    // tela, o login não passou; se sumiu, passou e o painel é que não carregou.
+    const aindaNoLogin = await page.locator((hangar.seletores || {}).campoUsuario || 'input')
+      .first().isVisible().catch(() => null);
+
+    await page.screenshot({ path: `${base}.png`, fullPage: false }).catch(() => {});
+    fs.writeFileSync(`${base}.json`, JSON.stringify({
+      hangar: hangar.id, tentativa, em: new Date().toISOString(), url, titulo, aindaNoLogin,
+    }, null, 2));
+
+    limparDiagnosticosAntigos(pasta);
+    return ` [tela: ${titulo || 'sem título'} | ${aindaNoLogin === true ? 'ainda na tela de login' : aindaNoLogin === false ? 'passou do login, painel não carregou' : 'estado incerto'} | ${path.basename(base)}.png]`;
+  } catch (e) {
+    return '';
+  }
+}
+
+// Fotos de tela acumulam num disco pequeno. 40 arquivos (20 falhas) é mais
+// histórico do que qualquer investigação precisa.
+function limparDiagnosticosAntigos(pasta, manter = 40) {
+  try {
+    const arquivos = fs.readdirSync(pasta).sort();
+    for (const nome of arquivos.slice(0, Math.max(0, arquivos.length - manter))) {
+      fs.unlinkSync(path.join(pasta, nome));
+    }
+  } catch (e) { /* limpeza é higiene, não pode quebrar nada */ }
 }
 
 async function tentarLogin(page, hangar, seletores, usuario, senha, espera) {

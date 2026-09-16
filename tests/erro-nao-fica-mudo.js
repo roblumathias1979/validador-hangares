@@ -48,6 +48,21 @@ child.execFileSync = (_cmd, args) => {
   throw new Error(`script inesperado no teste: ${arquivo}`);
 };
 
+// O histórico é de PRODUÇÃO. Sem esta substituição, rodar o teste no servidor
+// grava tickets inventados em data/validacoes.jsonl — aconteceu em 16/09/2026,
+// e por alguns minutos o histórico do AIBM 1 mostrou um ticket que nunca
+// existiu. Arquivo de auditoria não pode receber dado de teste.
+const registro = require(path.join(RAIZ, 'scripts', 'lib', 'registro.js'));
+registro.registrar = () => null;
+
+// Mesma razão: pendências são estado real de conversa. Uma pendência deixada
+// por teste faz a próxima foto de um cliente de verdade ser lida como resposta
+// a um ticket que ele nunca mandou.
+const pendencias = require(path.join(RAIZ, 'scripts', 'lib', 'pendencias.js'));
+pendencias.registrar = () => null;
+pendencias.consumir = () => null;
+pendencias.buscar = () => null;
+
 const ocr = require(path.join(RAIZ, 'scripts', 'ocr-ticket.js'));
 ocr.lerTicket = async () => ({
   status: 'ocr_ok',
