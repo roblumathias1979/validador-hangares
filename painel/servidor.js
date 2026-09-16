@@ -52,6 +52,8 @@ const { obterUsoMensal, obterRestante } = require(path.join(RAIZ, 'scripts', 'li
 const registro = require(path.join(RAIZ, 'scripts', 'lib', 'registro'));
 const { lerJson } = require(path.join(RAIZ, 'scripts', 'lib', 'trava-arquivo'));
 const usuarios = require('./usuarios');
+const recuperacao = require('./recuperacao');
+const email = require('./email');
 const SAUDE = path.join(RAIZ, 'data', 'saude.json');
 
 // Teto do slider do ValidPark. 20 dias é exatamente o limite — não há folga, e
@@ -191,6 +193,7 @@ function montarEstado(usuario = null) {
     saude: lerJson(SAUDE, null),
     usuario,
     semUsuarios: !usuarios.existeAlgum(),
+    emailConfigurado: email.configurado(),
     geradoEm: new Date().toISOString(),
   };
 }
@@ -247,6 +250,63 @@ function lerCorpo(req) {
 }
 
 const servidor = http.createServer(async (req, res) => {
+  const caminho = new URL(req.url, `http://${req.headers.host}`).pathname;
+
+  // Rotas públicas: quem precisa delas está trancado para fora, então exigir
+  // login seria circular. Ficam ANTES da checagem de propósito, e são as
+  // únicas — qualquer rota nova nasce protegida.
+  if (caminho === '/api/recuperar' && req.method === 'POST') {
+    try {
+      const c = await lerCorpo(req);
+      const alvo = usuarios.buscar(c.identificador);
+      // Resposta idêntica exista ou não a conta. Dizer "não encontrado"
+      // permitiria descobrir quem tem acesso ao painel testando nomes — e o
+      // painel está na internet aberta.
+      const resposta = { ok: true, mensagem: 'Se a conta existir e tiver e-mail cadastrado, o link foi enviado.' };
+
+      if (!alvo || !alvo.email) { json(res, 200, resposta); return; }
+      const token = recuperacao.criar(alvo.nome);
+      if (!token) { json(res, 200, resposta); return; } // estourou o limite de pedidos
+
+      const base = process.env.PAINEL_URL || `https://${req.headers.host}`;
+      await email.enviar({
+        para: alvo.email,
+        assunto: 'Redefinir senha — Painel do Validador',
+        texto: email.textoRecuperacao({
+          nome: alvo.nome,
+          link: `${base}/redefinir?token=${token}`,
+          minutos: Math.round(recuperacao.VALIDADE_MS / 60000),
+        }),
+      });
+      json(res, 200, resposta);
+    } catch (e) {
+      // Falha de SMTP não pode revelar se a conta existe; registra e responde
+      // igual. O erro aparece no log do serviço para quem administra.
+      console.error('falha ao enviar recuperação:', e.message);
+      json(res, 200, { ok: true, mensagem: 'Se a conta existir e tiver e-mail cadastrado, o link foi enviado.' });
+    }
+    return;
+  }
+
+  if (caminho === '/redefinir' && req.method === 'GET') {
+    const html = fs.readFileSync(path.join(__dirname, 'redefinir.html'), 'utf-8');
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(html);
+    return;
+  }
+
+  if (caminho === '/api/redefinir' && req.method === 'POST') {
+    try {
+      const c = await lerCorpo(req);
+      // Consome e valida na mesma trava: o link vale uma vez só.
+      const nome = recuperacao.consumir(c.token);
+      if (!nome) { json(res, 400, { erro: 'Link inválido, já usado ou vencido. Peça um novo.' }); return; }
+      usuarios.trocarSenha(nome, c.senha);
+      json(res, 200, { ok: true, nome });
+    } catch (e) { json(res, 400, { erro: e.message }); }
+    return;
+  }
+
   const usuario = autorizado(req);
   if (!usuario) {
     res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="Validador"' });
@@ -279,6 +339,7 @@ const servidor = http.createServer(async (req, res) => {
       if (req.method === 'POST') {
         const c = await lerCorpo(req);
         try {
+          if (c.acao === 'definirEmail') { json(res, 200, { ok: true, ...usuarios.definirEmail(c.nome, c.email) }); return; }
           if (c.acao === 'trocarSenha') { json(res, 200, { ok: true, ...usuarios.trocarSenha(c.nome, c.senha) }); return; }
           if (c.acao === 'remover') {
             // Remover a si mesmo derrubaria a própria sessão no meio do uso.

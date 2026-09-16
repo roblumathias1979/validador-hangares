@@ -108,6 +108,9 @@
       <div><label for="u-nome">novo usuário</label>
         <input id="u-nome" type="text" placeholder="ex: maria.silva">
         <div class="dica">3 a 32 caracteres: letras, números, ponto, hífen, sublinhado.</div></div>
+      <div><label for="u-email">e-mail</label>
+        <input id="u-email" type="email" placeholder="para recuperar a senha">
+        <div class="dica">Sem e-mail, a pessoa não consegue usar "esqueci minha senha".</div></div>
       <div><label for="u-senha">senha</label>
         <input id="u-senha" type="password" autocomplete="new-password">
         <div class="dica" id="dica-senha">mínimo de caracteres carregando…</div></div>
@@ -308,17 +311,25 @@ async function carregarHistorico() {
 async function carregarUsuarios() {
   const d = await (await fetch('/api/usuarios')).json();
   $('#dica-senha').textContent = `Mínimo de ${d.minSenha} caracteres.`;
+  if (estado && estado.emailConfigurado === false) {
+    $('#sec-usuarios').insertAdjacentHTML('afterbegin',
+      `<div class="aviso pendente" style="margin-bottom:12px"><b>Recuperação de senha indisponível.</b>
+       O SMTP não está configurado no .env do servidor, então "esqueci minha senha" não envia nada.
+       Quem perder a senha vai depender de outra conta de administrador para redefini-la.</div>`);
+  }
   $('#sub-usuarios').textContent = d.usuarios.length
     ? `${d.usuarios.length} conta(s) · você está como "${d.eu}" · 5 tentativas erradas bloqueiam por 15 minutos`
     : 'Nenhuma conta criada ainda — o acesso está pela senha de resgate do .env. Crie a primeira conta: a senha única deixa de funcionar assim que existir uma.';
 
   $('#lista-usuarios').innerHTML = d.usuarios.length ? `<table>
-    <thead><tr><th>usuário</th><th>perfil</th><th>último acesso</th><th></th></tr></thead>
+    <thead><tr><th>usuário</th><th>e-mail</th><th>perfil</th><th>último acesso</th><th></th></tr></thead>
     <tbody>${d.usuarios.map(u => `<tr>
       <td><b>${u.nome}</b>${u.nome === d.eu ? ' <span class="st">você</span>' : ''}</td>
+      <td>${u.email || '<span class="st">sem e-mail — não recupera senha</span>'}</td>
       <td>${u.somenteLeitura ? '<span class="st">somente leitura</span>' : '<span class="st bom">pode alterar</span>'}</td>
       <td>${u.ultimoAcesso ? quando(u.ultimoAcesso) : 'nunca'}</td>
       <td style="text-align:right;white-space:nowrap">
+        <button class="sec" onclick="definirEmail('${u.nome}','${u.email || ''}')">e-mail</button>
         <button class="sec" onclick="trocarSenha('${u.nome}')">trocar senha</button>
         ${u.nome === d.eu ? '' : `<button class="sec" onclick="removerUsuario('${u.nome}')">remover</button>`}
       </td></tr>`).join('')}</tbody></table>` : '';
@@ -339,10 +350,17 @@ async function acaoUsuario(corpo, msgEl) {
 async function criarUsuario(botao) {
   botao.disabled = true;
   const ok = await acaoUsuario({
-    nome: $('#u-nome').value, senha: $('#u-senha').value, somenteLeitura: $('#u-leitura').checked,
+    nome: $('#u-nome').value, senha: $('#u-senha').value,
+    email: $('#u-email').value, somenteLeitura: $('#u-leitura').checked,
   }, $('#msg-usuarios'));
-  if (ok) { $('#u-nome').value = ''; $('#u-senha').value = ''; $('#u-leitura').checked = false; }
+  if (ok) { $('#u-nome').value = ''; $('#u-senha').value = ''; $('#u-email').value = ''; $('#u-leitura').checked = false; }
   botao.disabled = false;
+}
+
+async function definirEmail(nome, atual) {
+  const email = prompt(`E-mail de "${nome}" (para recuperação de senha):`, atual);
+  if (email === null) return;
+  await acaoUsuario({ acao: 'definirEmail', nome, email }, $('#msg-usuarios'));
 }
 
 async function trocarSenha(nome) {

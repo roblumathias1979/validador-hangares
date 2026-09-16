@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Redefinir senha — Painel do Validador</title>
+<style>
+  :root { --fundo:#f6f7f9; --cartao:#fff; --borda:#d8dce3; --texto:#1a1d21;
+          --fraco:#667085; --ok:#067647; --erro:#b42318; --acento:#1f6feb; }
+  @media (prefers-color-scheme: dark) {
+    :root { --fundo:#15171a; --cartao:#1e2125; --borda:#333940; --texto:#e8eaed;
+            --fraco:#9aa3af; --ok:#4ade80; --erro:#f87171; --acento:#58a6ff; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+         background:var(--fundo); color:var(--texto); padding:20px;
+         font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+  .cartao { background:var(--cartao); border:1px solid var(--borda); border-radius:10px;
+            padding:26px; width:100%; max-width:400px; }
+  h1 { margin:0 0 4px; font-size:17px; }
+  .sub { color:var(--fraco); font-size:13px; margin-bottom:18px; }
+  label { display:block; font-size:12px; color:var(--fraco); margin-bottom:4px; }
+  input { width:100%; padding:9px 10px; border:1px solid var(--borda); border-radius:6px;
+          background:var(--fundo); color:var(--texto); font:inherit; margin-bottom:12px; }
+  button { width:100%; padding:10px; border-radius:6px; border:1px solid var(--acento);
+           background:var(--acento); color:#fff; font:inherit; font-size:14px; cursor:pointer; }
+  button:disabled { opacity:.5; cursor:default; }
+  .msg { margin-top:12px; font-size:13px; }
+  .msg.ok { color:var(--ok); } .msg.erro { color:var(--erro); }
+  .dica { font-size:12px; color:var(--fraco); margin:-6px 0 12px; }
+  a { color:var(--acento); }
+</style>
+</head>
+<body>
+<div class="cartao">
+  <h1>Escolher uma senha nova</h1>
+  <div class="sub" id="sub">O link vale uma única vez.</div>
+
+  <div id="formulario">
+    <label for="s1">Nova senha</label>
+    <input id="s1" type="password" autocomplete="new-password">
+    <label for="s2">Repita a senha</label>
+    <input id="s2" type="password" autocomplete="new-password">
+    <div class="dica">Mínimo de 10 caracteres.</div>
+    <button id="botao" onclick="enviar()">Salvar senha</button>
+  </div>
+
+  <div class="msg" id="msg"></div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const token = new URLSearchParams(location.search).get('token');
+
+if (!token) {
+  $('#formulario').style.display = 'none';
+  $('#msg').className = 'msg erro';
+  $('#msg').textContent = 'Link sem token. Peça uma nova recuperação na tela de acesso.';
+}
+
+async function enviar() {
+  const a = $('#s1').value, b = $('#s2').value;
+  const msg = $('#msg');
+  // Conferido aqui só para não gastar o token por um erro de digitação — o
+  // link vale uma vez só, e o servidor o consome mesmo se a senha for recusada
+  // depois. Quem valida de verdade continua sendo o servidor.
+  if (a !== b) { msg.className = 'msg erro'; msg.textContent = 'As duas senhas não são iguais.'; return; }
+  if (a.length < 10) { msg.className = 'msg erro'; msg.textContent = 'A senha precisa de pelo menos 10 caracteres.'; return; }
+
+  $('#botao').disabled = true;
+  msg.className = 'msg'; msg.textContent = 'salvando…';
+  try {
+    const r = await fetch('/api/redefinir', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ token, senha: a }),
+    });
+    const d = await r.json();
+    if (!r.ok) { msg.className = 'msg erro'; msg.textContent = d.erro || 'erro'; $('#botao').disabled = false; return; }
+    $('#formulario').style.display = 'none';
+    msg.className = 'msg ok';
+    msg.innerHTML = `Senha alterada para <b>${d.nome}</b>. <a href="/">Entrar no painel</a>`;
+  } catch (e) {
+    msg.className = 'msg erro'; msg.textContent = 'falha de rede: ' + e.message;
+    $('#botao').disabled = false;
+  }
+}
+</script>
+</body>
+</html>

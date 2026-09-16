@@ -49,10 +49,20 @@ function ler() {
   return Array.isArray(d.usuarios) ? d : { usuarios: [] };
 }
 
+function validarEmail(email) {
+  const e = String(email || '').trim().toLowerCase();
+  if (e === '') return '';
+  // Validação deliberadamente simples: o que prova o endereço é o e-mail
+  // chegar, não o formato casar com um regex elaborado.
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) throw new Error('E-mail inválido.');
+  return e;
+}
+
 function listar() {
   // Nunca devolve sal nem hash: esta lista vai para a tela.
   return ler().usuarios.map((u) => ({
     nome: u.nome,
+    email: u.email || '',
     somenteLeitura: u.somenteLeitura === true,
     criadoEm: u.criadoEm,
     ultimoAcesso: u.ultimoAcesso || null,
@@ -77,15 +87,16 @@ function validarSenha(senha) {
   return s;
 }
 
-function criar({ nome, senha, somenteLeitura = false }) {
+function criar({ nome, senha, email = '', somenteLeitura = false }) {
   const n = validarNome(nome);
   const s = validarSenha(senha);
+  const e = validarEmail(email);
   return comTrava(ARQUIVO, () => {
     const d = ler();
     if (d.usuarios.some((u) => u.nome === n)) throw new Error(`Usuário "${n}" já existe.`);
-    d.usuarios.push({ nome: n, ...gerarHash(s), somenteLeitura: somenteLeitura === true, criadoEm: new Date().toISOString() });
+    d.usuarios.push({ nome: n, email: e, ...gerarHash(s), somenteLeitura: somenteLeitura === true, criadoEm: new Date().toISOString() });
     salvarAtomico(ARQUIVO, d);
-    return { nome: n, somenteLeitura: somenteLeitura === true };
+    return { nome: n, email: e, somenteLeitura: somenteLeitura === true };
   });
 }
 
@@ -165,7 +176,29 @@ function autenticar(nome, senha) {
   return { nome: u.nome, somenteLeitura: u.somenteLeitura === true };
 }
 
+/** Acha por nome OU e-mail — a pessoa que esqueceu a senha pode ter esquecido
+ *  também qual dos dois cadastrou. */
+function buscar(identificador) {
+  const i = String(identificador || '').trim().toLowerCase();
+  if (!i) return null;
+  const u = ler().usuarios.find((x) => x.nome === i || (x.email || '').toLowerCase() === i);
+  return u ? { nome: u.nome, email: u.email || '', somenteLeitura: u.somenteLeitura === true } : null;
+}
+
+function definirEmail(nome, email) {
+  const n = validarNome(nome);
+  const e = validarEmail(email);
+  return comTrava(ARQUIVO, () => {
+    const d = ler();
+    const u = d.usuarios.find((x) => x.nome === n);
+    if (!u) throw new Error(`Usuário "${n}" não existe.`);
+    u.email = e;
+    salvarAtomico(ARQUIVO, d);
+    return { nome: n, email: e };
+  });
+}
+
 module.exports = {
-  listar, criar, trocarSenha, remover, autenticar, existeAlgum,
+  listar, criar, trocarSenha, remover, autenticar, existeAlgum, buscar, definirEmail,
   estaBloqueado, MIN_SENHA, MAX_TENTATIVAS, ARQUIVO,
 };
