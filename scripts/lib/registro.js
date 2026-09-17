@@ -54,6 +54,10 @@ function registrar(resultado) {
     ticket: resultado.ticket || null,
     placa: resultado.placa || null,
     placaEhGenerica: resultado.placaEhGenerica === true,
+    // Nome do cliente, carro ou placa, como o grupo quis identificar. É a única
+    // informação aqui que o ValidPark não tem — o site só aceita placa no
+    // formato dele, então é neste arquivo que ela existe.
+    identificacao: resultado.identificacao || null,
     remetente: resultado.remetente || null,
     grupoId: resultado.grupoId || null,
     valor: resultado.valor ?? null,

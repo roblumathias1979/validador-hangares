@@ -44,17 +44,13 @@ const restaurar = () => {
 process.on('exit', restaurar);
 process.on('uncaughtException', (e) => { restaurar(); console.error(e); process.exit(1); });
 
-// Monta o cenário deste teste: VOASP com grupo e com cota, mas SEM placa
-// obrigatória — essa regra tem teste próprio (tests/placa-obrigatoria.js), e
-// misturá-la aqui faria este teste falhar por um motivo que não é o dele.
-{
-  const cfg = JSON.parse(guardado['config/hangares.json']);
-  const v = cfg.hangares.find((h) => h.id === 'voasp');
-  v.grupoWhatsappId = GRUPO_VOASP;
-  v.cotaMensalValidacoes = 20;
-  v.placaObrigatoria = false;
-  fs.writeFileSync(path.join(RAIZ, 'config/hangares.json'), JSON.stringify(cfg, null, 2) + '\n');
-}
+// VOASP com grupo e cota; o Solojet entra como contraste, sem cota. Nenhum dos
+// dois com outra pergunta pelo caminho — a de identificação tem teste próprio,
+// e misturá-las faria este falhar por um motivo que não é o dele.
+require('./cenario').montar({
+  hangares: { voasp: { grupoWhatsappId: GRUPO_VOASP, cotaMensalValidacoes: 20 } },
+  zerarDados: false,
+});
 
 let respostaDoOcr = { status: 'ocr_ok', ticket: '011609200001', dataEmissaoIso: new Date().toISOString() };
 

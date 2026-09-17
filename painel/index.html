@@ -340,6 +340,10 @@ function desenhar() {
                  onchange="alternarReferencias('${h.id}', this.checked)">
           <label for="${h.id}-foto" style="margin:0">Exige foto do veículo no local (antifraude)</label>
         </div>
+        <div class="linha-check">
+          <input type="checkbox" id="${h.id}-ident" data-campo="perguntarIdentificacao" ${h.perguntarIdentificacao?'checked':''}>
+          <label for="${h.id}-ident" style="margin:0">Pergunta se quer identificar o ticket (nome, carro ou placa)</label>
+        </div>
         <div id="ref-${h.id}" class="refs" style="display:${h.exigeFotoVeiculoNoLocal?'block':'none'}"></div>
         <div style="margin-top:12px; display:flex; gap:8px; align-items:center;">
           <button onclick="salvar('${h.id}', this)">Salvar</button>
@@ -524,6 +528,25 @@ async function salvar(id, botao) {
   } finally { botao.disabled = false; }
 }
 
+/**
+ * Escapa texto antes de entrar no HTML.
+ *
+ * O histórico mostra dados que vêm do WHATSAPP: nome de quem enviou, placa, e
+ * agora a identificação livre do ticket. Sem escapar, qualquer pessoa num grupo
+ * de cliente consegue escrever HTML que roda no navegador de quem abre o
+ * painel — a conta administrativa, com poder de mudar grupo e credencial. Um
+ * nome de exibição no WhatsApp basta para isso; não é preciso nem mandar o
+ * ticket.
+ *
+ * Aplicado a TODO campo de origem externa, não só ao novo: o furo já existia
+ * em `remetente` desde que a tabela foi criada.
+ */
+function escapar(texto) {
+  return String(texto ?? '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 // Cores por situação: verde só para o que de fato validou, vermelho para o que
 // exigiu gente, amarelo para o que ficou esperando resposta do cliente.
 const BONS = ['validado'];
@@ -558,15 +581,16 @@ async function carregarHistorico() {
 
   $('#historico').className = 'rolavel';
   $('#historico').innerHTML = `<table>
-    <thead><tr><th>quando</th><th>hangar</th><th>ticket</th><th>placa</th><th>situação</th><th>quem enviou</th></tr></thead>
+    <thead><tr><th>quando</th><th>hangar</th><th>ticket</th><th>placa</th><th>identificação</th><th>situação</th><th>quem enviou</th></tr></thead>
     <tbody>${d.eventos.map(e => `<tr>
       <td>${quando(e.em)}</td>
-      <td>${e.hangarId || '—'}</td>
-      <td><code>${e.ticket || '—'}</code></td>
-      <td>${e.placa || '—'}${e.placaEhGenerica ? ' <span class="st">genérica</span>' : ''}</td>
-      <td><span class="st ${classeStatus(e.status)}">${e.status}</span>${e.usouCota ? ' <span class="st meio">usou cota</span>' : ''}${e.escalado ? ' <span class="st ruim">escalado</span>' : ''}${
-        e.local ? ` <span class="st ${e.local==='compativel'?'bom':e.local==='incompativel'?'ruim':'meio'}" title="${(e.localMotivo||'').replace(/"/g,'')}">local: ${e.local}</span>` : ''}</td>
-      <td>${e.remetente || '—'}</td>
+      <td>${escapar(e.hangarId) || '—'}</td>
+      <td><code>${escapar(e.ticket) || '—'}</code></td>
+      <td>${escapar(e.placa) || '—'}${e.placaEhGenerica ? ' <span class="st">genérica</span>' : ''}</td>
+      <td>${e.identificacao ? escapar(e.identificacao) : '—'}</td>
+      <td><span class="st ${classeStatus(e.status)}">${escapar(e.status)}</span>${e.usouCota ? ' <span class="st meio">usou cota</span>' : ''}${e.escalado ? ' <span class="st ruim">escalado</span>' : ''}${
+        e.local ? ` <span class="st ${e.local==='compativel'?'bom':e.local==='incompativel'?'ruim':'meio'}" title="${escapar(e.localMotivo)}">local: ${escapar(e.local)}</span>` : ''}</td>
+      <td>${escapar(e.remetente) || '—'}</td>
     </tr>`).join('')}</tbody></table>`;
 }
 

@@ -26,19 +26,11 @@ const GRUPO_HANGAR1 = '120363410198746053@g.us';
 const PESSOA = '5511999999999@s.whatsapp.net';
 const TICKET = '011609161628';
 
-const ARQUIVOS = ['data/validacoes.jsonl', 'data/pendencias.json', 'data/fotos-usadas.json'];
-const guardado = {};
-for (const a of ARQUIVOS) {
-  const p = path.join(RAIZ, a);
-  guardado[a] = fs.existsSync(p) ? fs.readFileSync(p, 'utf-8') : null;
-}
-const restaurar = () => {
-  for (const a of ARQUIVOS) {
-    const p = path.join(RAIZ, a);
-    if (guardado[a] === null) { try { fs.unlinkSync(p); } catch (e) { /* já não existe */ } }
-    else fs.writeFileSync(p, guardado[a]);
-  }
-};
+const { montar } = require('./cenario');
+// Alljet e Hangar 1 no feijão-com-arroz: sem pergunta nenhuma pelo caminho, que
+// é o cenário em que o ticket duplicado apareceu.
+const cenario = montar({ hangares: { alljet: {}, 'hangar-1': {} } });
+const restaurar = cenario.restaurar;
 
 let respostaDoOcr = { status: 'ocr_ok', ticket: TICKET, dataEmissaoIso: new Date().toISOString() };
 
@@ -81,10 +73,6 @@ const conferir = (nome, ok, detalhe) => {
 };
 
 async function main() {
-  for (const a of ARQUIVOS) {
-    fs.writeFileSync(path.join(RAIZ, a), a.endsWith('.jsonl') ? '' : '{}');
-  }
-
   console.log('Primeira validação, no Alljet');
   const primeira = await processar(payload(GRUPO_ALLJET), {});
   conferir('valida', primeira.status === 'validado', `veio "${primeira.status}"`);

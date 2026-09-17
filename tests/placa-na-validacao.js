@@ -51,6 +51,7 @@ process.on('uncaughtException', (e) => { restaurar(); console.error(e); process.
   const v = cfg.hangares.find((h) => h.id === 'voasp');
   v.grupoWhatsappId = GRUPO_VOASP;
   v.cotaMensalValidacoes = 20;
+  v.perguntarIdentificacao = false;
   fs.writeFileSync(path.join(RAIZ, 'config/hangares.json'), JSON.stringify(cfg, null, 2) + '\n');
 }
 

@@ -54,12 +54,10 @@ const restaurar = () => {
 process.on('exit', restaurar);
 process.on('uncaughtException', (e) => { restaurar(); console.error(e); process.exit(1); });
 
-// Liga a exigência de foto no AIBM 1 só para este teste.
-{
-  const cfg = JSON.parse(guardado['config/hangares.json']);
-  cfg.hangares.find((h) => h.id === 'aibm').exigeFotoVeiculoNoLocal = true;
-  fs.writeFileSync(path.join(RAIZ, 'config/hangares.json'), JSON.stringify(cfg, null, 2) + '\n');
-}
+// Liga a exigência de foto no AIBM 1 e desliga o resto: o par ticket+veículo é
+// o que este teste vigia, e qualquer outra pergunta pelo caminho o quebraria
+// sem nada de errado no sistema.
+require('./cenario').montar({ hangares: { aibm: { exigeFotoVeiculoNoLocal: true } }, zerarDados: false });
 
 // --- substituições --------------------------------------------------------
 // processar-mensagem.js captura `execFileSync` por desestruturação ao ser

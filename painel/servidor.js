@@ -219,6 +219,7 @@ const CAMPOS = {
     return s;
   },
   exigeFotoVeiculoNoLocal: (v) => v === true || v === 'true',
+  perguntarIdentificacao: (v) => v === true || v === 'true',
   avisarVagasAbaixoDe: (v) => {
     if (v === '' || v === null) return null; // vazio = calcula 10% do total
     const n = Number(v);
@@ -243,6 +244,7 @@ function montarEstado(usuario = null) {
     diasValidacaoPadrao: h.diasValidacaoPadrao ?? null,
     prazoValidacaoHoras: h.prazoValidacaoHoras ?? null,
     exigeFotoVeiculoNoLocal: h.exigeFotoVeiculoNoLocal === true,
+    perguntarIdentificacao: h.perguntarIdentificacao === true,
     avisarVagasAbaixoDe: h.avisarVagasAbaixoDe ?? null,
     // Lido do ARQUIVO, não de process.env. O painel é um processo longo: ele
     // carrega o .env ao subir e fica com aquela foto. Foi assim que o VOASP

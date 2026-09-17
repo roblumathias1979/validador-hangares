@@ -157,6 +157,9 @@ function validar(hangar, msg, pedido, usarCota, faturamento = {}) {
   // quinta-de-trás confundiria quem for conferir.
   if (validacao.status === 'validado') {
     mensagem += cotaMensal.notaParaCliente(cotaMensal.situacao(hangar));
+    // Repetir a identificação na confirmação é o recibo de quem respondeu: dá
+    // para perceber ali mesmo que saiu trocada, em vez de descobrir no relatório.
+    if (pedido.identificacao) mensagem += `\n\n🏷️ Identificado como: *${pedido.identificacao}*`;
   }
 
   // Pergunta feita: guardar o pedido para que a resposta do cliente tenha a
@@ -195,6 +198,7 @@ function validar(hangar, msg, pedido, usarCota, faturamento = {}) {
     ticket: pedido.ticket,
     placa: pedido.placa,
     placaEhGenerica: pedido.placaEhGenerica,
+    identificacao: pedido.identificacao || null,
     mensagemWhatsapp: mensagem,
     notificarAdmin: validacao.notificarAdmin === true,
     responder: true,
@@ -424,7 +428,13 @@ async function conduzir(body, { aoReceber } = {}) {
     // separada. Ela caiu no "não entendi", e a validação seguiu sem placa.
     // Guardar a placa e repetir a pergunta aproveita o que a pessoa quis dizer,
     // em vez de descartar e pedir de novo.
-    if (msg.resposta === null && pendente.tipo !== 'foto_local') {
+    //
+    // Fica de fora quando a pergunta em aberto É sobre identificação: ali a
+    // placa não chegou fora de hora, ela é a resposta — "identifique com nome,
+    // carro ou placa" e a pessoa mandou a placa. Tratá-la como correção faria
+    // o bot repetir a pergunta que acabara de ser respondida.
+    const perguntaEraIdentificacao = pendente.tipo === 'informar_identificacao' || pendente.tipo === 'quer_identificar';
+    if (msg.resposta === null && pendente.tipo !== 'foto_local' && !perguntaEraIdentificacao) {
       const placaLida = extrairPlaca(msg.texto);
       if (placaLida && placaLida !== pendente.placa) {
         pendencias.registrar(msg.grupoId, msg.remetenteId, { ...pendente, placa: placaLida, placaEhGenerica: false });
@@ -450,6 +460,68 @@ async function conduzir(body, { aoReceber } = {}) {
 
     const ehFaturamento = pendente.tipo === 'autorizar_faturamento';
     const ehCotaMensal = pendente.tipo === 'usar_cota_mensal';
+
+    // O texto É a identificação: nome, carro ou placa, como a pessoa quiser.
+    if (pendente.tipo === 'informar_identificacao') {
+      const identificacao = (msg.texto || '').trim().slice(0, 80);
+      if (!identificacao) {
+        return {
+          status: 'identificacao_vazia', hangarId: hangar.id, grupoId: msg.grupoId, ticket: pendente.ticket,
+          mensagemWhatsapp: `Não entendi. Mande o nome do cliente, o carro ou a placa para identificar o ticket ${pendente.ticket}.`,
+          notificarAdmin: false, responder: true, etapa: 'pedido_identificacao',
+        };
+      }
+      const pedido = pendencias.consumir(msg.grupoId, msg.remetenteId);
+      if (!pedido) {
+        return { status: 'ignorado', motivo: 'pendência já consumida por outra mensagem', grupoId: msg.grupoId, responder: false };
+      }
+      pedido.identificacao = identificacao;
+      // Se o que a pessoa escreveu FOR uma placa, ela também vale como placa da
+      // validação — "placa ABC1D23" resolve as duas coisas de uma vez, e pedir
+      // de novo seria burocracia.
+      const placaNoTexto = extrairPlaca(identificacao);
+      if (placaNoTexto && pedido.placaEhGenerica) {
+        pedido.placa = placaNoTexto;
+        pedido.placaEhGenerica = false;
+      }
+      return seguirAposIdentificar(hangar, msg, pedido);
+    }
+
+    // "SIM, quero identificar" — pede o texto.
+    if (pendente.tipo === 'quer_identificar') {
+      if (msg.resposta === 'sim') {
+        pendencias.registrar(msg.grupoId, msg.remetenteId, { ...pendente, tipo: 'informar_identificacao' });
+        return {
+          status: 'aguardando_identificacao', hangarId: hangar.id, grupoId: msg.grupoId, ticket: pendente.ticket,
+          mensagemWhatsapp: 'Certo. Mande o *nome do cliente*, o *carro* ou a *placa*.',
+          notificarAdmin: false, responder: true, etapa: 'pedido_identificacao',
+        };
+      }
+      if (msg.resposta === 'nao') {
+        const pedido = pendencias.consumir(msg.grupoId, msg.remetenteId);
+        if (!pedido) {
+          return { status: 'ignorado', motivo: 'pendência já consumida por outra mensagem', grupoId: msg.grupoId, responder: false };
+        }
+        return seguirAposIdentificar(hangar, msg, pedido);
+      }
+      // Texto que não é sim nem não pode MUITO BEM ser a identificação —
+      // alguém que já sabe o fluxo responde "João da Silva" direto. Aproveitar
+      // é melhor que exigir um SIM antes de aceitar o que já foi dito.
+      const direto = (msg.texto || '').trim().slice(0, 80);
+      if (direto) {
+        const pedido = pendencias.consumir(msg.grupoId, msg.remetenteId);
+        if (!pedido) {
+          return { status: 'ignorado', motivo: 'pendência já consumida por outra mensagem', grupoId: msg.grupoId, responder: false };
+        }
+        pedido.identificacao = direto;
+        const placaNoTexto = extrairPlaca(direto);
+        if (placaNoTexto && pedido.placaEhGenerica) {
+          pedido.placa = placaNoTexto;
+          pedido.placaEhGenerica = false;
+        }
+        return seguirAposIdentificar(hangar, msg, pedido);
+      }
+    }
 
     if (msg.resposta === 'nao') {
       pendencias.descartar(msg.grupoId, msg.remetenteId);
@@ -819,6 +891,39 @@ async function conduzir(body, { aoReceber } = {}) {
   //
   // Mesma mecânica da cota fora do prazo, para o cliente encontrar o
   // comportamento que já conhece: pergunta, guarda o pedido, e só age no SIM.
+  // "Quer identificar este ticket?" — nome do cliente, carro ou placa.
+  //
+  // A identificação é do HANGAR, não do ValidPark: o site só aceita placa no
+  // formato dele, então um nome ou um modelo de carro não teriam onde caber
+  // lá. Ela fica no nosso histórico, que é onde alguém vai procurar depois
+  // para saber de quem era aquele ticket.
+  //
+  // É pergunta de sim/não antes do texto livre porque a maior parte das
+  // validações não precisa disso, e obrigar todo mundo a digitar algo para
+  // validar um ticket seria pedágio.
+  if (hangar.perguntarIdentificacao) {
+    pendencias.registrar(msg.grupoId, msg.remetenteId, {
+      ticket: ocr.ticket,
+      placa: msg.placa || null,
+      placaEhGenerica: !msg.placa,
+      dataEmissaoIso: ocr.dataEmissaoIso,
+      hangarId: hangar.id,
+      tipo: 'quer_identificar',
+      hashTicket: fotosUsadas.impressaoDigital(imagem.base64),
+    });
+    return {
+      status: 'requer_decisao_identificacao',
+      hangarId: hangar.id,
+      grupoId: msg.grupoId,
+      ticket: ocr.ticket,
+      mensagemWhatsapp: `Recebi o ticket ${ocr.ticket}.\n\n`
+        + 'Você quer identificar esse ticket com nome de cliente, carro ou placa? Responda *SIM* ou *NÃO*.',
+      notificarAdmin: false,
+      responder: true,
+      etapa: 'decisao_identificacao',
+    };
+  }
+
   const comCota = perguntarCotaSePreciso(hangar, msg, {
     ticket: ocr.ticket,
     // A placa genérica precisa ser resolvida AQUI, não lá na frente. Era o bug
@@ -966,6 +1071,21 @@ async function conduzir(body, { aoReceber } = {}) {
       dataEmissaoIso: ocr.dataEmissaoIso,
     }, false),
   };
+}
+
+/**
+ * O que fazer depois de resolver a identificação: a cota, se houver, e então
+ * a validação. A placa genérica é aplicada AQUI, porque quem respondeu "não"
+ * nunca informou placa nenhuma e o ValidPark não aceita campo vazio.
+ */
+function seguirAposIdentificar(hangar, msg, pedido) {
+  if (!pedido.placa) {
+    pedido.placa = hangar.placaGenerica || 'AAA0000';
+    pedido.placaEhGenerica = true;
+  }
+  const comCota = perguntarCotaSePreciso(hangar, msg, pedido);
+  if (comCota) return comCota;
+  return validar(hangar, msg, pedido, false);
 }
 
 /**

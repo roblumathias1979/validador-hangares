@@ -48,6 +48,11 @@ child.execFileSync = (_cmd, args) => {
   throw new Error(`script inesperado no teste: ${arquivo}`);
 };
 
+const { montar } = require('./cenario');
+// O AIBM 1 exigindo foto é o caminho onde o bug de zona morta vivia. Sem
+// declarar, o teste ficaria à mercê da chave que estiver ligada no painel.
+montar({ hangares: { aibm: { exigeFotoVeiculoNoLocal: true } } });
+
 // O histórico é de PRODUÇÃO. Sem esta substituição, rodar o teste no servidor
 // grava tickets inventados em data/validacoes.jsonl — aconteceu em 16/09/2026,
 // e por alguns minutos o histórico do AIBM 1 mostrou um ticket que nunca
