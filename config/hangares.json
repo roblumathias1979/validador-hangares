@@ -536,7 +536,7 @@
       "id": "cimed-alljet",
       "hangar": "Cimed / Alljet",
       "grupoWhatsapp": "",
-      "grupoWhatsappId": "",
+      "grupoWhatsappId": "120363413451520538@g.us",
       "validadorUrl": "https://validpark.technext.com.br/login",
       "usuarioEnvVar": "CIMED_ALLJET_USUARIO",
       "senhaEnvVar": "CIMED_ALLJET_SENHA",
