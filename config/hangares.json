@@ -135,7 +135,7 @@
       },
       "placaGenerica": "AAA0000",
       "prazoValidacaoHoras": 2,
-      "exigeFotoVeiculoNoLocal": false,
+      "exigeFotoVeiculoNoLocal": true,
       "_observacao_fraude": "Pátio distinto de 'aibm' — CONFIRMADO pelo usuário (11/09/2026) que são dois pátios separados, não o mesmo hangar duplicado. Mesmo requisito do AIBM: exigir foto do veículo estacionado no local antes de validar. Ainda faltam: login/senha próprios, URL do validador e foto de referência da fachada.",
       "grupoAdministracao": "5511913119423@s.whatsapp.net",
       "_observacao_validador_compartilhado": "URL e seletores herdados do Solojet: CONFIRMADO pelo usuário (11/09/2026) que o ValidPark (validpark.technext.com.br) é o MESMO site para todos os pátios do aeroporto — só login/senha mudam por hangar. Os seletores foram copiados 1:1 dos do Solojet (mesma UI React/MUI); ainda não testados de verdade contra o login real deste hangar especificamente, então vale reconfirmar no primeiro teste real (pode haver pequenas diferenças de layout por pátio).",
