@@ -45,6 +45,7 @@ const RAIZ = path.join(__dirname, '..');
 require('dotenv').config({ path: path.join(RAIZ, '.env'), override: true });
 
 const CONFIG = path.join(RAIZ, 'config', 'hangares.json');
+const ENV = path.join(RAIZ, '.env');
 const PORTA = Number(process.env.PAINEL_PORTA) || 8081;
 const SENHA = process.env.PAINEL_SENHA || '';
 
@@ -68,6 +69,43 @@ const REGEX_PLACA = /^[A-Z]{3}(\d{4}|\d[A-Z]\d{2})$/;
 
 function lerConfig() {
   return JSON.parse(fs.readFileSync(CONFIG, 'utf-8'));
+}
+
+/**
+ * O .env como objeto, lido do disco a cada chamada.
+ *
+ * Serve para saber QUAIS variáveis existem. O painel nunca mostra valor de
+ * credencial, e é por isso que esta leitura fica pontual em vez de virar estado.
+ */
+function lerEnv() {
+  try {
+    const mapa = {};
+    for (const linha of fs.readFileSync(ENV, 'utf-8').split('\n')) {
+      const m = linha.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$/);
+      if (m) mapa[m[1]] = m[2].trim();
+    }
+    return mapa;
+  } catch (e) {
+    return {};
+  }
+}
+
+/**
+ * Acrescenta credenciais ao .env. NUNCA sobrescreve: se a variável já existe,
+ * recusa em vez de trocar por cima.
+ *
+ * Trocar a senha de um hangar em funcionamento pela tela de CRIAR hangar seria
+ * um acidente caro e silencioso — o pátio pararia de validar e o motivo estaria
+ * num arquivo que ninguém abre. Alterar credencial segue sendo trabalho de quem
+ * tem acesso ao servidor, de propósito.
+ */
+function acrescentarCredenciais(pares) {
+  const atual = lerEnv();
+  for (const [nome] of pares) {
+    if (atual[nome]) throw new Error(`${nome} já existe no .env — não vou sobrescrever. Altere no servidor.`);
+  }
+  fs.appendFileSync(ENV, `\n# ${new Date().toISOString().slice(0, 10)} — criado pelo painel\n`
+    + pares.map(([nome, valor]) => `${nome}=${valor}`).join('\n') + '\n');
 }
 
 function git(args) {
@@ -206,7 +244,11 @@ function montarEstado(usuario = null) {
     prazoValidacaoHoras: h.prazoValidacaoHoras ?? null,
     exigeFotoVeiculoNoLocal: h.exigeFotoVeiculoNoLocal === true,
     avisarVagasAbaixoDe: h.avisarVagasAbaixoDe ?? null,
-    temCredencial: Boolean(process.env[h.usuarioEnvVar]),
+    // Lido do ARQUIVO, não de process.env. O painel é um processo longo: ele
+    // carrega o .env ao subir e fica com aquela foto. Foi assim que o VOASP
+    // apareceu como "sem credencial" depois de as variáveis serem adicionadas
+    // (17/09/2026) — e é o que aconteceria com todo hangar criado por aqui.
+    temCredencial: Boolean(lerEnv()[h.usuarioEnvVar]),
     temAsaas: Boolean((h.asaas || {}).customerId),
     // Só os hangares com grupo cadastrado recebem mensagem; os demais são
     // recusados na entrada.
@@ -392,6 +434,73 @@ const servidor = http.createServer(async (req, res) => {
 
     if (req.method === 'GET' && url.pathname === '/api/estado') {
       json(res, 200, montarEstado(usuario));
+      return;
+    }
+
+    // Criar pátio. Até 17/09/2026 isso era edição de arquivo no servidor, e todo
+    // pátio novo passava por quem tem acesso SSH.
+    if (req.method === 'POST' && url.pathname === '/api/hangar-novo') {
+      const { id, nome, usuario, senha } = await lerCorpo(req);
+
+      // Minúsculas por gentileza: quem digita "Hangar-Aristek" quer o mesmo
+      // pátio que "hangar-aristek", e o formulário já sugere a forma certa.
+      const idLimpo = String(id || '').trim().toLowerCase();
+      // O id vira nome de pasta (data/referencias/<id>) e de variável de
+      // ambiente. A regra evita um id com barra escrevendo fora da pasta de
+      // dados, e um com ponto gerando uma variável que o shell não aceita.
+      if (!/^[a-z][a-z0-9-]{1,30}$/.test(idLimpo)) {
+        json(res, 400, { erro: 'Identificador deve começar com letra e ter de 2 a 31 caracteres: só letras, números e hífen.' });
+        return;
+      }
+      const nomeLimpo = String(nome || '').trim();
+      if (!nomeLimpo) { json(res, 400, { erro: 'Informe o nome do pátio.' }); return; }
+
+      const config = lerConfig();
+      if (config.hangares.some((h) => h.id === idLimpo)) {
+        json(res, 400, { erro: `Já existe um pátio com o identificador "${idLimpo}".` });
+        return;
+      }
+
+      const PREFIXO = idLimpo.toUpperCase().replace(/-/g, '_');
+      const usuarioEnvVar = `${PREFIXO}_USUARIO`;
+      const senhaEnvVar = `${PREFIXO}_SENHA`;
+
+      // Credenciais são opcionais: dá para cadastrar o pátio agora e receber o
+      // login depois. Sem elas o pátio nasce marcado "sem credencial".
+      const temLogin = Boolean(String(usuario || '').trim() && String(senha || '').trim());
+      if (temLogin) {
+        try {
+          acrescentarCredenciais([[usuarioEnvVar, String(usuario).trim()], [senhaEnvVar, String(senha).trim()]]);
+        } catch (e) { json(res, 400, { erro: e.message }); return; }
+      }
+
+      // URL, seletores e formato de ticket são idênticos em todos os hangares —
+      // o ValidPark é um site só. Copiar do config, e não de uma cópia no
+      // código, evita que os dois divirjam quando o site mudar.
+      const modelo = config.hangares[0];
+      config.hangares.push({
+        id: idLimpo,
+        hangar: nomeLimpo,
+        grupoWhatsapp: '',
+        grupoWhatsappId: '',
+        validadorUrl: modelo.validadorUrl,
+        usuarioEnvVar,
+        senhaEnvVar,
+        seletores: JSON.parse(JSON.stringify(modelo.seletores)),
+        formatoTicket: JSON.parse(JSON.stringify(modelo.formatoTicket)),
+        placaGenerica: 'AAA0000',
+        prazoValidacaoHoras: modelo.prazoValidacaoHoras,
+        // Herdado de quem já opera: sem destino de aviso, um problema que
+        // precisa de gente não chega a ninguém.
+        grupoAdministracao: (config.hangares.find((h) => (h.grupoAdministracao || '').trim()) || {}).grupoAdministracao || '',
+        cotaMensalForaPrazo: 2,
+        asaas: { customerId: '', cnpj: '', razaoSocial: '', email: '' },
+        diasValidacaoPadrao: modelo.diasValidacaoPadrao,
+        exigeFotoVeiculoNoLocal: false,
+      });
+
+      const r = salvarEComitar(config, `pátio "${nomeLimpo}" criado (${idLimpo})`);
+      json(res, 200, { ok: true, id: idLimpo, usuarioEnvVar, senhaEnvVar, credenciais: temLogin, ...r });
       return;
     }
 

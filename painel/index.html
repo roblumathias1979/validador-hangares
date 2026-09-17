@@ -41,7 +41,7 @@
   .corpo.aberto { display:block; }
   .campos { display:grid; grid-template-columns:repeat(auto-fit,minmax(215px,1fr)); gap:12px; margin:12px 0; }
   label { display:block; font-size:12px; color:var(--fraco); margin-bottom:3px; }
-  input[type=text], input[type=number], .campos select {
+  input[type=text], input[type=number], input[type=password], .campos select {
     width:100%; padding:7px 9px; border:1px solid var(--borda); border-radius:5px;
     background:var(--fundo); color:var(--texto); font:inherit; font-size:13px; }
   /* O seletor de grupo divide a grade com campos de texto; sem largura total
@@ -109,6 +109,37 @@
 
 <main>
   <div id="avisos"></div>
+  <div class="secao" id="sec-novo">
+    <h2>Criar pátio</h2>
+    <div class="sub">O login do ValidPark é opcional aqui — sem ele o pátio nasce marcado "sem credencial" e não valida até você informar.</div>
+    <div class="campos">
+      <div>
+        <label for="novo-nome">nome do pátio</label>
+        <input id="novo-nome" type="text" placeholder="Hangar Aristek" oninput="sugerirId()">
+        <div class="dica">Como vai aparecer nas mensagens e nos avisos.</div>
+      </div>
+      <div>
+        <label for="novo-id">identificador</label>
+        <input id="novo-id" type="text" placeholder="hangar-aristek" oninput="this.dataset.editado='sim'">
+        <div class="dica">Letras, números e hífen. Não muda depois — vira nome de pasta e de variável.</div>
+      </div>
+      <div>
+        <label for="novo-usuario">usuário do ValidPark</label>
+        <input id="novo-usuario" type="text" placeholder="BOT_ARISTEK" autocomplete="off">
+        <div class="dica">Opcional.</div>
+      </div>
+      <div>
+        <label for="novo-senha">senha do ValidPark</label>
+        <input id="novo-senha" type="password" autocomplete="new-password">
+        <div class="dica">Gravada no .env e nunca exibida de volta.</div>
+      </div>
+    </div>
+    <div style="margin-top:12px; display:flex; gap:8px; align-items:center;">
+      <button onclick="criarHangar(this)">Criar pátio</button>
+      <span class="msg" id="msg-novo"></span>
+    </div>
+  </div>
+
   <div id="lista"></div>
 
   <div class="secao">
@@ -354,6 +385,52 @@ async function atualizarGrupos(id, botao) {
     const msg = $(`#msg-${id}`);
     if (msg) { msg.className = 'msg erro'; msg.textContent = 'não consegui buscar os grupos: ' + e.message; }
   }
+}
+
+/**
+ * Sugere o identificador a partir do nome, e para de sugerir assim que alguém
+ * digita o seu. Acentos viram letras simples: o id vira nome de pasta e de
+ * variável de ambiente, e "Nações" precisa virar "nacoes", não "na-es".
+ */
+function sugerirId() {
+  const campoId = $('#novo-id');
+  if (campoId.dataset.editado === 'sim') return;
+  campoId.value = $('#novo-nome').value
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 31);
+}
+
+async function criarHangar(botao) {
+  const msg = $('#msg-novo');
+  const corpo = {
+    id: $('#novo-id').value,
+    nome: $('#novo-nome').value,
+    usuario: $('#novo-usuario').value,
+    senha: $('#novo-senha').value,
+  };
+  botao.disabled = true; msg.className = 'msg'; msg.textContent = 'criando…';
+  try {
+    const r = await fetch('/api/hangar-novo', {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(corpo),
+    });
+    const d = await r.json();
+    if (!r.ok) { msg.className = 'msg erro'; msg.textContent = d.erro || 'erro'; return; }
+
+    // A senha sai da tela assim que é aceita — não fica num campo de
+    // formulário esperando que alguém lembre de fechar a aba.
+    ['#novo-nome','#novo-id','#novo-usuario','#novo-senha'].forEach(x => { $(x).value = ''; });
+    $('#novo-id').dataset.editado = '';
+
+    msg.className = d.push && d.push.enviado ? 'msg ok' : 'msg aviso';
+    msg.textContent = `pátio criado (${d.commit})`
+      + (d.credenciais ? '' : ` — falta o login em ${d.usuarioEnvVar}/${d.senhaEnvVar}`)
+      + (d.push && d.push.enviado ? ' · enviado ao GitHub' : ' · ainda NÃO enviado ao GitHub');
+    await carregar();
+    const corpoNovo = document.querySelector(`.hangar[data-id="${d.id}"] .corpo`);
+    if (corpoNovo) { corpoNovo.classList.add('aberto'); corpoNovo.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+  } catch (e) {
+    msg.className = 'msg erro'; msg.textContent = 'falha de rede: ' + e.message;
+  } finally { botao.disabled = false; }
 }
 
 async function carregar() {
