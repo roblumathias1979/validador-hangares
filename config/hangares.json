@@ -106,7 +106,7 @@
       },
       "_observacao_patio": "CONFIRMADO pelo usuário e por medição em 16/09/2026: AIBM 1 e AIBM 2 são pátios SEPARADOS, com login próprio e capacidade própria — não compartilham vagas nem lista de tickets. Medido nos dois: AIBM 1 tem 12 vagas e AIBM 2 tem 41. Isso encerra a dúvida registrada no ESTADO-ATUAL.md, que dava como indefinido se o AIBM 2 tinha acesso próprio.",
       "_observacao_credencial": "A senha de BOT_AIBM estava truncada (5 caracteres) e o login falhava com 'Usúario ou senha incorretos'. Corrigida em 16/09/2026 e testada contra o site real: autentica, e o pátio responde 'AIBM | Total de vagas: 12'. Mais uma confirmação de que AIBM 1 e AIBM 2 são pátios distintos — 12 vagas contra 41.",
-      "perguntarIdentificacao": true
+      "perguntarIdentificacao": false
     },
     {
       "id": "aibm-2",
