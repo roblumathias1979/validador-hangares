@@ -51,7 +51,7 @@
   button:disabled { opacity:.5; cursor:default; }
   button.sec { background:transparent; color:var(--acento); }
   .msg { margin-top:9px; font-size:13px; }
-  .msg.ok { color:var(--ok); } .msg.erro { color:var(--erro); }
+  .msg.ok { color:var(--ok); } .msg.erro { color:var(--erro); } .msg.aviso { color:var(--alerta); }
   .somente-leitura { font-size:12px; color:var(--fraco); border-top:1px solid var(--borda);
                      padding-top:9px; margin-top:4px; }
   code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; }
@@ -264,6 +264,22 @@ function desenhar() {
       </div>
     </div>`;
   }).join('');
+
+  // Preenche a área de fotos de referência de quem exige foto do local.
+  //
+  // Sem isto ela era desenhada VISÍVEL e VAZIA: nem lista, nem botão de envio,
+  // nem aviso. Só aparecia ao mexer na caixinha, porque `carregarReferencias`
+  // era chamada apenas no onchange dela. Quem abria o painel com a opção já
+  // ligada via um espaço em branco e concluía que estava quebrado — foi o que
+  // aconteceu em 17/09/2026, e explica por que AIBM 1 e 2 nunca tiveram foto
+  // de referência: a tela de envio era inalcançável sem desligar e religar a
+  // opção.
+  //
+  // Sem await de propósito: são chamadas independentes, e uma que falhe não
+  // pode impedir o resto do painel de aparecer.
+  estado.hangares
+    .filter(h => h.exigeFotoVeiculoNoLocal)
+    .forEach(h => { carregarReferencias(h.id).catch(() => {}); });
 }
 
 async function carregar() {
@@ -290,7 +306,12 @@ async function salvar(id, botao) {
     else if (d.semMudanca) { msg.className = 'msg'; msg.textContent = 'nada mudou'; }
     else {
       msg.className = 'msg ok';
-      msg.textContent = `salvo e commitado (${d.commit}) — ${d.aplicadas.length} campo(s)`;
+      // Diz se foi ao GitHub. O commit local já vale para produção, então uma
+      // falha de push é aviso, não erro — mas precisa aparecer, senão o
+      // acúmulo só é descoberto quando atrapalha um deploy.
+      msg.className = d.push && d.push.enviado ? 'msg ok' : 'msg aviso';
+      msg.textContent = `salvo (${d.commit}) — ${d.aplicadas.length} campo(s)`
+        + (d.push && d.push.enviado ? ' · enviado ao GitHub' : ' · ainda NÃO enviado ao GitHub');
       await carregar();
       // redesenhar fecha os painéis; reabre o que estava sendo editado
       document.querySelector(`.hangar[data-id="${id}"] .corpo`).classList.add('aberto');

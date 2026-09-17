@@ -95,7 +95,28 @@ function salvarEComitar(config, resumo) {
       '-c', 'user.email=painel@validador.local',
       'commit', '-m', `Painel: ${resumo}`,
     ]);
-    return { commitado: true, commit: git(['rev-parse', '--short', 'HEAD']) };
+    const commit = git(['rev-parse', '--short', 'HEAD']);
+
+    // Empurra para o GitHub, mas SEM deixar a falha derrubar a alteração.
+    //
+    // O commit local é o que vale para produção — o bot lê o arquivo, não o
+    // GitHub. O push é backup e sincronia com quem trabalha fora do servidor.
+    // Se ele falhar (rede fora, chave não autorizada, divergência), desfazer a
+    // alteração seria trocar um problema pequeno por um grande: o operador
+    // mexeu no painel e a mudança precisa valer.
+    //
+    // Até 17/09/2026 não havia push nenhum, e os commits do painel iam se
+    // acumulando no servidor — quatro deles ficaram só lá, e um deploy meu
+    // esbarrou em branches divergentes.
+    let push = { enviado: false, motivo: 'sem tentativa' };
+    try {
+      git(['push', 'origin', 'HEAD:main']);
+      push = { enviado: true };
+    } catch (e) {
+      push = { enviado: false, motivo: String(e.message || e).slice(0, 200) };
+    }
+
+    return { commitado: true, commit, push };
   } catch (erro) {
     // Falhou o commit: desfaz a escrita para o arquivo não ficar divergindo do
     // git em silêncio, que é justamente o que queremos evitar.
