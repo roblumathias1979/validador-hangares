@@ -335,7 +335,9 @@ async function processar(body, opcoes = {}) {
       // na linha seguinte seria dizer duas vezes a mesma coisa.
       if (!aviso && resultado.mensagemWhatsapp && resultado.status === 'validado') {
         resultado.mensagemWhatsapp += avisoPatio.notaParaCliente(
-          resultado.vagasDisponiveis, avisoPatio.limiteDe({ ...hangarAviso, totalVagas: resultado.totalVagas })
+          resultado.vagasDisponiveis,
+          avisoPatio.limiteDe({ ...hangarAviso, totalVagas: resultado.totalVagas }),
+          hangarAviso
         );
       }
     } catch (e) { /* aviso é acessório: nunca pode derrubar a resposta */ }

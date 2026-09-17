@@ -65,6 +65,15 @@ try {
   fs.writeFileSync(ARQUIVO, JSON.stringify(estado));
   conferir('passadas 3h, reavisa', (aviso.avaliar(h('t7'), 3, 40) || {}).acao === 'quase_cheio');
 
+  console.log('\nPátio com o aviso desligado não recebe nada');
+  const MUDO = { id: 't9', hangar: 't9', avisarPatioCheio: false };
+  conferir('quase cheio não avisa', aviso.avaliar(MUDO, 2, 6) === null);
+  conferir('lotado também não avisa', aviso.avaliar(MUDO, 0, 6) === null);
+  conferir('vagas negativas também não', aviso.avaliar(MUDO, -1, 6) === null);
+  conferir('nem deixa nota na confirmação', aviso.notaParaCliente(2, 5, MUDO) === '');
+  conferir('mas continua avisando quem NÃO desligou',
+    (aviso.avaliar({ id: 't10' }, 2, 6) || {}).acao === 'quase_cheio');
+
   console.log('\nSimulação não grava');
   const antesSim = fs.readFileSync(ARQUIVO, 'utf-8');
   aviso.avaliar(h('t8'), 1, 40, { persistir: false });

@@ -341,6 +341,10 @@ function desenhar() {
           <label for="${h.id}-foto" style="margin:0">Exige foto do veículo no local (antifraude)</label>
         </div>
         <div class="linha-check">
+          <input type="checkbox" id="${h.id}-avisa" data-campo="avisarPatioCheio" ${h.avisarPatioCheio?'checked':''}>
+          <label for="${h.id}-avisa" style="margin:0">Avisa o grupo quando o pátio está enchendo</label>
+        </div>
+        <div class="linha-check">
           <input type="checkbox" id="${h.id}-ident" data-campo="perguntarIdentificacao" ${h.perguntarIdentificacao?'checked':''}>
           <label for="${h.id}-ident" style="margin:0">Pergunta se quer identificar o ticket (nome, carro ou placa)</label>
         </div>

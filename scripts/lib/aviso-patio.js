@@ -68,6 +68,17 @@ function limiteDe(hangar) {
 function avaliar(hangar, disponiveis, total = null, { persistir = true } = {}) {
   if (!Number.isFinite(disponiveis)) return null;
 
+  // Pátio com o aviso desligado não recebe nada — nem "quase cheio" nem
+  // "lotado". Existe para os pátios PEQUENOS: com 2 ou 6 vagas no total,
+  // qualquer limite deixa o alerta ligado quase sempre, e um aviso que toca
+  // todo dia deixa de ser aviso (Aerie e EPEAC, 17/09/2026).
+  //
+  // O cliente continua sendo avisado quando o pátio lota DE VERDADE: a recusa
+  // por falta de vaga vive em validate-ticket.js e não passa por aqui. O que se
+  // desliga é o alerta preventivo ao grupo, não a informação que impede alguém
+  // de esperar por uma validação que não vai sair.
+  if (hangar.avisarPatioCheio === false) return null;
+
   const limite = limiteDe({ ...hangar, totalVagas: total ?? hangar.totalVagas });
   const baixo = disponiveis <= limite;
 
@@ -131,7 +142,8 @@ function mensagemAdmin(aviso) {
  * Frase acrescentada à resposta do cliente. Só quando está baixo e ainda há
  * vaga — se lotou, a mensagem de recusa já explica tudo e repetir confundiria.
  */
-function notaParaCliente(disponiveis, limite) {
+function notaParaCliente(disponiveis, limite, hangar = null) {
+  if (hangar && hangar.avisarPatioCheio === false) return '';
   if (!Number.isFinite(disponiveis) || disponiveis > limite || disponiveis <= 0) return '';
   return `\n\n⚠️ Atenção: restam apenas ${disponiveis} vaga(s) no pátio.`;
 }

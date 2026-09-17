@@ -456,7 +456,8 @@
         "email": ""
       },
       "diasValidacaoPadrao": 20,
-      "exigeFotoVeiculoNoLocal": false
+      "exigeFotoVeiculoNoLocal": false,
+      "avisarPatioCheio": false
     },
     {
       "id": "dux-express",
@@ -713,7 +714,8 @@
       },
       "diasValidacaoPadrao": 20,
       "exigeFotoVeiculoNoLocal": false,
-      "avisarVagasAbaixoDe": 2
+      "avisarVagasAbaixoDe": 2,
+      "avisarPatioCheio": false
     },
     {
       "id": "voasp",
