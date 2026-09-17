@@ -47,6 +47,9 @@
   /* O seletor de grupo divide a grade com campos de texto; sem largura total
      ele encolhe para o tamanho da opção mais curta e a linha fica torta. */
   .campos select { max-width:100%; }
+  .linha-grupo { display:flex; gap:6px; align-items:stretch; }
+  .linha-grupo select { flex:1; min-width:0; }
+  .atualizar { padding:0 10px; font-size:15px; line-height:1; }
   .dica { font-size:11px; color:var(--fraco); margin-top:3px; }
   .linha-check { display:flex; align-items:center; gap:7px; font-size:13px; }
   button { padding:7px 14px; border-radius:5px; border:1px solid var(--acento);
@@ -256,7 +259,11 @@ function desenhar() {
       }
       return `<div>
         <label for="${h.id}-grupoWhatsappId">grupo do WhatsApp</label>
-        <select id="${h.id}-grupoWhatsappId" data-campo="grupoWhatsappId">${opcoes.join('')}</select>
+        <div class="linha-grupo">
+          <select id="${h.id}-grupoWhatsappId" data-campo="grupoWhatsappId">${opcoes.join('')}</select>
+          <button type="button" class="sec atualizar" title="Buscar grupos criados agora no WhatsApp"
+                  onclick="atualizarGrupos('${h.id}', this)">↻</button>
+        </div>
         <div class="dica">${DICAS.grupoWhatsappId}</div>
       </div>`;
     };
@@ -319,6 +326,34 @@ function desenhar() {
   estado.hangares
     .filter(h => h.exigeFotoVeiculoNoLocal)
     .forEach(h => { carregarReferencias(h.id).catch(() => {}); });
+}
+
+/**
+ * Rebusca os grupos sem recarregar a página inteira.
+ *
+ * A lista é lida uma vez, ao abrir o painel. Quem cria o grupo no WhatsApp e
+ * volta aqui não o encontra — precisava dar F5, e é fácil concluir que o
+ * seletor está quebrado. O botão existe para esse momento, que é justamente o
+ * de cadastrar um hangar novo.
+ *
+ * Redesenhar fecha os cartões, então o que estava aberto é reaberto — senão o
+ * clique parece ter jogado a pessoa para fora do que ela estava editando.
+ */
+async function atualizarGrupos(id, botao) {
+  const antes = botao.textContent;
+  botao.disabled = true; botao.textContent = '…';
+  try {
+    const g = await (await fetch('/api/grupos')).json();
+    grupos = g.grupos;
+    erroGrupos = g.erro || null;
+    desenhar();
+    const corpo = document.querySelector(`.hangar[data-id="${id}"] .corpo`);
+    if (corpo) corpo.classList.add('aberto');
+  } catch (e) {
+    botao.disabled = false; botao.textContent = antes;
+    const msg = $(`#msg-${id}`);
+    if (msg) { msg.className = 'msg erro'; msg.textContent = 'não consegui buscar os grupos: ' + e.message; }
+  }
 }
 
 async function carregar() {
