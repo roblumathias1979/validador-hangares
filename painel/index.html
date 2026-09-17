@@ -18,7 +18,11 @@
   body { margin:0; background:var(--fundo); color:var(--texto);
          font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
   header { padding:18px 20px; border-bottom:1px solid var(--borda); background:var(--cartao); }
-  h1 { margin:0 0 6px; font-size:17px; }
+  .marca { display:flex; align-items:center; gap:14px; margin-bottom:6px; flex-wrap:wrap; }
+  /* Altura fixa e largura automática: o logo é 320x93 para ficar nítido em tela
+     retina, e aqui aparece pela metade disso. */
+  .marca img { height:34px; width:auto; display:block; }
+  h1 { margin:0; font-size:17px; }
   .resumo { color:var(--fraco); font-size:13px; }
   .resumo b { color:var(--texto); }
   main { padding:16px; max-width:1100px; margin:0 auto; }
@@ -107,7 +111,10 @@
 </head>
 <body>
 <header>
-  <h1>Painel do Validador — hangares SBJD</h1>
+  <div class="marca">
+    <img src="/logo-1park.png" alt="#1Park" width="160" height="46">
+    <h1>Painel do Validador — hangares SBJD</h1>
+  </div>
   <div class="resumo" id="resumo">carregando…</div>
 </header>
 

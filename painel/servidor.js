@@ -364,6 +364,24 @@ const servidor = http.createServer(async (req, res) => {
       return;
     }
 
+    // Logo. Arquivo servido em vez de embutido em base64 no HTML: são 23 KB
+    // que o navegador guarda em cache, contra 31 KB re-enviados a cada
+    // carregamento da página — e o painel recarrega a cada salvar.
+    //
+    // Caminho fixo, sem parâmetro: não há como pedir outro arquivo por aqui.
+    if (req.method === 'GET' && url.pathname === '/logo-1park.png') {
+      const arquivo = path.join(__dirname, 'logo-1park.png');
+      if (!fs.existsSync(arquivo)) { json(res, 404, { erro: 'Logo não encontrado.' }); return; }
+      const dados = fs.readFileSync(arquivo);
+      res.writeHead(200, {
+        'Content-Type': 'image/png',
+        'Content-Length': dados.length,
+        'Cache-Control': 'public, max-age=86400',
+      });
+      res.end(dados);
+      return;
+    }
+
     if (url.pathname.startsWith('/api/referencias/')) {
       const partes = url.pathname.slice('/api/referencias/'.length).split('/');
       const hangarId = decodeURIComponent(partes[0] || '');
