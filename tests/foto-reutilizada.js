@@ -28,19 +28,38 @@ const REMETENTE = '5511999999999@s.whatsapp.net';
 const FOTO = Buffer.from('foto-do-carro-de-teste').toString('base64');
 
 // --- guarda o estado real -------------------------------------------------
-const ARQUIVOS = ['data/fotos-usadas.json', 'data/pendencias.json', 'data/validacoes.jsonl'];
+// config/hangares.json entra na lista porque o teste PRECISA que o AIBM 1
+// exija foto do veículo, e esse campo é uma chave que o painel liga e desliga.
+// Em 17/09/2026 ele foi desligado em produção e o teste quebrou inteiro — um
+// teste da regra não pode depender de uma decisão operacional que muda no
+// painel. Agora ele monta o cenário de que precisa e devolve tudo no fim.
+const ARQUIVOS = ['config/hangares.json', 'data/fotos-usadas.json', 'data/pendencias.json', 'data/validacoes.jsonl'];
 const guardado = {};
 for (const a of ARQUIVOS) {
   const p = path.join(RAIZ, a);
   guardado[a] = fs.existsSync(p) ? fs.readFileSync(p, 'utf-8') : null;
 }
+let restaurado = false;
 const restaurar = () => {
+  if (restaurado) return;
+  restaurado = true;
   for (const a of ARQUIVOS) {
     const p = path.join(RAIZ, a);
     if (guardado[a] === null) { try { fs.unlinkSync(p); } catch (e) { /* já não existe */ } }
     else fs.writeFileSync(p, guardado[a]);
   }
 };
+// Rede de segurança: config é versionado, não pode ficar sujo se algo derrubar
+// o processo no meio.
+process.on('exit', restaurar);
+process.on('uncaughtException', (e) => { restaurar(); console.error(e); process.exit(1); });
+
+// Liga a exigência de foto no AIBM 1 só para este teste.
+{
+  const cfg = JSON.parse(guardado['config/hangares.json']);
+  cfg.hangares.find((h) => h.id === 'aibm').exigeFotoVeiculoNoLocal = true;
+  fs.writeFileSync(path.join(RAIZ, 'config/hangares.json'), JSON.stringify(cfg, null, 2) + '\n');
+}
 
 // --- substituições --------------------------------------------------------
 // processar-mensagem.js captura `execFileSync` por desestruturação ao ser
@@ -110,6 +129,7 @@ const conferir = (nome, ok, detalhe) => {
 async function main() {
   fs.writeFileSync(path.join(RAIZ, 'data/fotos-usadas.json'), '{}');
   fs.writeFileSync(path.join(RAIZ, 'data/pendencias.json'), '{}');
+  fs.writeFileSync(path.join(RAIZ, 'data/validacoes.jsonl'), '');
 
   console.log('Primeira vez: foto nova valida normalmente');
   pendenciaDeFoto('011609000001');
