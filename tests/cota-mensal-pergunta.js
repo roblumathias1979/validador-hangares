@@ -44,10 +44,15 @@ const restaurar = () => {
 process.on('exit', restaurar);
 process.on('uncaughtException', (e) => { restaurar(); console.error(e); process.exit(1); });
 
-// Dá um grupo ao VOASP só para este teste.
+// Monta o cenário deste teste: VOASP com grupo e com cota, mas SEM placa
+// obrigatória — essa regra tem teste próprio (tests/placa-obrigatoria.js), e
+// misturá-la aqui faria este teste falhar por um motivo que não é o dele.
 {
   const cfg = JSON.parse(guardado['config/hangares.json']);
-  cfg.hangares.find((h) => h.id === 'voasp').grupoWhatsappId = GRUPO_VOASP;
+  const v = cfg.hangares.find((h) => h.id === 'voasp');
+  v.grupoWhatsappId = GRUPO_VOASP;
+  v.cotaMensalValidacoes = 20;
+  v.placaObrigatoria = false;
   fs.writeFileSync(path.join(RAIZ, 'config/hangares.json'), JSON.stringify(cfg, null, 2) + '\n');
 }
 

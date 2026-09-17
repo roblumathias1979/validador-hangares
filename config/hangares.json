@@ -738,7 +738,9 @@
       "exigeFotoVeiculoNoLocal": false,
       "_observacao_cadastro": "Criado em 16/09/2026 a pedido do usuario. Faltam, para entrar em operacao: a senha em VOASP_SENHA no .env do servidor e o grupo do WhatsApp em grupoWhatsappId. Ate la o hangar fica invisivel para o bot — buscarHangarPorGrupo so considera hangares com grupoWhatsappId preenchido, entao um cadastro incompleto nao atrapalha nada.",
       "cotaMensalValidacoes": 20,
-      "_observacao_cota": "Regra comercial confirmada pelo usuario em 16/09/2026: o VOASP pode validar 20 tickets por mes. A renovacao e automatica porque a contagem e por mes de calendario (horario de Sao Paulo) sobre o proprio historico — nao existe contador a zerar. Ausencia deste campo significa SEM TETO, que e o caso dos outros 15 hangares."
+      "_observacao_cota": "Regra comercial confirmada pelo usuario em 16/09/2026: o VOASP pode validar 20 tickets por mes. A renovacao e automatica porque a contagem e por mes de calendario (horario de Sao Paulo) sobre o proprio historico — nao existe contador a zerar. Ausencia deste campo significa SEM TETO, que e o caso dos outros 15 hangares.",
+      "placaObrigatoria": true,
+      "_observacao_placa": "O ValidPark recusa a validacao do VOASP sem placa real — devolve \"OPS: Digite a placa do veiculo corretamente\". A placa generica AAA0000, que serve nos demais patios, nao serve aqui. Confirmado em 17/09/2026 no primeiro teste real."
     }
   ],
   "_observacao_faturamento": "Cota de validações fora do prazo (cotaMensalForaPrazo, padrão 5/mês por hangar) e dados do Asaas (asaas.customerId ou asaas.cnpj+razaoSocial+email para criar o cliente automaticamente) usados por scripts/lib/cota-fora-prazo.js e scripts/lib/asaas.js quando um ticket fica fora do prazo de validação (ver docs/perguntas-abertas.md, seção sobre faturamento, adicionada em 11/09/2026)."

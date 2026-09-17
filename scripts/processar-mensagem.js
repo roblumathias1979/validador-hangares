@@ -31,7 +31,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env'), override: t
 
 const { carregarConfig, buscarHangarPorGrupo } = require('./lib/hangar');
 const { comTravaAsync } = require('./lib/trava-arquivo');
-const { interpretarMensagem } = require('./lib/whatsapp');
+const { interpretarMensagem, extrairPlaca } = require('./lib/whatsapp');
 const { avaliarLocal } = require('./lib/conferir-local');
 const pendencias = require('./lib/pendencias');
 const registro = require('./lib/registro');
@@ -417,6 +417,50 @@ async function conduzir(body, { aoReceber } = {}) {
       return { status: 'ignorado', motivo: 'texto sem pendência para esta pessoa', grupoId: msg.grupoId, responder: false };
     }
 
+    // Pendência de placa: o texto É a placa.
+    if (pendente.tipo === 'informar_placa') {
+      const placaLida = extrairPlaca(msg.texto);
+      if (!placaLida) {
+        return {
+          status: 'placa_nao_entendida', hangarId: hangar.id, grupoId: msg.grupoId, ticket: pendente.ticket,
+          mensagemWhatsapp: `Não consegui ler uma placa em "${(msg.texto || '').slice(0, 30)}". `
+            + 'Mande só a placa, no formato ABC1D23 ou ABC1234.',
+          notificarAdmin: false, responder: true, etapa: 'pedido_placa',
+        };
+      }
+      const pedido = pendencias.consumir(msg.grupoId, msg.remetenteId);
+      if (!pedido) {
+        return { status: 'ignorado', motivo: 'pendência já consumida por outra mensagem', grupoId: msg.grupoId, responder: false };
+      }
+      pedido.placa = placaLida;
+      pedido.placaEhGenerica = false;
+
+      const comCota = perguntarCotaSePreciso(hangar, msg, pedido);
+      if (comCota) return comCota;
+      return validar(hangar, msg, pedido, false);
+    }
+
+    // Placa digitada quando a pergunta em aberto era outra.
+    //
+    // Aconteceu no primeiro teste do VOASP (17/09/2026): o cliente mandou o
+    // ticket, o bot perguntou da cota, e a placa veio em seguida como mensagem
+    // separada. Ela caiu no "não entendi", e a validação seguiu sem placa.
+    // Guardar a placa e repetir a pergunta aproveita o que a pessoa quis dizer,
+    // em vez de descartar e pedir de novo.
+    if (msg.resposta === null && pendente.tipo !== 'foto_local') {
+      const placaLida = extrairPlaca(msg.texto);
+      if (placaLida && placaLida !== pendente.placa) {
+        pendencias.registrar(msg.grupoId, msg.remetenteId, { ...pendente, placa: placaLida, placaEhGenerica: false });
+        return {
+          status: 'placa_anotada', hangarId: hangar.id, grupoId: msg.grupoId,
+          ticket: pendente.ticket, placa: placaLida,
+          mensagemWhatsapp: `Anotei a placa *${placaLida}* para o ticket ${pendente.ticket}.\n\n`
+            + 'Confirma a validação? Responda *SIM* ou *NÃO*.',
+          notificarAdmin: false, responder: true, etapa: 'resposta',
+        };
+      }
+    }
+
     // Pendência de foto não se responde com texto: reforça o que falta em vez
     // de tratar "sim" como resposta a uma pergunta que não foi feita.
     if (pendente.tipo === 'foto_local') {
@@ -789,6 +833,38 @@ async function conduzir(body, { aoReceber } = {}) {
     };
   }
 
+  // Placa obrigatória: pede antes de seguir.
+  //
+  // Nos demais hangares uma placa ausente vira a genérica `AAA0000`, e o
+  // ValidPark aceita. No VOASP não aceita — ele recusa com "Digite a placa do
+  // veiculo corretamente", e o cliente ouvia um erro de sistema por uma
+  // informação que ninguém tinha pedido (17/09/2026).
+  //
+  // Vem depois das checagens baratas de propósito: não faz sentido pedir a
+  // placa de um ticket que já está fora do prazo ou já foi validado.
+  if (hangar.placaObrigatoria && !msg.placa) {
+    pendencias.registrar(msg.grupoId, msg.remetenteId, {
+      ticket: ocr.ticket,
+      placa: null,
+      placaEhGenerica: false,
+      dataEmissaoIso: ocr.dataEmissaoIso,
+      hangarId: hangar.id,
+      tipo: 'informar_placa',
+      hashTicket: fotosUsadas.impressaoDigital(imagem.base64),
+    });
+    return {
+      status: 'aguardando_placa',
+      hangarId: hangar.id,
+      grupoId: msg.grupoId,
+      ticket: ocr.ticket,
+      mensagemWhatsapp: `Recebi o ticket ${ocr.ticket}. Neste pátio a *placa do veículo* é obrigatória.\n\n`
+        + 'Qual é a placa? (ex.: ABC1D23)',
+      notificarAdmin: false,
+      responder: true,
+      etapa: 'pedido_placa',
+    };
+  }
+
   // Cota mensal disponível: PERGUNTA antes de gastar.
   //
   // Pedido do usuário em 16/09/2026. A cota é do hangar, não do bot: cada
@@ -798,30 +874,15 @@ async function conduzir(body, { aoReceber } = {}) {
   //
   // Mesma mecânica da cota fora do prazo, para o cliente encontrar o
   // comportamento que já conhece: pergunta, guarda o pedido, e só age no SIM.
-  if (cota.temCota) {
-    pendencias.registrar(msg.grupoId, msg.remetenteId, {
-      ticket: ocr.ticket,
-      placa: msg.placa || null,
-      placaEhGenerica: !msg.placa,
-      dataEmissaoIso: ocr.dataEmissaoIso,
-      hangarId: hangar.id,
-      tipo: 'usar_cota_mensal',
-      hashTicket: fotosUsadas.impressaoDigital(imagem.base64),
-    });
-    return {
-      status: 'requer_decisao_cota_mensal',
-      hangarId: hangar.id,
-      grupoId: msg.grupoId,
-      ticket: ocr.ticket,
-      cotaLimite: cota.limite,
-      cotaRestantes: cota.restantes,
-      mensagemWhatsapp: `Recebi o ticket ${ocr.ticket}. Validar vai usar *1 das ${cota.limite} validações do mês* `
-        + `deste pátio — restam ${cota.restantes}.\n\nPosso validar? Responda *SIM* ou *NÃO*.`,
-      notificarAdmin: false,
-      responder: true,
-      etapa: 'decisao_cota_mensal',
-    };
-  }
+  const comCota = perguntarCotaSePreciso(hangar, msg, {
+    ticket: ocr.ticket,
+    placa: msg.placa || null,
+    placaEhGenerica: !msg.placa,
+    dataEmissaoIso: ocr.dataEmissaoIso,
+    hangarId: hangar.id,
+    hashTicket: fotosUsadas.impressaoDigital(imagem.base64),
+  });
+  if (comCota) return comCota;
 
   // Hangar antifraude: CONSULTA primeiro, pede a foto depois.
   //
@@ -954,6 +1015,37 @@ async function conduzir(body, { aoReceber } = {}) {
       placaEhGenerica: !msg.placa,
       dataEmissaoIso: ocr.dataEmissaoIso,
     }, false),
+  };
+}
+
+/**
+ * Se o hangar tem cota mensal, guarda o pedido e devolve a pergunta. Devolve
+ * null quando não há cota — e aí quem chamou segue o fluxo normal.
+ *
+ * Extraída para servir aos DOIS caminhos que chegam aqui: o ticket recém-lido,
+ * e o ticket que estava esperando a placa. Deixar a pergunta só no primeiro
+ * fazia um hangar com placa obrigatória E cota validar sem perguntar nada.
+ */
+function perguntarCotaSePreciso(hangar, msg, pedido) {
+  const cota = cotaMensal.situacao(hangar);
+  if (!cota.temCota) return null;
+
+  pendencias.registrar(msg.grupoId, msg.remetenteId, { ...pedido, tipo: 'usar_cota_mensal' });
+  return {
+    status: 'requer_decisao_cota_mensal',
+    hangarId: hangar.id,
+    grupoId: msg.grupoId,
+    ticket: pedido.ticket,
+    placa: pedido.placa,
+    cotaLimite: cota.limite,
+    cotaRestantes: cota.restantes,
+    mensagemWhatsapp: `Recebi o ticket ${pedido.ticket}`
+      + `${pedido.placa ? `, placa ${pedido.placa}` : ''}. `
+      + `Validar vai usar *1 das ${cota.limite} validações do mês* deste pátio — restam ${cota.restantes}.`
+      + '\n\nPosso validar? Responda *SIM* ou *NÃO*.',
+    notificarAdmin: false,
+    responder: true,
+    etapa: 'decisao_cota_mensal',
   };
 }
 
