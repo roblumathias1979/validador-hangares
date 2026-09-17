@@ -714,7 +714,8 @@
       },
       "diasValidacaoPadrao": 20,
       "exigeFotoVeiculoNoLocal": false,
-      "avisarVagasAbaixoDe": 2,
+      "avisarVagasAbaixoDe": null,
+      "perguntarIdentificacao": false,
       "avisarPatioCheio": false
     },
     {
