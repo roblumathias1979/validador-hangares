@@ -395,6 +395,47 @@ async function conduzir(body, { aoReceber } = {}) {
   // Vem ANTES das pendências: quem tem um ticket em aberto também pode querer
   // saber das vagas, e responder "ainda preciso da foto" a uma pergunta sobre
   // o pátio seria ignorar o que foi perguntado.
+  // "O ticket do João foi validado?" — busca no histórico DESTE pátio.
+  //
+  // Vem antes do pátio e das pendências: é pergunta, não resposta, e tratá-la
+  // como um "sim" solto seria gastar cota por causa de uma dúvida.
+  if (msg.tipo === 'texto' && msg.consultaValidacao) {
+    const termo = msg.consultaValidacao.termo;
+    if (!termo) {
+      return {
+        status: 'consulta_sem_termo', hangarId: hangar.id, grupoId: msg.grupoId,
+        mensagemWhatsapp: 'Posso verificar — me diga o que procurar: o *nome*, a *placa* ou o *número do ticket*.',
+        notificarAdmin: false, responder: true, etapa: 'consulta_validacao',
+      };
+    }
+
+    const achados = registro.procurar(hangar.id, termo);
+    const validados = achados.filter((a) => a.status === 'validado');
+
+    let texto;
+    if (!achados.length) {
+      texto = `Não encontrei nada com *${termo}* no histórico deste pátio.\n\n`
+        + `_O histórico guarda ${registro.RETENCAO_DIAS} dias e só o que passou por aqui — validação feita à mão no site não aparece._`;
+    } else if (!validados.length) {
+      // Achou o ticket, mas ele não chegou a validar. Dizer "não foi validado"
+      // e parar deixaria a pessoa sem saber o que houve.
+      const u = achados[0];
+      texto = `Encontrei *${termo}*, mas **não** foi validado.\n\n`
+        + `Última tentativa: ${quandoLegivel(u.em)} — situação: ${u.status}.`;
+    } else {
+      texto = `✅ Sim, ${validados.length === 1 ? 'foi validado' : `foram ${validados.length} validações`}:\n\n`
+        + validados.map((v) => `• ${quandoLegivel(v.em)} — ticket ${v.ticket || '—'}`
+          + `${v.placa && !v.placaEhGenerica ? `, placa ${v.placa}` : ''}`
+          + `${v.identificacao ? ` (${v.identificacao})` : ''}`).join('\n');
+    }
+
+    return {
+      status: 'consulta_validacao', hangarId: hangar.id, grupoId: msg.grupoId,
+      termo, encontrados: achados.length, validados: validados.length,
+      mensagemWhatsapp: texto, notificarAdmin: false, responder: true, etapa: 'consulta_validacao',
+    };
+  }
+
   if (msg.tipo === 'texto' && msg.pedidoPatio) {
     if (aoReceber) {
       try { await aoReceber(msg.grupoId, '🔎 Consultando o pátio...'); } catch (e) { /* aviso é conforto */ }
@@ -1084,6 +1125,15 @@ async function conduzir(body, { aoReceber } = {}) {
       dataEmissaoIso: ocr.dataEmissaoIso,
     }, false),
   };
+}
+
+/** Data e hora em horário de São Paulo, para ler no WhatsApp. */
+function quandoLegivel(iso) {
+  try {
+    return new Date(iso).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' });
+  } catch (e) {
+    return iso;
+  }
 }
 
 /**

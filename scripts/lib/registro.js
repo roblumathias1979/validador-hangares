@@ -23,6 +23,7 @@
 const fs = require('fs');
 const path = require('path');
 const { comTrava } = require('./trava-arquivo');
+const { normalizar } = require('./whatsapp');
 
 const ARQUIVO = path.join(__dirname, '..', '..', 'data', 'validacoes.jsonl');
 
@@ -136,6 +137,28 @@ function jaValidado(ticket) {
   return null;
 }
 
+/**
+ * Procura no histórico daquele hangar por ticket, placa ou identificação.
+ *
+ * Só o hangar de quem perguntou, sempre. Quem está no grupo do Solojet não
+ * pode descobrir a placa de um cliente do AIBM porque digitou o nome certo —
+ * é a mesma regra do status do pátio, e aqui pesa mais, porque estes dados
+ * trazem nome de pessoa.
+ *
+ * Busca por trecho, sem acento e sem diferenciar maiúsculas: quem digita
+ * "joao" precisa encontrar "João da Silva". Devolve do mais recente para o
+ * mais antigo, que é a ordem em que a resposta interessa.
+ */
+function procurar(hangarId, termo, limite = 5) {
+  const alvo = normalizar(termo);
+  if (!hangarId || !alvo) return [];
+  return lerLinhas()
+    .filter((l) => l.hangarId === hangarId)
+    .filter((l) => [l.ticket, l.placa, l.identificacao].some((campo) => normalizar(campo).includes(alvo)))
+    .slice(-limite)
+    .reverse();
+}
+
 function resumoPorHangar() {
   const resumo = {};
   for (const l of lerLinhas()) {
@@ -167,4 +190,4 @@ function expurgar() {
   });
 }
 
-module.exports = { registrar, ultimos, jaValidado, resumoPorHangar, expurgar, valeRegistrar, ARQUIVO, RETENCAO_DIAS };
+module.exports = { registrar, ultimos, jaValidado, procurar, resumoPorHangar, expurgar, valeRegistrar, ARQUIVO, RETENCAO_DIAS };

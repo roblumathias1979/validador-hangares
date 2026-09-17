@@ -88,6 +88,58 @@ const ASSUNTO_CREDENCIADOS = '(credenciad[oa]s?|mensalistas?)';
 const REGEX_PATIO = new RegExp(`\\b${VERBOS}\\b[^?!.]{0,50}\\b${ASSUNTO_PATIO}\\b`, 'i');
 const REGEX_CREDENCIADOS = new RegExp(`\\b${VERBOS}\\b[^?!.]{0,50}\\b${ASSUNTO_CREDENCIADOS}\\b`, 'i');
 
+// Consulta ao histórico: "o ticket do João foi validado?", "a placa ABC1234 já
+// foi validada?", "validaram o 011709101527?".
+//
+// Exige um verbo de validação E um termo de busca. Só o verbo não basta: "vou
+// validar agora" é conversa, não pergunta, e responder a isso com um relatório
+// seria o bot falando por cima das pessoas.
+const REGEX_VALIDACAO = /\b(validad[oa]s?|validou|validaram|validei|valida[çc][ãa]o)\b/i;
+
+// Palavras que emolduram a pergunta e não fazem parte do que se procura. Sem
+// removê-las, "o ticket do João foi validado" viraria a busca pela frase
+// inteira e não casaria com a identificação "João da Silva".
+//
+// É um CONJUNTO comparado palavra a palavra, não uma regex com \b. O \b do
+// JavaScript trata letra acentuada como separador: `\bo\b` casa com o "o"
+// final de "João" e devolve "Joã", e `\bjá\b` não casa com "já" nenhuma.
+// Comparar palavras normalizadas evita os dois erros de uma vez.
+const MOLDURA = new Set([
+  'o', 'a', 'os', 'as', 'um', 'uma', 'do', 'da', 'de', 'dos', 'das', 'no', 'na', 'em',
+  'para', 'pra', 'por', 'com', 'e', 'ou', 'que', 'se', 'ja',
+  'ticket', 'tickets', 'placa', 'placas', 'carro', 'veiculo', 'cliente', 'nome',
+  'foi', 'foram', 'esta', 'sabe', 'saber', 'diga', 'fale', 'me', 'voce', 'ai', 'gente', 'favor',
+  'validado', 'validada', 'validados', 'validadas', 'validou', 'validaram', 'validei', 'validacao',
+  'hoje', 'ontem', 'hangar', 'patio',
+]);
+
+/** Sem acento e em minúsculas, para comparar sem depender de como foi digitado. */
+function normalizar(texto) {
+  return String(texto || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
+
+/**
+ * Devolve `{ termo }` quando a mensagem pergunta se algo foi validado, e null
+ * quando não é essa a pergunta. `termo` vazio significa que a pessoa perguntou
+ * sem dizer de quem — quem chama decide o que fazer com isso.
+ */
+function interpretarConsultaValidacao(texto) {
+  const t = (texto || '').trim();
+  if (!t || t.length > 140) return null;
+  if (!REGEX_VALIDACAO.test(t)) return null;
+  // Pergunta sobre o pátio ganha do histórico: "quantos tickets validados tem
+  // no pátio" é status, não busca por cliente.
+  if (interpretarPedidoPatio(t)) return null;
+
+  const termo = normalizar(t)
+    .replace(/[?!.,;:]/g, ' ')
+    .split(/\s+/)
+    .filter((palavra) => palavra && !MOLDURA.has(palavra))
+    .join(' ');
+
+  return { termo };
+}
+
 /**
  * Devolve null, 'status' ou 'credenciados'.
  *
@@ -185,7 +237,12 @@ function interpretarMensagem(body) {
     // houver nenhuma para esta pessoa, aí sim a mensagem é ignorada em
     // silêncio, sem o bot responder a toda conversa do grupo.
     if (textoLivre) {
-      return { ...base, tipo: 'texto', texto: textoLivre, resposta: interpretarResposta(textoLivre), pedidoPatio: interpretarPedidoPatio(textoLivre) };
+      return {
+        ...base, tipo: 'texto', texto: textoLivre,
+        resposta: interpretarResposta(textoLivre),
+        pedidoPatio: interpretarPedidoPatio(textoLivre),
+        consultaValidacao: interpretarConsultaValidacao(textoLivre),
+      };
     }
     // Álbum: quando várias fotos são enviadas juntas, o WhatsApp manda primeiro
     // um `albumMessage` que é só metadado — anuncia quantas imagens vêm e não
@@ -225,4 +282,4 @@ function interpretarMensagem(body) {
   };
 }
 
-module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus, interpretarPedidoPatio };
+module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus, interpretarPedidoPatio, interpretarConsultaValidacao, normalizar };
