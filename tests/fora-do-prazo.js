@@ -58,10 +58,15 @@ conferir('volta a oferecer a cota', decidir({}, LIBERADO).acao === 'perguntar_co
 conferir('SIM volta a valer', decidir({ usarCotaForaPrazo: true }, LIBERADO).acao === 'usar_cota',
   decidir({ usarCotaForaPrazo: true }, LIBERADO).acao);
 
-console.log('\nNenhum hangar tem a chave ligada hoje');
+console.log('\nEstado do config de produção');
 const cfg = require(path.join(__dirname, '..', 'config', 'hangares.json'));
 const ligados = cfg.hangares.filter((h) => h.permiteValidarForaDoPrazo === true).map((h) => h.id);
-conferir('config limpo', ligados.length === 0, `ligados: ${ligados.join(', ')}`);
+conferir('nenhum hangar valida fora do prazo', ligados.length === 0, `ligados: ${ligados.join(', ')}`);
+// A cota zerada é a segunda trava: se alguém ligar a chave no painel sem
+// pensar, o bot não distribui validações gratuitas — vai direto perguntar
+// sobre faturamento, que é uma conversa que exige decisão humana.
+const comCota = cfg.hangares.filter((h) => h.cotaMensalForaPrazo !== 0).map((h) => h.id);
+conferir('cota fora do prazo zerada em todos', comCota.length === 0, `com cota: ${comCota.join(', ')}`);
 
 console.log('\nNo fluxo: recusa ANTES de pedir a foto do veículo');
 (async () => {

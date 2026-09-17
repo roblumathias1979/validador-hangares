@@ -224,7 +224,7 @@ let erroGrupos = null;
 // Campos editáveis e suas regras — repetidas aqui só para orientar quem
 // preenche. Quem valida de verdade é o servidor; esta tela não é a barreira.
 const DICAS = {
-  cotaMensalForaPrazo: 'Validações fora do prazo gratuitas por mês. Inteiro, 0 a 100.',
+  cotaMensalForaPrazo: 'Validações fora do prazo gratuitas por mês. 0 = desativado, que é o padrão desde que o bot deixou de validar fora do prazo. Inteiro, 0 a 100.',
   cotaMensalValidacoes: 'Teto de validações do mês INTEIRO (não só as fora do prazo). Antes de gastar cada uma, o bot pergunta ao cliente se pode. Vazio = sem limite. Renova sozinho na virada do mês.',
   diasValidacaoPadrao: 'Tolerância concedida ao validar. Máximo 20 — é o teto do slider do ValidPark.',
   prazoValidacaoHoras: 'Janela para validar após a emissão. Vazio = sem limite.',
@@ -286,7 +286,12 @@ function desenhar() {
       // é o teto comercial do pátio. A etiqueta agora diz qual é qual, e a do
       // mês só aparece em quem tem teto — nos outros seria um "sem limite"
       // repetido em quinze linhas.
-      etiqueta(`fora do prazo ${h.cotaUsada}/${h.cotaMensalForaPrazo ?? '?'}`),
+      // Cota zero significa DESATIVADO, e "fora do prazo 0/0" não diz isso a
+      // ninguém. A validação fora do prazo está desligada no sistema inteiro
+      // desde 17/09/2026; a cota é o que sobrou dela no cadastro.
+      h.cotaMensalForaPrazo === 0
+        ? etiqueta('fora do prazo: desativado')
+        : etiqueta(`fora do prazo ${h.cotaUsada}/${h.cotaMensalForaPrazo ?? '?'}`),
       h.mes.limite !== null
         ? etiqueta(`mês ${h.mes.usadas}/${h.mes.limite}`, h.mes.esgotada ? 'ruim' : h.mes.restantes <= 5 ? 'aviso' : 'on')
         : '',
@@ -365,6 +370,15 @@ function desenhar() {
                  onchange="alternarReferencias('${h.id}', this.checked)">
           <label for="${h.id}-foto" style="margin:0">Exige foto do veículo no local (antifraude)</label>
         </div>
+        <div class="linha-check">
+          <input type="checkbox" id="${h.id}-foraprazo" data-campo="permiteValidarForaDoPrazo" ${h.permiteValidarForaDoPrazo?'checked':''}>
+          <label for="${h.id}-foraprazo" style="margin:0">Valida ticket fora do prazo de ${h.prazoValidacaoHoras ?? '?'}h</label>
+        </div>
+        ${h.permiteValidarForaDoPrazo ? `<div class="dica alerta-perigo" style="margin:-4px 0 6px 24px">
+          ⚠️ Ligado. Com a cota fora do prazo em ${h.cotaMensalForaPrazo}, o bot vai
+          <b>pedir autorização de faturamento</b> ao cliente — e o boleto emitido é real.
+          Para dar validações gratuitas antes de cobrar, aumente a cota acima.</div>` : `<div class="dica" style="margin:-4px 0 6px 24px">
+          Desligado: ticket fora do prazo é recusado e a administração avisada.</div>`}
         <div class="linha-check">
           <input type="checkbox" id="${h.id}-avisa" data-campo="avisarPatioCheio" ${h.avisarPatioCheio?'checked':''}>
           <label for="${h.id}-avisa" style="margin:0">Avisa o grupo quando o pátio está enchendo</label>

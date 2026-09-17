@@ -221,6 +221,7 @@ const CAMPOS = {
   exigeFotoVeiculoNoLocal: (v) => v === true || v === 'true',
   perguntarIdentificacao: (v) => v === true || v === 'true',
   avisarPatioCheio: (v) => v === true || v === 'true',
+  permiteValidarForaDoPrazo: (v) => v === true || v === 'true',
   avisarVagasAbaixoDe: (v) => {
     if (v === '' || v === null) return null; // vazio = calcula 10% do total
     const n = Number(v);
@@ -249,6 +250,9 @@ function montarEstado(usuario = null) {
     // Ausente significa LIGADO: o aviso é o comportamento padrão, e só quem
     // desliga explicitamente fica sem ele.
     avisarPatioCheio: h.avisarPatioCheio !== false,
+    // Ausente significa DESLIGADO: fora do prazo não se valida, e ligar é
+    // decisão consciente de quem conhece a consequência.
+    permiteValidarForaDoPrazo: h.permiteValidarForaDoPrazo === true,
     avisarVagasAbaixoDe: h.avisarVagasAbaixoDe ?? null,
     // Lido do ARQUIVO, não de process.env. O painel é um processo longo: ele
     // carrega o .env ao subir e fica com aquela foto. Foi assim que o VOASP
