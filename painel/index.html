@@ -65,6 +65,17 @@
   .criar-grupo summary { color:var(--acento); cursor:pointer; }
   .criar-grupo input { margin-top:6px; }
   .criar-grupo button { margin-top:8px; }
+  /* Zona de risco: recolhida por padrão e visualmente separada do resto. Um
+     botão de excluir com o mesmo peso dos demais é clique por engano esperando
+     acontecer. */
+  .perigo { margin-top:14px; padding-top:12px; border-top:1px solid var(--borda); font-size:12px; }
+  .perigo summary { color:var(--erro); cursor:pointer; }
+  .perigo p { color:var(--fraco); margin:8px 0; max-width:60ch; }
+  .perigo .alerta-perigo { color:var(--erro); }
+  .perigo label { margin-top:6px; }
+  .perigo input { max-width:260px; }
+  .perigo button { margin-top:8px; }
+  .perigoso { background:var(--erro); }
   .dica { font-size:11px; color:var(--fraco); margin-top:3px; }
   .linha-check { display:flex; align-items:center; gap:7px; font-size:13px; }
   button { padding:7px 14px; border-radius:5px; border:1px solid var(--acento);
@@ -367,6 +378,17 @@ function desenhar() {
           <button onclick="salvar('${h.id}', this)">Salvar</button>
           <span class="msg" id="msg-${h.id}"></span>
         </div>
+        <details class="perigo">
+          <summary>Excluir este pátio</summary>
+          <p>Sai do cadastro e para de receber. <b>Não</b> apaga o histórico, as credenciais
+             nem as fotos de referência — e a exclusão vira commit, então dá para voltar atrás.</p>
+          ${h.ativo ? `<p class="alerta-perigo">⚠️ Este pátio está <b>recebendo</b> no grupo "${escapar(h.grupoWhatsapp) || h.grupoWhatsappId}". Depois de excluir, os tickets mandados lá não serão mais validados.</p>` : ''}
+          <label for="${h.id}-confirma">Digite <code>${h.id}</code> para confirmar</label>
+          <input type="text" id="${h.id}-confirma" placeholder="${h.id}" autocomplete="off">
+          <button type="button" class="perigoso" onclick="excluirHangar('${h.id}', this)">Excluir pátio</button>
+          <span class="msg" id="msgexcluir-${h.id}"></span>
+        </details>
+
         <div class="somente-leitura">
           Não editável aqui: credenciais (ficam no <code>.env</code>), seletores da página
           (são código, quebram o hangar em silêncio se errados) e dados do Asaas
@@ -494,6 +516,40 @@ async function criarGrupo(id, botao) {
     await carregar();
     const corpo = document.querySelector(`.hangar[data-id="${id}"] .corpo`);
     if (corpo) corpo.classList.add('aberto');
+  } catch (e) {
+    msg.className = 'msg erro'; msg.textContent = 'falha de rede: ' + e.message;
+    botao.disabled = false;
+  }
+}
+
+/**
+ * Exclui o pátio. A trava é digitar o identificador, e não um confirm(): um
+ * botão dentro do cartão que se está editando é clicável por engano, digitar
+ * "aibm-2" não é.
+ */
+async function excluirHangar(id, botao) {
+  const msg = $(`#msgexcluir-${id}`);
+  const confirmacao = $(`#${id}-confirma`).value.trim();
+  botao.disabled = true; msg.className = 'msg'; msg.textContent = 'excluindo…';
+  try {
+    const r = await fetch('/api/hangar-excluir', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ id, confirmacao }),
+    });
+    const d = await r.json();
+    if (!r.ok) { msg.className = 'msg erro'; msg.textContent = d.erro || 'erro'; botao.disabled = false; return; }
+
+    await carregar();
+    // O cartão sumiu com o redesenho, então o aviso do que sobrou vai para o
+    // topo da tela — senão a informação morreria junto com o elemento.
+    const sobrou = d.mantido.historico
+      ? `${d.mantido.historico} registro(s) no histórico continuam guardados.`
+      : 'Nada no histórico para este pátio.';
+    const avisos = $('#avisos');
+    avisos.insertAdjacentHTML('afterbegin',
+      `<div class="aviso ok"><b>Pátio "${escapar(id)}" excluído.</b> ${sobrou}
+       As credenciais <code>${escapar(d.mantido.credenciais.join(' / '))}</code> continuam no .env.
+       ${d.push && d.push.enviado ? 'Enviado ao GitHub' : 'Ainda NÃO enviado ao GitHub'} (${escapar(d.commit)}).</div>`);
   } catch (e) {
     msg.className = 'msg erro'; msg.textContent = 'falha de rede: ' + e.message;
     botao.disabled = false;

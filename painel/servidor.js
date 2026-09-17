@@ -513,6 +513,47 @@ const servidor = http.createServer(async (req, res) => {
       return;
     }
 
+    // Excluir pátio.
+    //
+    // Só sai do config. NÃO apaga, de propósito:
+    //  - o HISTÓRICO, que é dado de auditoria. Se alguém contestar uma cobrança
+    //    do mês passado, a prova não pode ter sumido junto com o cadastro.
+    //  - as CREDENCIAIS no .env. Apagar é irreversível daqui, e um pátio
+    //    excluído por engano volta sem precisar do login de novo.
+    //  - as FOTOS de referência, pelo mesmo motivo.
+    //
+    // E é reversível: a exclusão vira commit, como toda alteração do painel.
+    if (req.method === 'POST' && url.pathname === '/api/hangar-excluir') {
+      const { id, confirmacao } = await lerCorpo(req);
+      const config = lerConfig();
+      const hangar = config.hangares.find((h) => h.id === id);
+      if (!hangar) { json(res, 404, { erro: `Pátio "${id}" não existe.` }); return; }
+
+      // Digitar o identificador é a trava. Um botão de excluir dentro do cartão
+      // que se está editando é clicável por engano; digitar "aibm-2" não é.
+      if (String(confirmacao || '').trim() !== hangar.id) {
+        json(res, 400, { erro: `Para excluir, digite exatamente "${hangar.id}".` });
+        return;
+      }
+
+      const estavaAtivo = Boolean((hangar.grupoWhatsappId || '').trim());
+      config.hangares = config.hangares.filter((h) => h.id !== id);
+      const r = salvarEComitar(config, `pátio "${hangar.hangar}" (${hangar.id}) excluído`);
+      json(res, 200, {
+        ok: true,
+        id: hangar.id,
+        estavaAtivo,
+        // O que sobrou fica dito: são os arquivos que alguém precisaria limpar
+        // à mão se quisesse mesmo apagar tudo.
+        mantido: {
+          historico: registro.ultimos(99999, { hangarId: hangar.id }).length,
+          credenciais: [hangar.usuarioEnvVar, hangar.senhaEnvVar],
+        },
+        ...r,
+      });
+      return;
+    }
+
     // Criar pátio. Até 17/09/2026 isso era edição de arquivo no servidor, e todo
     // pátio novo passava por quem tem acesso SSH.
     if (req.method === 'POST' && url.pathname === '/api/hangar-novo') {

@@ -80,11 +80,11 @@ const conferir = (nome, ok, detalhe) => {
   console.log(`  FALHA ${nome}${detalhe ? ` — ${detalhe}` : ''}`);
 };
 
-function criar(porta, corpo) {
+function chamar(porta, caminho, corpo) {
   return new Promise((resolve, reject) => {
     const dados = JSON.stringify(corpo);
     const req = http.request({
-      host: '127.0.0.1', port: porta, path: '/api/hangar-novo', method: 'POST',
+      host: '127.0.0.1', port: porta, path: caminho, method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(dados),
@@ -99,6 +99,9 @@ function criar(porta, corpo) {
     req.end(dados);
   });
 }
+
+const criar = (porta, corpo) => chamar(porta, '/api/hangar-novo', corpo);
+const excluir = (porta, corpo) => chamar(porta, '/api/hangar-excluir', corpo);
 
 async function main() {
   const srv = servidor.listen(0, '127.0.0.1');
@@ -161,6 +164,28 @@ async function main() {
     conferir('aceita', semLogin.codigo === 200, JSON.stringify(semLogin.corpo).slice(0, 120));
     conferir('avisa que falta credencial', semLogin.corpo.credenciais === false);
     conferir('não inventou variável no .env', !fs.readFileSync(path.join(RAIZ, '.env'), 'utf-8').includes('PATIO_SEM_LOGIN_SENHA='));
+    console.log('\nExcluir pátio');
+    const semConfirmar = await excluir(porta, { id: 'patio-sem-login' });
+    conferir('recusa sem a confirmação digitada', semConfirmar.codigo === 400 && /digite exatamente/i.test(semConfirmar.corpo.erro || ''),
+      JSON.stringify(semConfirmar.corpo).slice(0, 100));
+
+    const errado = await excluir(porta, { id: 'patio-sem-login', confirmacao: 'patio-sem-logim' });
+    conferir('recusa confirmação com erro de digitação', errado.codigo === 400);
+
+    const inexistente = await excluir(porta, { id: 'nao-existe', confirmacao: 'nao-existe' });
+    conferir('recusa pátio inexistente', inexistente.codigo === 404);
+
+    const ok = await excluir(porta, { id: 'patio-sem-login', confirmacao: 'patio-sem-login' });
+    conferir('exclui quando confirmado', ok.codigo === 200, JSON.stringify(ok.corpo).slice(0, 120));
+    const cfgDepois = JSON.parse(fs.readFileSync(path.join(RAIZ, 'config/hangares.json'), 'utf-8'));
+    conferir('saiu do config', !cfgDepois.hangares.some((h) => h.id === 'patio-sem-login'));
+
+    console.log('\nO que a exclusão NÃO leva junto');
+    const envFinal = fs.readFileSync(path.join(RAIZ, '.env'), 'utf-8');
+    conferir('credenciais do outro pátio intactas', /^PATIO_TESTE_SENHA=segredo123$/m.test(envFinal));
+    conferir('diz quais credenciais ficaram', Array.isArray(ok.corpo.mantido.credenciais) && ok.corpo.mantido.credenciais.length === 2,
+      JSON.stringify(ok.corpo.mantido));
+    conferir('informa quanto histórico ficou', typeof ok.corpo.mantido.historico === 'number');
   } finally {
     srv.close();
   }
