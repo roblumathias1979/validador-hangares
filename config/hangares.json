@@ -536,7 +536,7 @@
       "id": "cimed-alljet",
       "hangar": "Cimed / Alljet",
       "grupoWhatsapp": "",
-      "grupoWhatsappId": "",
+      "grupoWhatsappId": "120363413451520538@g.us",
       "validadorUrl": "https://validpark.technext.com.br/login",
       "usuarioEnvVar": "CIMED_ALLJET_USUARIO",
       "senhaEnvVar": "CIMED_ALLJET_SENHA",
@@ -572,13 +572,14 @@
         "email": ""
       },
       "diasValidacaoPadrao": 20,
-      "exigeFotoVeiculoNoLocal": false
+      "exigeFotoVeiculoNoLocal": false,
+      "avisarVagasAbaixoDe": 5
     },
     {
       "id": "bravo-aviation",
       "hangar": "Bravo Aviation",
       "grupoWhatsapp": "",
-      "grupoWhatsappId": "",
+      "grupoWhatsappId": "120363429949727696@g.us",
       "validadorUrl": "https://validpark.technext.com.br/login",
       "usuarioEnvVar": "BRAVO_AVIATION_USUARIO",
       "senhaEnvVar": "BRAVO_AVIATION_SENHA",
@@ -613,7 +614,8 @@
         "email": ""
       },
       "diasValidacaoPadrao": 20,
-      "exigeFotoVeiculoNoLocal": false
+      "exigeFotoVeiculoNoLocal": false,
+      "avisarVagasAbaixoDe": 5
     },
     {
       "id": "alljet",
