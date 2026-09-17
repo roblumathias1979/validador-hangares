@@ -118,6 +118,28 @@ function normalizar(texto) {
   return String(texto || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 }
 
+// Comando de configuração pelo grupo: liga e desliga a pergunta de
+// identificação. Exige o verbo E o assunto — "ativar" sozinho não mexe em
+// nada, e "a identificação está errada" é reclamação, não comando.
+const REGEX_LIGAR = /\b(ativar?|ative|ligar?|ligue|habilitar?|habilite)\b/i;
+const REGEX_DESLIGAR = /\b(desativar?|desative|desligar?|desligue|desabilitar?|desabilite|tirar?|tire|remover?|remova)\b/i;
+const REGEX_ASSUNTO_IDENT = /\b(identifica[çc][ãa]o|identificar)\b/i;
+
+/**
+ * Devolve true, false ou null (não é comando).
+ *
+ * Só comando curto: uma frase longa que por acaso contenha "desativar" e
+ * "identificação" é conversa sobre o assunto, não ordem para mexer nele.
+ */
+function interpretarComandoIdentificacao(texto) {
+  const t = (texto || '').trim();
+  if (!t || t.length > 80) return null;
+  if (!REGEX_ASSUNTO_IDENT.test(t)) return null;
+  if (REGEX_DESLIGAR.test(t)) return false;
+  if (REGEX_LIGAR.test(t)) return true;
+  return null;
+}
+
 /**
  * Devolve `{ termo }` quando a mensagem pergunta se algo foi validado, e null
  * quando não é essa a pergunta. `termo` vazio significa que a pessoa perguntou
@@ -242,6 +264,7 @@ function interpretarMensagem(body) {
         resposta: interpretarResposta(textoLivre),
         pedidoPatio: interpretarPedidoPatio(textoLivre),
         consultaValidacao: interpretarConsultaValidacao(textoLivre),
+        comandoIdentificacao: interpretarComandoIdentificacao(textoLivre),
       };
     }
     // Álbum: quando várias fotos são enviadas juntas, o WhatsApp manda primeiro
@@ -282,4 +305,4 @@ function interpretarMensagem(body) {
   };
 }
 
-module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus, interpretarPedidoPatio, interpretarConsultaValidacao, normalizar };
+module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus, interpretarPedidoPatio, interpretarConsultaValidacao, interpretarComandoIdentificacao, normalizar };

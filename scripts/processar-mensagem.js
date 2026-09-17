@@ -38,6 +38,7 @@ const registro = require('./lib/registro');
 const avisoPatio = require('./lib/aviso-patio');
 const fotosUsadas = require('./lib/fotos-usadas');
 const cotaMensal = require('./lib/cota-mensal');
+const { salvarEComitar } = require('./lib/salvar-config');
 const { dentroDoPrazo } = require('./validate-ticket');
 const { lerTicket, lerLocal } = require('./ocr-ticket');
 const { consultarPatio } = require('./consultar-patio');
@@ -395,6 +396,52 @@ async function conduzir(body, { aoReceber } = {}) {
   // Vem ANTES das pendências: quem tem um ticket em aberto também pode querer
   // saber das vagas, e responder "ainda preciso da foto" a uma pergunta sobre
   // o pátio seria ignorar o que foi perguntado.
+  // Liga e desliga a pergunta de identificação pelo próprio grupo.
+  //
+  // Quem opera o pátio está no grupo, não no painel — pedir que abra o
+  // navegador para uma chave que se resolve numa frase é atrito à toa.
+  //
+  // QUALQUER PESSOA DO GRUPO pode. A identificação é conveniência de registro,
+  // não controle antifraude: desligá-la não libera validação nenhuma. Em troca
+  // da permissão aberta, toda mudança avisa a administração dizendo QUEM
+  // mudou — auditoria em vez de cadeado, que é o equilíbrio certo para uma
+  // chave deste peso.
+  if (msg.tipo === 'texto' && msg.comandoIdentificacao !== null && msg.comandoIdentificacao !== undefined) {
+    const querLigado = msg.comandoIdentificacao;
+    const jaEsta = hangar.perguntarIdentificacao === true;
+    if (jaEsta === querLigado) {
+      return {
+        status: 'identificacao_sem_mudanca', hangarId: hangar.id, grupoId: msg.grupoId,
+        mensagemWhatsapp: `A pergunta de identificação já está *${querLigado ? 'ativada' : 'desativada'}* neste pátio.`,
+        notificarAdmin: false, responder: true, etapa: 'comando_identificacao',
+      };
+    }
+
+    const config = carregarConfig();
+    config.hangares.find((h) => h.id === hangar.id).perguntarIdentificacao = querLigado;
+    try {
+      salvarEComitar(config, `${hangar.hangar} — identificação ${querLigado ? 'ativada' : 'desativada'} por ${msg.remetente || 'alguém do grupo'}`, 'Bot do WhatsApp');
+    } catch (erro) {
+      return {
+        status: 'erro', hangarId: hangar.id, grupoId: msg.grupoId, mensagem: erro.message,
+        mensagemWhatsapp: '⚠️ Não consegui salvar a alteração. Nossa equipe foi avisada.',
+        notificarAdmin: true, responder: true, etapa: 'comando_identificacao',
+      };
+    }
+
+    return {
+      status: 'identificacao_alterada', hangarId: hangar.id, grupoId: msg.grupoId,
+      identificacaoAtiva: querLigado,
+      mensagem: `Identificação ${querLigado ? 'ATIVADA' : 'DESATIVADA'} por ${msg.remetente || 'alguém do grupo'}.`,
+      mensagemWhatsapp: querLigado
+        ? '✅ Pergunta de identificação *ativada*.\n\nAo mandar o ticket sem a placa na legenda, vou perguntar se você quer identificá-lo com nome, carro ou placa.'
+        : '✅ Pergunta de identificação *desativada*.\n\nOs tickets passam a ser validados direto, sem a pergunta. A placa na legenda continua valendo.',
+      // Mudança de configuração sempre avisa quem administra — é o que
+      // sustenta deixar o comando aberto a todo o grupo.
+      notificarAdmin: true, responder: true, etapa: 'comando_identificacao',
+    };
+  }
+
   // "O ticket do João foi validado?" — busca no histórico DESTE pátio.
   //
   // Vem antes do pátio e das pendências: é pergunta, não resposta, e tratá-la

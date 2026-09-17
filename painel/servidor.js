@@ -52,6 +52,8 @@ const SENHA = process.env.PAINEL_SENHA || '';
 const { obterUsoMensal, obterRestante } = require(path.join(RAIZ, 'scripts', 'lib', 'cota-fora-prazo'));
 const cotaMensal = require('../scripts/lib/cota-mensal');
 const evolution = require('../scripts/lib/evolution');
+// Gravar o config é compartilhado com o bot: ver a nota em salvar-config.js.
+const { salvarEComitar } = require('../scripts/lib/salvar-config');
 const registro = require(path.join(RAIZ, 'scripts', 'lib', 'registro'));
 const { lerJson } = require(path.join(RAIZ, 'scripts', 'lib', 'trava-arquivo'));
 const usuarios = require('./usuarios');
@@ -124,46 +126,6 @@ function commitsPendentes() {
  * Grava o config e commita. A mensagem registra exatamente o que mudou, para
  * o histórico servir de auditoria sem precisar abrir o diff.
  */
-function salvarEComitar(config, resumo) {
-  const antes = fs.readFileSync(CONFIG, 'utf-8');
-  fs.writeFileSync(CONFIG, `${JSON.stringify(config, null, 2)}\n`);
-  try {
-    git(['add', 'config/hangares.json']);
-    git([
-      '-c', 'user.name=Painel do Validador',
-      '-c', 'user.email=painel@validador.local',
-      'commit', '-m', `Painel: ${resumo}`,
-    ]);
-    const commit = git(['rev-parse', '--short', 'HEAD']);
-
-    // Empurra para o GitHub, mas SEM deixar a falha derrubar a alteração.
-    //
-    // O commit local é o que vale para produção — o bot lê o arquivo, não o
-    // GitHub. O push é backup e sincronia com quem trabalha fora do servidor.
-    // Se ele falhar (rede fora, chave não autorizada, divergência), desfazer a
-    // alteração seria trocar um problema pequeno por um grande: o operador
-    // mexeu no painel e a mudança precisa valer.
-    //
-    // Até 17/09/2026 não havia push nenhum, e os commits do painel iam se
-    // acumulando no servidor — quatro deles ficaram só lá, e um deploy meu
-    // esbarrou em branches divergentes.
-    let push = { enviado: false, motivo: 'sem tentativa' };
-    try {
-      git(['push', 'origin', 'HEAD:main']);
-      push = { enviado: true };
-    } catch (e) {
-      push = { enviado: false, motivo: String(e.message || e).slice(0, 200) };
-    }
-
-    return { commitado: true, commit, push };
-  } catch (erro) {
-    // Falhou o commit: desfaz a escrita para o arquivo não ficar divergindo do
-    // git em silêncio, que é justamente o que queremos evitar.
-    fs.writeFileSync(CONFIG, antes);
-    throw new Error(`Não consegui commitar, alteração desfeita: ${erro.message.slice(0, 200)}`);
-  }
-}
-
 // ------------------------------------------------------------------ validação
 
 /**
