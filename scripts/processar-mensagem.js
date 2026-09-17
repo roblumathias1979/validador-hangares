@@ -903,7 +903,11 @@ async function conduzir(body, { aoReceber } = {}) {
   // É pergunta de sim/não antes do texto livre porque a maior parte das
   // validações não precisa disso, e obrigar todo mundo a digitar algo para
   // validar um ticket seria pedágio.
-  if (hangar.perguntarIdentificacao) {
+  // Quem já mandou a placa na legenda da foto NÃO é perguntado: o ticket já
+  // está identificado, e a placa vira a identificação. Perguntar de novo seria
+  // pedir o que a pessoa acabou de dar — e é o fluxo que o grupo do Solojet já
+  // usava antes da pergunta existir (foto + "FLI8888" na legenda).
+  if (hangar.perguntarIdentificacao && !msg.placa) {
     pendencias.registrar(msg.grupoId, msg.remetenteId, {
       ticket: ocr.ticket,
       placa: msg.placa || null,
@@ -928,6 +932,10 @@ async function conduzir(body, { aoReceber } = {}) {
 
   const comCota = perguntarCotaSePreciso(hangar, msg, {
     ticket: ocr.ticket,
+    // Placa da legenda também identifica o ticket, nos pátios que perguntam.
+    // Sem isto, o atalho de mandar tudo numa mensagem só deixaria o histórico
+    // sem identificação — justamente quem foi mais explícito ficaria de fora.
+    identificacao: (hangar.perguntarIdentificacao && msg.placa) ? msg.placa : null,
     // A placa genérica precisa ser resolvida AQUI, não lá na frente. Era o bug
     // do primeiro teste do VOASP (17/09/2026): a pendência guardava null, o SIM
     // validava com null, e o ValidPark devolvia "Digite a placa do veiculo
@@ -1070,6 +1078,9 @@ async function conduzir(body, { aoReceber } = {}) {
       ticket: ocr.ticket,
       placa,
       placaEhGenerica: !msg.placa,
+      // Mesma regra do caminho com cota: a placa da legenda identifica o
+      // ticket nos pátios que perguntam.
+      identificacao: (hangar.perguntarIdentificacao && msg.placa) ? msg.placa : null,
       dataEmissaoIso: ocr.dataEmissaoIso,
     }, false),
   };

@@ -139,13 +139,22 @@ async function main() {
   conferir('aceita como identificação', direto.status === 'validado', `veio "${direto.status}"`);
   conferir('guardou', ultimo().identificacao === 'Maria — Fiat Argo', JSON.stringify(ultimo().identificacao));
 
+  console.log('\nPlaca na LEGENDA da foto: não pergunta, e ela vira a identificação');
+  ticketAtual = '011709300006'; placaEnviadaAoSite = '(não chamado)';
+  const comLegenda = await processar(foto('FLI8888'), {});
+  conferir('valida direto, sem perguntar', comLegenda.status === 'validado', `veio "${comLegenda.status}"`);
+  conferir('a placa chegou ao site', placaEnviadaAoSite === 'FLI8888', `foi "${placaEnviadaAoSite}"`);
+  conferir('ficou identificado pela placa', ultimo().identificacao === 'FLI8888', JSON.stringify(ultimo().identificacao));
+  conferir('mostra no recibo', /Identificado como/.test(comLegenda.mensagemWhatsapp || ''));
+
   console.log('\nPátio sem a pergunta ligada valida direto');
   const cfg = JSON.parse(fs.readFileSync(path.join(RAIZ, 'config/hangares.json'), 'utf-8'));
   cfg.hangares.find((x) => x.id === 'solojet').perguntarIdentificacao = false;
   fs.writeFileSync(path.join(RAIZ, 'config/hangares.json'), JSON.stringify(cfg, null, 2) + '\n');
   ticketAtual = '011709300005';
-  const semPergunta = await processar(foto(), {});
+  const semPergunta = await processar(foto('XYZ1234'), {});
   conferir('valida sem perguntar', semPergunta.status === 'validado', `veio "${semPergunta.status}"`);
+  conferir('e não inventa identificação', ultimo().identificacao === null, JSON.stringify(ultimo().identificacao));
 
   console.log(`\n${falhas ? `${falhas} falha(s)` : 'tudo certo'}`);
 }
