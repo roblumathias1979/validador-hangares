@@ -83,7 +83,7 @@
       },
       "placaGenerica": "AAA0000",
       "prazoValidacaoHoras": 2,
-      "exigeFotoVeiculoNoLocal": true,
+      "exigeFotoVeiculoNoLocal": false,
       "_observacao_fraude": "Hangar específico com histórico de fraude no pátio. Requisito exclusivo deste hangar (não se aplica ao Solojet nem aos demais): antes de validar o ticket, o cliente também precisa mandar uma foto do veículo estacionado NO HANGAR (não só a foto do ticket). O objetivo é confirmar visualmente que o carro está de fato no local — não é uma prova técnica à prova de fraude (o WhatsApp remove metadados de GPS das fotos), é uma checagem de bom senso comparando o fundo da foto com fotos de referência do pátio/fachada do hangar. Confirmado que dá pra ler a placa direto da foto do veículo também (testado com foto de exemplo: Haval cinza, placa UQB2A42, estacionado sob estrutura de telhado metálico azul com parede branca de azulejo). Aguardando foto da FACHADA do hangar (o usuário disse que manda no dia seguinte) para servir de referência visual da comparação de local.",
       "grupoAdministracao": "5511913119423@s.whatsapp.net",
       "_observacao_validador_compartilhado": "URL e seletores herdados do Solojet: CONFIRMADO pelo usuário (11/09/2026) que o ValidPark (validpark.technext.com.br) é o MESMO site para todos os pátios do aeroporto — só login/senha mudam por hangar. Os seletores foram copiados 1:1 dos do Solojet (mesma UI React/MUI); ainda não testados de verdade contra o login real deste hangar especificamente, então vale reconfirmar no primeiro teste real (pode haver pequenas diferenças de layout por pátio).",
@@ -106,7 +106,7 @@
       },
       "_observacao_patio": "CONFIRMADO pelo usuário e por medição em 16/09/2026: AIBM 1 e AIBM 2 são pátios SEPARADOS, com login próprio e capacidade própria — não compartilham vagas nem lista de tickets. Medido nos dois: AIBM 1 tem 12 vagas e AIBM 2 tem 41. Isso encerra a dúvida registrada no ESTADO-ATUAL.md, que dava como indefinido se o AIBM 2 tinha acesso próprio.",
       "_observacao_credencial": "A senha de BOT_AIBM estava truncada (5 caracteres) e o login falhava com 'Usúario ou senha incorretos'. Corrigida em 16/09/2026 e testada contra o site real: autentica, e o pátio responde 'AIBM | Total de vagas: 12'. Mais uma confirmação de que AIBM 1 e AIBM 2 são pátios distintos — 12 vagas contra 41.",
-      "perguntarIdentificacao": true
+      "perguntarIdentificacao": false
     },
     {
       "id": "aibm-2",
@@ -137,7 +137,7 @@
       },
       "placaGenerica": "AAA0000",
       "prazoValidacaoHoras": 2,
-      "exigeFotoVeiculoNoLocal": true,
+      "exigeFotoVeiculoNoLocal": false,
       "_observacao_fraude": "Pátio distinto de 'aibm' — CONFIRMADO pelo usuário (11/09/2026) que são dois pátios separados, não o mesmo hangar duplicado. Mesmo requisito do AIBM: exigir foto do veículo estacionado no local antes de validar. Ainda faltam: login/senha próprios, URL do validador e foto de referência da fachada.",
       "grupoAdministracao": "5511913119423@s.whatsapp.net",
       "_observacao_validador_compartilhado": "URL e seletores herdados do Solojet: CONFIRMADO pelo usuário (11/09/2026) que o ValidPark (validpark.technext.com.br) é o MESMO site para todos os pátios do aeroporto — só login/senha mudam por hangar. Os seletores foram copiados 1:1 dos do Solojet (mesma UI React/MUI); ainda não testados de verdade contra o login real deste hangar especificamente, então vale reconfirmar no primeiro teste real (pode haver pequenas diferenças de layout por pátio).",
@@ -161,7 +161,7 @@
       },
       "_observacao_grupo": "Grupo criado em 16/09/2026. Login BOT_AIBM2, seletores e leitura de vagas testados contra o site real na mesma data: pátio de 41 vagas, 39 livres. ATENÇÃO: este hangar exige foto do veículo no local (exigeFotoVeiculoNoLocal), e a conferência fica bem melhor com fotos de referência do pátio subidas pelo painel — sem elas, a comparação usa só a descrição em texto de localReferencia.",
       "_observacao_patio": "CONFIRMADO pelo usuário e por medição em 16/09/2026: AIBM 1 e AIBM 2 são pátios SEPARADOS, com login próprio e capacidade própria — não compartilham vagas nem lista de tickets. Medido nos dois: AIBM 1 tem 12 vagas e AIBM 2 tem 41. Isso encerra a dúvida registrada no ESTADO-ATUAL.md, que dava como indefinido se o AIBM 2 tinha acesso próprio.",
-      "perguntarIdentificacao": true
+      "perguntarIdentificacao": false
     },
     {
       "id": "solojet-shares",
