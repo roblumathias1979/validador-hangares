@@ -164,7 +164,7 @@
       "id": "solojet-shares",
       "hangar": "Solojet Shares",
       "grupoWhatsapp": "",
-      "grupoWhatsappId": "",
+      "grupoWhatsappId": "120363411008964240@g.us",
       "validadorUrl": "https://validpark.technext.com.br/login",
       "usuarioEnvVar": "SOLOJET_SHARES_USUARIO",
       "senhaEnvVar": "SOLOJET_SHARES_SENHA",
@@ -200,13 +200,14 @@
         "email": ""
       },
       "diasValidacaoPadrao": 20,
-      "exigeFotoVeiculoNoLocal": false
+      "exigeFotoVeiculoNoLocal": false,
+      "avisarVagasAbaixoDe": 5
     },
     {
       "id": "plane-aviation",
       "hangar": "Plane Aviation",
       "grupoWhatsapp": "",
-      "grupoWhatsappId": "",
+      "grupoWhatsappId": "120363430202850979@g.us",
       "validadorUrl": "https://validpark.technext.com.br/login",
       "usuarioEnvVar": "PLANE_AVIATION_USUARIO",
       "senhaEnvVar": "PLANE_AVIATION_SENHA",
@@ -247,7 +248,7 @@
       "id": "nacoes",
       "hangar": "Nações",
       "grupoWhatsapp": "",
-      "grupoWhatsappId": "",
+      "grupoWhatsappId": "120363414503217702@g.us",
       "validadorUrl": "https://validpark.technext.com.br/login",
       "usuarioEnvVar": "NACOES_USUARIO",
       "senhaEnvVar": "NACOES_SENHA",
@@ -288,7 +289,7 @@
       "id": "indaia",
       "hangar": "Indaiá",
       "grupoWhatsapp": "",
-      "grupoWhatsappId": "",
+      "grupoWhatsappId": "120363428515977109@g.us",
       "validadorUrl": "https://validpark.technext.com.br/login",
       "usuarioEnvVar": "INDAIA_USUARIO",
       "senhaEnvVar": "INDAIA_SENHA",
