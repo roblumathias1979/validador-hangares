@@ -13,6 +13,8 @@
   @media (prefers-color-scheme: dark) {
     :root { --fundo:#15171a; --cartao:#1e2125; --borda:#333940; --texto:#e8eaed;
             --fraco:#9aa3af; --ok:#4ade80; --alerta:#fbbf24; --erro:#f87171; --acento:#58a6ff; }
+    /* Cabeçalho já escuro: a placa viraria um retângulo à toa em volta do logo. */
+    .marca .placa { background:transparent; padding:0; }
   }
   * { box-sizing: border-box; }
   body { margin:0; background:var(--fundo); color:var(--texto);
@@ -22,6 +24,11 @@
   /* Altura fixa e largura automática: o logo é 320x93 para ficar nítido em tela
      retina, e aqui aparece pela metade disso. */
   .marca img { height:34px; width:auto; display:block; }
+  /* Placa escura atrás do logo NO TEMA CLARO. O "#" da marca é branco e, sobre
+     o cabeçalho branco, sobrava só o contorno laranja segurando a leitura.
+     A placa resolve sem tocar no logo — mexer na marca para caber no fundo
+     seria resolver o problema pelo lado errado. */
+  .marca .placa { background:#1f232a; border-radius:8px; padding:7px 12px; display:inline-flex; }
   h1 { margin:0; font-size:17px; }
   .resumo { color:var(--fraco); font-size:13px; }
   .resumo b { color:var(--texto); }
@@ -112,7 +119,7 @@
 <body>
 <header>
   <div class="marca">
-    <img src="/logo-1park.png" alt="#1Park" width="160" height="46">
+    <span class="placa"><img src="/logo-1park.png" alt="#1Park" width="160" height="46"></span>
     <h1>Painel do Validador — hangares SBJD</h1>
   </div>
   <div class="resumo" id="resumo">carregando…</div>
