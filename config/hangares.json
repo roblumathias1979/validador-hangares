@@ -663,7 +663,7 @@
       "id": "aerie-aviacao-executiva",
       "hangar": "Aerie Aviação Executiva",
       "grupoWhatsapp": "",
-      "grupoWhatsappId": "",
+      "grupoWhatsappId": "120363428974185505@g.us",
       "validadorUrl": "https://validpark.technext.com.br/login",
       "usuarioEnvVar": "AERIE_AVIACAO_EXECUTIVA_USUARIO",
       "senhaEnvVar": "AERIE_AVIACAO_EXECUTIVA_SENHA",
@@ -690,7 +690,7 @@
       "prazoValidacaoHoras": 2,
       "grupoAdministracao": "",
       "_observacao_validador_compartilhado": "URL e seletores herdados do Solojet: CONFIRMADO pelo usuário (11/09/2026) que o ValidPark (validpark.technext.com.br) é o MESMO site para todos os pátios do aeroporto — só login/senha mudam por hangar. Os seletores foram copiados 1:1 dos do Solojet (mesma UI React/MUI); ainda não testados de verdade contra o login real deste hangar especificamente, então vale reconfirmar no primeiro teste real (pode haver pequenas diferenças de layout por pátio).",
-      "cotaMensalForaPrazo": 2,
+      "cotaMensalForaPrazo": 0,
       "asaas": {
         "customerId": "cus_000174770371",
         "cnpj": "",
@@ -698,7 +698,8 @@
         "email": ""
       },
       "diasValidacaoPadrao": 20,
-      "exigeFotoVeiculoNoLocal": false
+      "exigeFotoVeiculoNoLocal": false,
+      "avisarVagasAbaixoDe": 2
     },
     {
       "id": "voasp",
