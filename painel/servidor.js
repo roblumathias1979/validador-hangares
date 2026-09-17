@@ -437,6 +437,58 @@ const servidor = http.createServer(async (req, res) => {
       return;
     }
 
+    // Criar o grupo do WhatsApp e já ligá-lo ao pátio.
+    //
+    // Fecha o ciclo: criar pátio -> criar grupo -> receber. Antes era preciso
+    // sair do painel, criar o grupo no celular, voltar e selecioná-lo.
+    if (req.method === 'POST' && url.pathname === '/api/grupo-novo') {
+      const { hangarId, nome, participantes } = await lerCorpo(req);
+
+      const config = lerConfig();
+      const hangar = config.hangares.find((h) => h.id === hangarId);
+      if (!hangar) { json(res, 404, { erro: `Pátio "${hangarId}" não existe.` }); return; }
+      if ((hangar.grupoWhatsappId || '').trim()) {
+        json(res, 400, { erro: `"${hangar.hangar}" já tem grupo. Troque pelo seletor, se for o caso.` });
+        return;
+      }
+
+      const nomeGrupo = String(nome || '').trim();
+      if (!nomeGrupo) { json(res, 400, { erro: 'Informe o nome do grupo.' }); return; }
+
+      // O telefone da administração entra sempre: é quem recebe os avisos do
+      // pátio, e um grupo sem ninguém da casa não serve para nada. Os demais
+      // vêm do formulário.
+      const lista = [hangar.grupoAdministracao, ...(Array.isArray(participantes) ? participantes : String(participantes || '').split(/[\s,;]+/))]
+        .map((p) => String(p || '').split('@')[0].replace(/\D/g, ''))
+        .filter(Boolean);
+      const unicos = [...new Set(lista)];
+      if (!unicos.length) {
+        json(res, 400, { erro: 'Informe ao menos um telefone com DDD (ex.: 11999998888) — o WhatsApp não cria grupo só com o bot.' });
+        return;
+      }
+
+      let grupo;
+      try {
+        grupo = await evolution.criarGrupo({ nome: nomeGrupo, participantes: unicos });
+      } catch (e) { json(res, 400, { erro: e.message }); return; }
+
+      // O grupo existe no WhatsApp a partir daqui. Se o cadastro falhar, o
+      // grupo NÃO é desfeito — por isso ele é salvo em seguida, e uma falha
+      // aqui precisa dizer o id para ninguém ficar com um grupo órfão.
+      try {
+        hangar.grupoWhatsapp = grupo.nome;
+        hangar.grupoWhatsappId = grupo.id;
+        const r = salvarEComitar(config, `${hangar.hangar} — grupo "${grupo.nome}" criado e ativado`);
+        json(res, 200, { ok: true, grupo, ...r });
+      } catch (e) {
+        json(res, 500, {
+          erro: `O grupo "${nomeGrupo}" FOI criado no WhatsApp (${grupo.id}), mas não consegui cadastrá-lo: ${e.message}. `
+            + 'Selecione-o na lista para ativar.',
+        });
+      }
+      return;
+    }
+
     // Criar pátio. Até 17/09/2026 isso era edição de arquivo no servidor, e todo
     // pátio novo passava por quem tem acesso SSH.
     if (req.method === 'POST' && url.pathname === '/api/hangar-novo') {

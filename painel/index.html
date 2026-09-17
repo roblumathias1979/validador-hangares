@@ -50,6 +50,10 @@
   .linha-grupo { display:flex; gap:6px; align-items:stretch; }
   .linha-grupo select { flex:1; min-width:0; }
   .atualizar { padding:0 10px; font-size:15px; line-height:1; }
+  .criar-grupo { margin-top:8px; font-size:12px; }
+  .criar-grupo summary { color:var(--acento); cursor:pointer; }
+  .criar-grupo input { margin-top:6px; }
+  .criar-grupo button { margin-top:8px; }
   .dica { font-size:11px; color:var(--fraco); margin-top:3px; }
   .linha-check { display:flex; align-items:center; gap:7px; font-size:13px; }
   button { padding:7px 14px; border-radius:5px; border:1px solid var(--acento);
@@ -296,6 +300,15 @@ function desenhar() {
                   onclick="atualizarGrupos('${h.id}', this)">↻</button>
         </div>
         <div class="dica">${DICAS.grupoWhatsappId}</div>
+        ${jaTem ? '' : `
+        <details class="criar-grupo">
+          <summary>ou criar o grupo agora</summary>
+          <input type="text" id="${h.id}-nomegrupo" placeholder="Bot_${h.nome.replace(/[^A-Za-z0-9]+/g, '')}" value="Bot_${h.nome.replace(/[^A-Za-z0-9]+/g, '')}">
+          <input type="text" id="${h.id}-fones" placeholder="telefones com DDD, separados por vírgula">
+          <div class="dica">O número da administração entra sozinho. O bot é o criador e fica como participante.</div>
+          <button type="button" onclick="criarGrupo('${h.id}', this)">Criar grupo e ativar</button>
+          <span class="msg" id="msggrupo-${h.id}"></span>
+        </details>`}
       </div>`;
     };
 
@@ -431,6 +444,38 @@ async function criarHangar(botao) {
   } catch (e) {
     msg.className = 'msg erro'; msg.textContent = 'falha de rede: ' + e.message;
   } finally { botao.disabled = false; }
+}
+
+/**
+ * Cria o grupo no WhatsApp e já ativa o pátio.
+ *
+ * Diferente de tudo o mais no painel, isto tem efeito FORA daqui: o grupo passa
+ * a existir no WhatsApp de verdade e as pessoas informadas são adicionadas. Por
+ * isso pede confirmação — e o botão trava enquanto roda, que leva alguns
+ * segundos e um duplo clique criaria dois grupos.
+ */
+async function criarGrupo(id, botao) {
+  const nome = $(`#${id}-nomegrupo`).value.trim();
+  const fones = $(`#${id}-fones`).value.trim();
+  const msg = $(`#msggrupo-${id}`);
+
+  if (!confirm(`Criar o grupo "${nome}" no WhatsApp e adicionar ${fones || 'a administração'}?\n\nIsto cria o grupo de verdade e avisa quem for adicionado.`)) return;
+
+  botao.disabled = true; msg.className = 'msg'; msg.textContent = 'criando o grupo…';
+  try {
+    const r = await fetch('/api/grupo-novo', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ hangarId: id, nome, participantes: fones }),
+    });
+    const d = await r.json();
+    if (!r.ok) { msg.className = 'msg erro'; msg.textContent = d.erro || 'erro'; botao.disabled = false; return; }
+    await carregar();
+    const corpo = document.querySelector(`.hangar[data-id="${id}"] .corpo`);
+    if (corpo) corpo.classList.add('aberto');
+  } catch (e) {
+    msg.className = 'msg erro'; msg.textContent = 'falha de rede: ' + e.message;
+    botao.disabled = false;
+  }
 }
 
 async function carregar() {
