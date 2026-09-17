@@ -200,7 +200,8 @@
         "email": ""
       },
       "diasValidacaoPadrao": 20,
-      "exigeFotoVeiculoNoLocal": false
+      "exigeFotoVeiculoNoLocal": false,
+      "avisarVagasAbaixoDe": 5
     },
     {
       "id": "plane-aviation",
