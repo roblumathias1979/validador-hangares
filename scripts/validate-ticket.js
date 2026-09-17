@@ -172,6 +172,30 @@ async function ajustarSlider(page, seletorInputRange, quantidade) {
 // sistema ignora o pedido de faturamento, oferecendo a cota de graça em vez
 // de cobrar por engano.
 function decidirAcaoForaDoPrazo({ hangar, ticket, horasDecorridas, usarCotaForaPrazo, autorizarFaturamento, fotoAutorizacao, dadosCadastrais }) {
+  // Fora do prazo NÃO se valida (decisão do usuário em 17/09/2026). Antes o bot
+  // oferecia gastar uma das validações fora do prazo do mês e, esgotada essa
+  // cota, propunha faturar. As duas saídas foram retiradas.
+  //
+  // O ticket fora do prazo passa a ser assunto de gente: hoje esses casos são
+  // resolvidos à mão, no validador instalado no servidor do aeroporto, que tem
+  // permissão que a conta do bot não tem. Oferecer no WhatsApp uma validação
+  // que o bot não deveria fazer criava expectativa e gastava cota do hangar
+  // numa decisão que não é do cliente.
+  //
+  // A cota e o faturamento continuam no código, atrás desta chave: são
+  // integrações reais (inclusive Asaas com chave de PRODUÇÃO) e apagá-las por
+  // uma mudança de regra comercial seria jogar fora trabalho que pode voltar a
+  // ser pedido. Ausência do campo significa NÃO VALIDAR, que é a regra atual.
+  if (hangar.permiteValidarForaDoPrazo !== true) {
+    return {
+      acao: 'recusar',
+      horasDecorridas,
+      mensagemWhatsapp: `⚠️ O ticket ${ticket} foi emitido há ${horasDecorridas.toFixed(1)}h, `
+        + `acima do limite de ${hangar.prazoValidacaoHoras}h para validação.\n\n`
+        + 'Não consigo validar por aqui. Nossa equipe foi avisada e vai verificar.',
+    };
+  }
+
   const restante = obterRestante(hangar);
 
   if (autorizarFaturamento && restante <= 0) {
@@ -296,6 +320,21 @@ async function validarTicket(hangarId, ticket, placa, dataEmissaoIso, horasAdici
       fotoAutorizacao,
       dadosCadastrais,
     });
+
+    if (decisao.acao === 'recusar') {
+      return {
+        status: 'fora_do_prazo',
+        hangar: hangarId,
+        ticket,
+        horasDecorridas: prazo.horasDecorridas,
+        mensagem: `Ticket emitido há ${prazo.horasDecorridas.toFixed(1)}h — acima do limite de ${hangar.prazoValidacaoHoras}h. `
+          + 'Validação fora do prazo está desativada neste hangar.',
+        mensagemWhatsapp: decisao.mensagemWhatsapp,
+        // Precisa de gente: quem resolve fora do prazo é a administração, no
+        // validador do servidor do aeroporto.
+        notificarAdmin: true,
+      };
+    }
 
     if (decisao.acao === 'perguntar_cota') {
       return {
@@ -656,4 +695,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { classificarResultadoValidacao, textoLegivel, decidirAcaoForaDoPrazo };
+module.exports = { classificarResultadoValidacao, textoLegivel, decidirAcaoForaDoPrazo, dentroDoPrazo };

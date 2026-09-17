@@ -38,6 +38,7 @@ const registro = require('./lib/registro');
 const avisoPatio = require('./lib/aviso-patio');
 const fotosUsadas = require('./lib/fotos-usadas');
 const cotaMensal = require('./lib/cota-mensal');
+const { dentroDoPrazo } = require('./validate-ticket');
 const { lerTicket, lerLocal } = require('./ocr-ticket');
 const { consultarPatio } = require('./consultar-patio');
 
@@ -221,6 +222,7 @@ function validar(hangar, msg, pedido, usarCota, faturamento = {}) {
 const STATUS_QUE_ESCALAM = new Set([
   'sem_vagas',              // pátio cheio
   'prazo_excedido_no_site', // ValidPark recusa por idade do ticket
+  'fora_do_prazo',          // passou das horas do hangar; resolve-se à mão
   'erro_validacao',         // recusa que não soubemos classificar
   'valor_invalido',         // horas/dias acima do limite do slider
   'indeterminado',          // clicou em validar e o site não confirmou nada
@@ -688,6 +690,33 @@ async function conduzir(body, { aoReceber } = {}) {
       notificarAdmin: ocr.notificarAdmin === true,
       responder: true,
       ocr,
+    };
+  }
+
+  // Fora do prazo: recusa AQUI, antes de qualquer trabalho.
+  //
+  // A recusa também existe dentro do validate-ticket.js, que é onde a regra
+  // vale de verdade — esta é adiantada, não substituta. Sem ela, um hangar que
+  // exige foto mandaria o cliente até o veículo, esperaria a foto, conferiria o
+  // local e só então diria que o ticket estava vencido desde o começo. É
+  // exatamente o trabalho perdido que a consulta prévia foi criada para evitar.
+  //
+  // Nos demais hangares economiza um login e um Chromium por ticket vencido.
+  const prazo = dentroDoPrazo(hangar, ocr.dataEmissaoIso);
+  if (prazo.ok === false) {
+    return {
+      status: 'fora_do_prazo',
+      hangarId: hangar.id,
+      grupoId: msg.grupoId,
+      ticket: ocr.ticket,
+      horasDecorridas: prazo.horasDecorridas,
+      mensagem: `Ticket emitido há ${prazo.horasDecorridas.toFixed(1)}h — acima do limite de ${hangar.prazoValidacaoHoras}h.`,
+      mensagemWhatsapp: `⚠️ O ticket ${ocr.ticket} foi emitido há ${prazo.horasDecorridas.toFixed(1)}h, `
+        + `acima do limite de ${hangar.prazoValidacaoHoras}h para validação.\n\n`
+        + 'Não consigo validar por aqui. Nossa equipe foi avisada e vai verificar.',
+      notificarAdmin: true,
+      responder: true,
+      etapa: 'conferencia_prazo',
     };
   }
 
