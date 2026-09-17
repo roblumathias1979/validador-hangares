@@ -495,7 +495,7 @@
       "id": "concorde",
       "hangar": "Concorde",
       "grupoWhatsapp": "",
-      "grupoWhatsappId": "",
+      "grupoWhatsappId": "120363412106002425@g.us",
       "validadorUrl": "https://validpark.technext.com.br/login",
       "usuarioEnvVar": "CONCORDE_USUARIO",
       "senhaEnvVar": "CONCORDE_SENHA",
