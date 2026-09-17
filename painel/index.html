@@ -41,9 +41,12 @@
   .corpo.aberto { display:block; }
   .campos { display:grid; grid-template-columns:repeat(auto-fit,minmax(215px,1fr)); gap:12px; margin:12px 0; }
   label { display:block; font-size:12px; color:var(--fraco); margin-bottom:3px; }
-  input[type=text], input[type=number] {
+  input[type=text], input[type=number], .campos select {
     width:100%; padding:7px 9px; border:1px solid var(--borda); border-radius:5px;
     background:var(--fundo); color:var(--texto); font:inherit; font-size:13px; }
+  /* O seletor de grupo divide a grade com campos de texto; sem largura total
+     ele encolhe para o tamanho da opção mais curta e a linha fica torta. */
+  .campos select { max-width:100%; }
   .dica { font-size:11px; color:var(--fraco); margin-top:3px; }
   .linha-check { display:flex; align-items:center; gap:7px; font-size:13px; }
   button { padding:7px 14px; border-radius:5px; border:1px solid var(--acento);
@@ -149,6 +152,11 @@
 <script>
 const $ = (s, r=document) => r.querySelector(s);
 let estado = null;
+// Grupos do WhatsApp: null enquanto não sabemos (ou quando a Evolution não
+// respondeu), e aí a tela volta ao campo de texto manual em vez de mostrar um
+// seletor vazio que pareceria "não há grupos".
+let grupos = null;
+let erroGrupos = null;
 
 // Campos editáveis e suas regras — repetidas aqui só para orientar quem
 // preenche. Quem valida de verdade é o servidor; esta tela não é a barreira.
@@ -158,7 +166,7 @@ const DICAS = {
   diasValidacaoPadrao: 'Tolerância concedida ao validar. Máximo 20 — é o teto do slider do ValidPark.',
   prazoValidacaoHoras: 'Janela para validar após a emissão. Vazio = sem limite.',
   placaGenerica: 'Usada quando o cliente não informa a placa na legenda. Formato AAA1234 ou AAA1A23.',
-  grupoWhatsappId: 'Grupo de onde chegam os tickets. Sem ele o hangar não recebe nada.',
+  grupoWhatsappId: 'Grupo de onde chegam os tickets. Escolha e clique em Salvar para o hangar passar a receber. Cada grupo pertence a um hangar só — os já usados não aparecem aqui.',
   grupoAdministracao: 'Quem recebe os avisos de erro. Grupo (@g.us) ou pessoa (@s.whatsapp.net).',
   avisarVagasAbaixoDe: 'Avisa a administração quando as vagas livres chegarem a este número. Vazio = 10% do total, no mínimo 3.',
 };
@@ -222,6 +230,37 @@ function desenhar() {
       h.historico.validados ? etiqueta(`${h.historico.validados} validado(s)`, 'on') : '',
     ].filter(Boolean).join(' ');
 
+    // Seletor de grupo do WhatsApp. Existe porque ativar um hangar exigia colar
+    // um id de 22 dígitos terminado em @g.us, obtido fora do painel — na
+    // prática, pedindo para alguém consultar a API. O <select> alimenta o mesmo
+    // campo de sempre, então salvar continua sendo salvar.
+    const seletorGrupo = (h) => {
+      const jaTem = (h.grupoWhatsappId || '').trim();
+      // Grupos ainda não usados, mais o do próprio hangar (para não sumir da
+      // lista quando já está ativo).
+      const livres = (grupos || []).filter(g => !g.hangar || g.hangar.id === h.id);
+      const opcoes = [`<option value="">— sem grupo (hangar inativo) —</option>`]
+        .concat(livres.map(g =>
+          `<option value="${g.id}" ${g.id === jaTem ? 'selected' : ''}>${g.nome}</option>`))
+        // Um grupo cadastrado que a Evolution não lista (bot removido do grupo,
+        // por exemplo) sumiria do seletor e seria apagado no primeiro salvar.
+        .concat(jaTem && !livres.some(g => g.id === jaTem)
+          ? [`<option value="${jaTem}" selected>${jaTem} (não encontrado no WhatsApp)</option>`] : []);
+
+      if (grupos === null) {
+        return `<div>
+          <label for="${h.id}-grupoWhatsappId">grupoWhatsappId</label>
+          <input id="${h.id}-grupoWhatsappId" type="text" value="${jaTem}" data-campo="grupoWhatsappId">
+          <div class="dica">${erroGrupos ? `Não consegui listar os grupos (${erroGrupos}) — cole o ID à mão.` : DICAS.grupoWhatsappId}</div>
+        </div>`;
+      }
+      return `<div>
+        <label for="${h.id}-grupoWhatsappId">grupo do WhatsApp</label>
+        <select id="${h.id}-grupoWhatsappId" data-campo="grupoWhatsappId">${opcoes.join('')}</select>
+        <div class="dica">${DICAS.grupoWhatsappId}</div>
+      </div>`;
+    };
+
     const campo = (n, tipo, valor) => `
       <div>
         <label for="${h.id}-${n}">${n}</label>
@@ -241,7 +280,7 @@ function desenhar() {
           ${campo('diasValidacaoPadrao','number',h.diasValidacaoPadrao)}
           ${campo('prazoValidacaoHoras','number',h.prazoValidacaoHoras)}
           ${campo('placaGenerica','text',h.placaGenerica)}
-          ${campo('grupoWhatsappId','text',h.grupoWhatsappId)}
+          ${seletorGrupo(h)}
           ${campo('grupoAdministracao','text',h.grupoAdministracao)}
           ${campo('avisarVagasAbaixoDe','number',h.avisarVagasAbaixoDe)}
         </div>
@@ -283,8 +322,15 @@ function desenhar() {
 }
 
 async function carregar() {
-  const r = await fetch('/api/estado');
+  // Os dois em paralelo: a lista de grupos vem da Evolution e pode demorar,
+  // mas o painel não deve esperar por ela para mostrar os pátios.
+  const [r, g] = await Promise.all([
+    fetch('/api/estado'),
+    fetch('/api/grupos').then(x => x.json()).catch(e => ({ grupos: null, erro: e.message })),
+  ]);
   estado = await r.json();
+  grupos = g.grupos;
+  erroGrupos = g.erro || null;
   desenhar();
 }
 

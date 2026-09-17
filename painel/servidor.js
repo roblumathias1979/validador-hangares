@@ -50,6 +50,7 @@ const SENHA = process.env.PAINEL_SENHA || '';
 
 const { obterUsoMensal, obterRestante } = require(path.join(RAIZ, 'scripts', 'lib', 'cota-fora-prazo'));
 const cotaMensal = require('../scripts/lib/cota-mensal');
+const evolution = require('../scripts/lib/evolution');
 const registro = require(path.join(RAIZ, 'scripts', 'lib', 'registro'));
 const { lerJson } = require(path.join(RAIZ, 'scripts', 'lib', 'trava-arquivo'));
 const usuarios = require('./usuarios');
@@ -367,6 +368,25 @@ const servidor = http.createServer(async (req, res) => {
         }),
         retencaoDias: registro.RETENCAO_DIAS,
       });
+      return;
+    }
+
+    // Grupos do WhatsApp disponíveis, para ativar um hangar sem colar o id de
+    // 22 dígitos à mão. Diz quais já pertencem a algum hangar: reaproveitar um
+    // grupo faria os tickets de um pátio caírem na conta de outro.
+    if (req.method === 'GET' && url.pathname === '/api/grupos') {
+      const config = lerConfig();
+      const donos = new Map(config.hangares
+        .filter((h) => (h.grupoWhatsappId || '').trim())
+        .map((h) => [h.grupoWhatsappId.trim(), { id: h.id, nome: h.hangar || h.id }]));
+      try {
+        const grupos = await evolution.listarGrupos();
+        json(res, 200, { grupos: grupos.map((g) => ({ ...g, hangar: donos.get(g.id) || null })) });
+      } catch (erro) {
+        // Não é 500: a Evolution fora do ar não é erro do painel, e a tela
+        // precisa continuar oferecendo o campo manual.
+        json(res, 200, { grupos: null, erro: erro.message });
+      }
       return;
     }
 
