@@ -1,16 +1,16 @@
 #!/usr/bin/env node
 /**
- * Pátio que exige placa: pede antes de validar, e nunca manda vazio ao site.
+ * A placa NUNCA chega vazia ao ValidPark.
  *
- * O VOASP recusa a validação sem placa real — devolve "OPS: Digite a placa do
- * veiculo corretamente". A placa genérica AAA0000, que serve nos demais pátios,
- * não serve ali. No primeiro teste real (17/09/2026) o cliente recebeu esse
- * erro como falha de sistema, por uma informação que ninguém tinha pedido.
+ * No primeiro teste real do VOASP (17/09/2026) o cliente respondeu SIM e
+ * recebeu "OPS: Digite a placa do veiculo corretamente". A pendência da cota
+ * mensal guardava `placa: null` e o SIM validava com esse null — o caminho sem
+ * cota sempre aplicou `legenda -> placa padrão do hangar -> AAA0000`, e foi a
+ * pergunta da cota que passou por fora dessa cadeia.
  *
- * Havia um bug meu por baixo: a pendência da cota mensal guardava `placa: null`
- * e o SIM validava com esse null, sem aplicar a placa genérica que o caminho
- * simples aplica. Por isso nem o pátio com placa obrigatória nem os outros
- * chegariam ao site com placa, uma vez que passassem pela pergunta da cota.
+ * Informar a placa NÃO é obrigatório: sem ela vale a genérica, como nos demais
+ * pátios. O que este teste vigia é o argumento que chega ao validador do site,
+ * não a mensagem ao cliente — é ali que o erro aparecia.
  *
  * Config e estado são reais: o teste guarda e devolve.
  */
@@ -45,12 +45,11 @@ const restaurar = () => {
 process.on('exit', restaurar);
 process.on('uncaughtException', (e) => { restaurar(); console.error(e); process.exit(1); });
 
-// Garante o cenário: VOASP com grupo, placa obrigatória e cota de 20.
+// Garante o cenário: VOASP com grupo e cota de 20.
 {
   const cfg = JSON.parse(guardado['config/hangares.json']);
   const v = cfg.hangares.find((h) => h.id === 'voasp');
   v.grupoWhatsappId = GRUPO_VOASP;
-  v.placaObrigatoria = true;
   v.cotaMensalValidacoes = 20;
   fs.writeFileSync(path.join(RAIZ, 'config/hangares.json'), JSON.stringify(cfg, null, 2) + '\n');
 }
@@ -102,26 +101,14 @@ const conferir = (nome, ok, detalhe) => {
 async function main() {
   for (const a of ARQUIVOS.slice(1)) fs.writeFileSync(path.join(RAIZ, a), a.endsWith('.jsonl') ? '' : '{}');
 
-  console.log('Ticket sem placa: pede a placa, não tenta validar');
+  console.log('Ticket SEM placa: segue e valida com a genérica');
   const sem = await processar(foto(), {});
-  conferir('pede a placa', sem.status === 'aguardando_placa', `veio "${sem.status}"`);
-  conferir('não chamou o validador', placaEnviadaAoSite === '(não chamado)', `placa: ${placaEnviadaAoSite}`);
-  conferir('não pergunta da cota ainda', !/valida[çc][õo]es do m[êe]s/i.test(sem.mensagemWhatsapp || ''));
-
-  console.log('\nTexto que não é placa: reforça sem adivinhar');
-  const ruim = await processar(texto('não sei'), {});
-  conferir('pede de novo', ruim.status === 'placa_nao_entendida', `veio "${ruim.status}"`);
-  conferir('não chamou o validador', placaEnviadaAoSite === '(não chamado)');
-
-  console.log('\nPlaca informada: aí sim pergunta da cota');
-  const comPlaca = await processar(texto('Etz4780'), {});
-  conferir('pergunta da cota', comPlaca.status === 'requer_decisao_cota_mensal', `veio "${comPlaca.status}"`);
-  conferir('a pergunta mostra a placa', /ETZ4780/i.test(comPlaca.mensagemWhatsapp || ''));
-
-  console.log('\nSIM: valida COM a placa (o bug era mandar vazio)');
-  const sim = await processar(texto('sim'), {});
-  conferir('valida', sim.status === 'validado', `veio "${sim.status}"`);
-  conferir('a placa chegou ao site', placaEnviadaAoSite === 'ETZ4780', `foi "${placaEnviadaAoSite}"`);
+  conferir('pergunta da cota', sem.status === 'requer_decisao_cota_mensal', `veio "${sem.status}"`);
+  conferir('não pede placa ao cliente', !/placa.*obrigat/i.test(sem.mensagemWhatsapp || ''));
+  const semSim = await processar(texto('sim'), {});
+  conferir('valida', semSim.status === 'validado', `veio "${semSim.status}"`);
+  conferir('a placa genérica chegou ao site', placaEnviadaAoSite === 'AAA0000', `foi "${placaEnviadaAoSite}"`);
+  conferir('avisa que usou a placa padrão', /placa padr[ãa]o/i.test(semSim.mensagemWhatsapp || ''));
 
   console.log('\nPlaca já na legenda da foto: não pede de novo');
   ticketAtual = '011709101528';

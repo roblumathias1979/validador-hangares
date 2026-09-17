@@ -417,29 +417,6 @@ async function conduzir(body, { aoReceber } = {}) {
       return { status: 'ignorado', motivo: 'texto sem pendência para esta pessoa', grupoId: msg.grupoId, responder: false };
     }
 
-    // Pendência de placa: o texto É a placa.
-    if (pendente.tipo === 'informar_placa') {
-      const placaLida = extrairPlaca(msg.texto);
-      if (!placaLida) {
-        return {
-          status: 'placa_nao_entendida', hangarId: hangar.id, grupoId: msg.grupoId, ticket: pendente.ticket,
-          mensagemWhatsapp: `Não consegui ler uma placa em "${(msg.texto || '').slice(0, 30)}". `
-            + 'Mande só a placa, no formato ABC1D23 ou ABC1234.',
-          notificarAdmin: false, responder: true, etapa: 'pedido_placa',
-        };
-      }
-      const pedido = pendencias.consumir(msg.grupoId, msg.remetenteId);
-      if (!pedido) {
-        return { status: 'ignorado', motivo: 'pendência já consumida por outra mensagem', grupoId: msg.grupoId, responder: false };
-      }
-      pedido.placa = placaLida;
-      pedido.placaEhGenerica = false;
-
-      const comCota = perguntarCotaSePreciso(hangar, msg, pedido);
-      if (comCota) return comCota;
-      return validar(hangar, msg, pedido, false);
-    }
-
     // Placa digitada quando a pergunta em aberto era outra.
     //
     // Aconteceu no primeiro teste do VOASP (17/09/2026): o cliente mandou o
@@ -833,38 +810,6 @@ async function conduzir(body, { aoReceber } = {}) {
     };
   }
 
-  // Placa obrigatória: pede antes de seguir.
-  //
-  // Nos demais hangares uma placa ausente vira a genérica `AAA0000`, e o
-  // ValidPark aceita. No VOASP não aceita — ele recusa com "Digite a placa do
-  // veiculo corretamente", e o cliente ouvia um erro de sistema por uma
-  // informação que ninguém tinha pedido (17/09/2026).
-  //
-  // Vem depois das checagens baratas de propósito: não faz sentido pedir a
-  // placa de um ticket que já está fora do prazo ou já foi validado.
-  if (hangar.placaObrigatoria && !msg.placa) {
-    pendencias.registrar(msg.grupoId, msg.remetenteId, {
-      ticket: ocr.ticket,
-      placa: null,
-      placaEhGenerica: false,
-      dataEmissaoIso: ocr.dataEmissaoIso,
-      hangarId: hangar.id,
-      tipo: 'informar_placa',
-      hashTicket: fotosUsadas.impressaoDigital(imagem.base64),
-    });
-    return {
-      status: 'aguardando_placa',
-      hangarId: hangar.id,
-      grupoId: msg.grupoId,
-      ticket: ocr.ticket,
-      mensagemWhatsapp: `Recebi o ticket ${ocr.ticket}. Neste pátio a *placa do veículo* é obrigatória.\n\n`
-        + 'Qual é a placa? (ex.: ABC1D23)',
-      notificarAdmin: false,
-      responder: true,
-      etapa: 'pedido_placa',
-    };
-  }
-
   // Cota mensal disponível: PERGUNTA antes de gastar.
   //
   // Pedido do usuário em 16/09/2026. A cota é do hangar, não do bot: cada
@@ -876,7 +821,12 @@ async function conduzir(body, { aoReceber } = {}) {
   // comportamento que já conhece: pergunta, guarda o pedido, e só age no SIM.
   const comCota = perguntarCotaSePreciso(hangar, msg, {
     ticket: ocr.ticket,
-    placa: msg.placa || null,
+    // A placa genérica precisa ser resolvida AQUI, não lá na frente. Era o bug
+    // do primeiro teste do VOASP (17/09/2026): a pendência guardava null, o SIM
+    // validava com null, e o ValidPark devolvia "Digite a placa do veiculo
+    // corretamente". O caminho sem cota sempre aplicou essa mesma cadeia — foi
+    // a pergunta da cota que passou por fora dela.
+    placa: msg.placa || hangar.placaGenerica || 'AAA0000',
     placaEhGenerica: !msg.placa,
     dataEmissaoIso: ocr.dataEmissaoIso,
     hangarId: hangar.id,
