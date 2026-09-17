@@ -207,7 +207,7 @@
       "id": "plane-aviation",
       "hangar": "Plane Aviation",
       "grupoWhatsapp": "",
-      "grupoWhatsappId": "",
+      "grupoWhatsappId": "120363430202850979@g.us",
       "validadorUrl": "https://validpark.technext.com.br/login",
       "usuarioEnvVar": "PLANE_AVIATION_USUARIO",
       "senhaEnvVar": "PLANE_AVIATION_SENHA",
