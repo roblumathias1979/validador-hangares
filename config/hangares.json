@@ -371,7 +371,7 @@
       "id": "hangar-aristek",
       "hangar": "Hangar Aristek",
       "grupoWhatsapp": "",
-      "grupoWhatsappId": "",
+      "grupoWhatsappId": "120363413551805889@g.us",
       "validadorUrl": "https://validpark.technext.com.br/login",
       "usuarioEnvVar": "HANGAR_ARISTEK_USUARIO",
       "senhaEnvVar": "HANGAR_ARISTEK_SENHA",
