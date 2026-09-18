@@ -143,10 +143,23 @@ function trilha(registro, { quandoLegivel = (x) => x } = {}) {
   return linhas.join('\n');
 }
 
+/**
+ * Tom NEUTRO, de propósito (escolha do usuário em 18/09/2026).
+ *
+ * A versão anterior dizia "por segurança ele ficou bloqueado". Num caso
+ * honesto — a pessoa chegou, não havia vaga, está tentando de novo — isso soa
+ * como acusação, e a maioria dos casos é honesta. O texto atual diz a mesma
+ * coisa sem implicar culpa e promete retorno, que é o que a pessoa precisa
+ * ouvir enquanto espera.
+ *
+ * Não muda quando há tentativa anterior em outro pátio. Quem age de má-fé não
+ * descobre que o rastro está sendo montado, e cada tentativa nova vira
+ * evidência em vez de aviso — decisão consciente, não esquecimento.
+ */
 function mensagemParaCliente(ticket) {
-  return `⚠️ O ticket ${ticket} foi tentado em um pátio *sem vagas disponíveis*.\n\n`
-    + 'Por segurança ele ficou *bloqueado* e o caso foi passado para o administrador. '
-    + 'A validação só sai depois da autorização dele.';
+  return `⚠️ O ticket ${ticket} foi apresentado em um pátio sem vagas no momento.\n\n`
+    + 'A validação precisa da conferência da administração. Já encaminhei e aviso aqui '
+    + 'assim que tiver retorno.';
 }
 
 module.exports = { bloquear, estaBloqueado, autorizar, manterBloqueado, maisRecenteAguardando, listar, trilha, mensagemParaCliente, ARQUIVO };

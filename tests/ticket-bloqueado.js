@@ -80,8 +80,14 @@ async function main() {
   conferir('não valida', cheio.status === 'sem_vagas', `veio "${cheio.status}"`);
   conferir('trava o ticket', bloqueados.estaBloqueado(TICKET) !== null);
   conferir('avisa a administração', cheio.notificarAdmin === true);
-  conferir('a mensagem fala em bloqueio', /bloqueado/i.test(cheio.mensagemWhatsapp || ''));
-  conferir('e fala em autorização', /autoriza/i.test(cheio.mensagemWhatsapp || ''));
+  conferir('a mensagem explica o que houve', /sem vagas/i.test(cheio.mensagemWhatsapp || ''));
+  conferir('e promete retorno', /aviso aqui/i.test(cheio.mensagemWhatsapp || ''));
+  // Tom neutro: a maioria dos casos é honesta, e "bloqueado por segurança"
+  // soava como acusação a quem só não achou vaga.
+  conferir('não acusa o cliente', !/bloquead|seguran[çc]a|fraude/i.test(cheio.mensagemWhatsapp || ''),
+    cheio.mensagemWhatsapp);
+  conferir('não repete "encaminhando para o administrador"',
+    (cheio.mensagemWhatsapp.match(/encaminh/gi) || []).length <= 1, cheio.mensagemWhatsapp);
 
   console.log('\nO MOVIMENTO SUSPEITO: tentar o mesmo ticket em outro hangar');
   // O site aceitaria: pátio com vaga. Quem tem que barrar é o bloqueio.
@@ -89,6 +95,9 @@ async function main() {
   const outro = await processar(foto(GRUPO_SOLOJET), {});
   conferir('NÃO valida no outro pátio', outro.status !== 'validado', `veio "${outro.status}"`);
   conferir('diz que está bloqueado', outro.status === 'ticket_bloqueado');
+  // Mesma mensagem da primeira vez, de propósito: quem age de má-fé não
+  // descobre que o rastro está sendo montado, e cada tentativa vira evidência.
+  conferir('o cliente ouve o mesmo de antes', outro.mensagemWhatsapp === cheio.mensagemWhatsapp);
   conferir('aciona a administração de novo', outro.notificarAdmin === true);
   conferir('o detalhe traz a trilha', /1ª tentativa/.test(outro.mensagem || '') && /2ª tentativa/.test(outro.mensagem || ''), outro.mensagem);
   conferir('diz onde travou primeiro', /1ª tentativa: Hangar Aristek/.test(outro.mensagem || ''), outro.mensagem);

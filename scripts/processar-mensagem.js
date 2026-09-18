@@ -266,12 +266,18 @@ const STATUS_QUE_ESCALAM = new Set([
  * marca o resultado para notificação. A explicação específica é mantida — o
  * cliente saber POR QUE parou evita que ele reenvie a foto várias vezes.
  */
+// Estes já dizem no próprio texto que foram encaminhados — a frase padrão do
+// escalonamento viraria repetição na mesma mensagem.
+const NAO_REPETEM_ENCAMINHAMENTO = new Set(['sem_vagas', 'ticket_bloqueado']);
+
 function escalar(resultado, remetente) {
   if (!STATUS_QUE_ESCALAM.has(resultado.status)) return resultado;
 
   const base = resultado.mensagemWhatsapp
     || '⚠️ Não consegui concluir a validação deste ticket.';
-  resultado.mensagemWhatsapp = `${base}\n\nJá estou encaminhando para o administrador resolver.`;
+  resultado.mensagemWhatsapp = NAO_REPETEM_ENCAMINHAMENTO.has(resultado.status)
+    ? base
+    : `${base}\n\nJá estou encaminhando para o administrador resolver.`;
   resultado.notificarAdmin = true;
   resultado.escalado = true;
   resultado.responder = true;
