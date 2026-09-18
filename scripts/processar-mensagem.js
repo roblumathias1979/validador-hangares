@@ -256,6 +256,7 @@ const STATUS_QUE_ESCALAM = new Set([
   'prazo_excedido_no_site', // ValidPark recusa por idade do ticket
   'fora_do_prazo',          // passou das horas do hangar; resolve-se à mão
   'erro_validacao',         // recusa que não soubemos classificar
+  'ocr_numero_suspeito',    // número e data discordam E o site não confirma
   'valor_invalido',         // horas/dias acima do limite do slider
   'indeterminado',          // clicou em validar e o site não confirmou nada
   'erro',                   // exceção no meio do caminho
@@ -1135,6 +1136,12 @@ async function conduzir(body, { aoReceber } = {}) {
   // antes custa uma consulta barata e evita esse trabalho perdido.
   if (hangar.exigeFotoVeiculoNoLocal) {
     const previa = rodarScript('consultar-ticket.js', [hangar.id, ocr.ticket]);
+
+    // Aproveita a consulta que acabou de acontecer para resolver a divergência
+    // entre número e data impressa, quando houver.
+    const suspeito = suspeitaDeNumeroTrocado(hangar, msg, ocr, previa);
+    if (suspeito) return suspeito;
+
     const naoServe = previa.status !== 'consulta_ok' || previa.jaValidado === true;
     if (naoServe) {
       return {
@@ -1227,6 +1234,9 @@ async function conduzir(body, { aoReceber } = {}) {
   // evita tentar validar um ticket que já foi usado — o que gastaria uma
   // abertura de navegador e, fora do prazo, uma validação da cota do hangar.
   const consulta = rodarScript('consultar-ticket.js', [hangar.id, ocr.ticket]);
+
+  const suspeito = suspeitaDeNumeroTrocado(hangar, msg, ocr, consulta);
+  if (suspeito) return suspeito;
 
   const jaResolvido =
     consulta.status !== 'consulta_ok' || consulta.jaValidado === true;
@@ -1350,6 +1360,66 @@ function responderAutorizacaoPrivada(msg) {
       notificarAdmin: false, responder: true, etapa: 'autorizacao_privada',
     };
   }
+}
+
+/**
+ * Quando número e data impressa discordam, a palavra final é do SITE.
+ *
+ * A conferência local nasceu de 12 tickets que seguiam `01 | DDMM | HHMMSS`.
+ * Em 18/09/2026 apareceu um que não segue — `011111000259`, impresso às
+ * 18/09/26 17:42:51, bem legível na foto. Enquanto a divergência era bloqueio,
+ * o cliente foi recusado três vezes num ticket bom, e o ValidPark depois
+ * confirmou que o número existia.
+ *
+ * Uma regra que não vale sempre não pode ser bloqueio. Agora a divergência só
+ * pesa junto do que o site diz — e o site já é consultado antes de validar, em
+ * todos os caminhos, então isto não custa navegador nenhum a mais.
+ *
+ * Devolve o resultado da recusa, ou null quando está tudo bem.
+ */
+function suspeitaDeNumeroTrocado(hangar, msg, ocr, consulta) {
+  if (!ocr.conferencia || ocr.conferencia.ok !== false) return null;
+
+  const naoEncontrado = consulta.status !== 'consulta_ok';
+  const entradaDivergente = conferirEntradaComPapel(consulta.entrada, ocr.dataEmissaoIso);
+  // Ticket já utilizado é resposta legítima do site e assunto de outro ramo do
+  // fluxo — aqui só interessa se o número EXISTE e bate com o papel.
+  if (!naoEncontrado && !entradaDivergente) return null;
+
+  return {
+    status: 'ocr_numero_suspeito',
+    hangarId: hangar.id,
+    grupoId: msg.grupoId,
+    ticket: ocr.ticket,
+    mensagem: `Número e data impressa não conferem entre si (${ocr.conferencia.motivo}), `
+      + `e no site ${naoEncontrado ? `o ticket não foi encontrado (${consulta.status})` : `a entrada é ${consulta.entrada}`}. `
+      + 'Provável dígito trocado na leitura.',
+    mensagemWhatsapp: `⚠️ Não consegui confirmar o número do ticket ${ocr.ticket}. `
+      + 'Pode reenviar a foto, mais de perto e com o papel bem iluminado?',
+    notificarAdmin: true,
+    responder: true,
+    etapa: 'conferencia_numero',
+  };
+}
+
+/**
+ * A entrada que o ValidPark mostra bate com a data impressa no papel?
+ *
+ * Devolve true quando DIVERGEM — é o caso que interessa. Sem entrada no site
+ * não há o que comparar, e aí não se acusa: ausência de informação não é
+ * prova de erro.
+ *
+ * Tolerância de 2 minutos: papel e sistema são o mesmo evento, mas o site
+ * mostra segundos e o arredondamento entre os dois não é garantido.
+ */
+function conferirEntradaComPapel(entradaDoSite, dataEmissaoIso) {
+  if (!entradaDoSite || !dataEmissaoIso) return false;
+  const m = String(entradaDoSite).match(/(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2}):(\d{2})/);
+  if (!m) return false;
+  const doSite = new Date(`${m[3]}-${m[2]}-${m[1]}T${m[4]}:${m[5]}:${m[6]}-03:00`).getTime();
+  const doPapel = new Date(dataEmissaoIso).getTime();
+  if (!Number.isFinite(doSite) || !Number.isFinite(doPapel)) return false;
+  return Math.abs(doSite - doPapel) > 2 * 60 * 1000;
 }
 
 /** Data e hora em horário de São Paulo, para ler no WhatsApp. */

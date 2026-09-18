@@ -307,27 +307,29 @@ async function lerTicket(origem) {
     };
   }
 
-  // Verificação independente: não seguir daqui é o ponto mais importante deste
-  // script. Um número com dígito trocado não dá erro nenhum lá na frente — ele
-  // simplesmente valida o ticket de outra pessoa.
+  // Conferência entre o número e a data impressa. NÃO bloqueia mais.
+  //
+  // A regra nasceu de 12 tickets que seguiam `01 | DDMM | HHMMSS`, e valia
+  // neles. Em 18/09/2026 apareceu um que não segue: `011111000259`, impresso
+  // às 18/09/26 17:42:51, perfeitamente legível na foto. O OCR leu número e
+  // data corretos, a conferência acusou divergência, e o cliente foi recusado
+  // três vezes num ticket bom — confirmado depois pelo próprio ValidPark, que
+  // conhecia o número.
+  //
+  // Nem todo ticket carrega a data dentro do número, e não há como saber pelo
+  // número qual é qual. Uma regra que não vale sempre não pode ser bloqueio.
+  //
+  // O veredito segue no resultado: quem chama usa a divergência como MOTIVO
+  // PARA CONFERIR NO SITE, que é verificação de verdade — ver
+  // processar-mensagem.js. Trocamos um palpite sobre o formato do número por
+  // uma pergunta à fonte que sabe a resposta.
   const conferencia = conferirTicketComData(ticket, extraido.dataEmissaoDDMMAAHHMMSS);
-  if (!conferencia.ok) {
-    return {
-      status: 'ocr_conferencia_falhou',
-      mensagem: `Número e data não conferem entre si: ${conferencia.motivo}.`,
-      ticketLido: ticket,
-      dataEmissaoLida: extraido.dataEmissaoDDMMAAHHMMSS || null,
-      conferencia,
-      mensagemWhatsapp: '⚠️ A foto ficou com o número ou a data pouco legíveis. Pode reenviar, mais de perto e com o papel bem iluminado?',
-      notificarAdmin: false,
-    };
-  }
 
   return {
     status: 'ocr_ok',
     ticket,
     dataEmissaoIso,
-    conferencia: { ok: true, valor: conferencia.doNumero },
+    conferencia,
     // Só vêm preenchidos quando o hangar exige a foto com o veículo; quem
     // decide o que fazer com eles é avaliarLocal(), em conferir-local.js.
     cenario: extraido.cenario || null,
