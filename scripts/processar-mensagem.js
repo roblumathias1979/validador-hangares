@@ -162,7 +162,9 @@ function validar(hangar, msg, pedido, usarCota, faturamento = {}) {
         vagasDisponiveis: validacao.vagasDisponiveis ?? null,
       });
       validacao.mensagemWhatsapp = bloqueados.mensagemParaCliente(pedido.ticket);
-      validacao.mensagem = `${validacao.mensagem || 'Pátio sem vagas.'} Ticket BLOQUEADO até autorização no painel.`;
+      const registro = bloqueados.estaBloqueado(pedido.ticket);
+      validacao.mensagem = 'Tentativa em pátio SEM VAGAS. Ticket bloqueado em todos os pátios.\n'
+        + bloqueados.trilha(registro, { quandoLegivel });
     } catch (erro) {
       // Falhar aqui não pode esconder a recusa por falta de vaga, que é a
       // informação que o cliente precisa de qualquer jeito.
@@ -311,7 +313,7 @@ async function avisarAdmin(hangar, resultado, aoNotificarAdmin) {
     `Grupo de origem: ${resultado.grupoId}`,
     // Ticket travado espera uma decisão SUA. Sem esta linha o alerta seria
     // informação, e informação sozinha deixa o cliente parado no pátio.
-    resultado.status === 'sem_vagas' || resultado.status === 'ticket_bloqueado'
+    resultado.status === 'sem_vagas'
       ? `\nResponda aqui *SIM* para autorizar a validação do ticket ${resultado.ticket}, ou *NÃO* para mantê-lo bloqueado.`
       : null,
   ].filter(Boolean);
@@ -931,6 +933,15 @@ async function conduzir(body, { aoReceber } = {}) {
   // cliente — e muito menos validar em outro pátio enquanto espera.
   const travado = bloqueados.estaBloqueado(ocr.ticket);
   if (travado) {
+    // Registra ESTA tentativa antes de montar o aviso: é ela que interessa a
+    // quem decide — o ticket travou num pátio e está sendo pedido em outro.
+    const comAtual = bloqueados.bloquear(ocr.ticket, {
+      hangarId: hangar.id,
+      hangarNome: hangar.hangar || hangar.id,
+      grupoId: msg.grupoId,
+      remetente: msg.remetente,
+    }) || travado;
+
     return {
       status: 'ticket_bloqueado',
       hangarId: hangar.id,
@@ -938,9 +949,10 @@ async function conduzir(body, { aoReceber } = {}) {
       ticket: ocr.ticket,
       bloqueadoEm: travado.bloqueadoEm,
       bloqueadoNoHangar: travado.hangarNome || travado.hangarId,
-      tentativas: (travado.tentativas || []).length,
-      mensagem: `Ticket ${ocr.ticket} bloqueado desde ${travado.bloqueadoEm} (tentativa em pátio cheio no ${travado.hangarNome || travado.hangarId}). `
-        + `Esta é a tentativa ${(travado.tentativas || []).length + 1}. Autorize no painel para liberar.`,
+      tentativas: (comAtual.tentativas || []).length,
+      mensagem: `Ticket travado por falta de vaga, pedido de novo agora.\n`
+        + bloqueados.trilha(comAtual, { quandoLegivel })
+        + `\n\nResponda SIM para liberar ou NÃO para manter bloqueado.`,
       mensagemWhatsapp: bloqueados.mensagemParaCliente(ocr.ticket),
       notificarAdmin: true,
       responder: true,

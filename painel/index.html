@@ -76,6 +76,9 @@
   .perigo input { max-width:260px; }
   .perigo button { margin-top:8px; }
   .perigoso { background:var(--erro); }
+  /* A sequência de pátios é o que revela o padrão: travou num, pediu no
+     seguinte. Na tabela ela cabe numa linha pequena embaixo da contagem. */
+  .trilha { font-size:11px; color:var(--fraco); margin-top:3px; }
   .dica { font-size:11px; color:var(--fraco); margin-top:3px; }
   .linha-check { display:flex; align-items:center; gap:7px; font-size:13px; }
   button { padding:7px 14px; border-radius:5px; border:1px solid var(--acento);
@@ -594,7 +597,9 @@ async function carregarBloqueados() {
     <td><code>${escapar(b.ticket)}</code></td>
     <td>${escapar(b.hangarNome || b.hangarId)}</td>
     <td>${quando(b.bloqueadoEm)}</td>
-    <td>${(b.tentativas || []).length}${(b.tentativas || []).length > 1 ? ' <span class="st ruim">insistiu</span>' : ''}</td>
+    <td title="${escapar((b.tentativas || []).map((t, i) => `${i + 1}ª: ${t.hangarNome || t.hangarId} — ${quando(t.em)}`).join(' | '))}">
+      ${(b.tentativas || []).length}${(b.tentativas || []).length > 1 ? ' <span class="st ruim">insistiu</span>' : ''}
+      ${(b.tentativas || []).length > 1 ? `<div class="trilha">${(b.tentativas || []).map((t, i) => `${i + 1}ª ${escapar(t.hangarNome || t.hangarId)}`).join(' → ')}</div>` : ''}</td>
     <td>${b.autorizadoEm
       ? `<span class="st bom">liberado por ${escapar(b.autorizadoPor)}</span> ${quando(b.autorizadoEm)}`
       : `<button onclick="autorizarTicket('${escapar(b.ticket)}', this)">Autorizar</button>`}</td>

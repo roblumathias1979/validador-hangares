@@ -90,7 +90,11 @@ async function main() {
   conferir('NÃO valida no outro pátio', outro.status !== 'validado', `veio "${outro.status}"`);
   conferir('diz que está bloqueado', outro.status === 'ticket_bloqueado');
   conferir('aciona a administração de novo', outro.notificarAdmin === true);
-  conferir('o detalhe conta a insistência', /tentativa 2/i.test(outro.mensagem || ''), outro.mensagem);
+  conferir('o detalhe traz a trilha', /1ª tentativa/.test(outro.mensagem || '') && /2ª tentativa/.test(outro.mensagem || ''), outro.mensagem);
+  conferir('diz onde travou primeiro', /1ª tentativa: Hangar Aristek/.test(outro.mensagem || ''), outro.mensagem);
+  conferir('e onde pediram depois', /2ª tentativa: Solojet/.test(outro.mensagem || ''), outro.mensagem);
+  conferir('mostra as vagas do pátio cheio', /0 vaga/.test(outro.mensagem || ''), outro.mensagem);
+  conferir('pede a decisão', /SIM para liberar/i.test(outro.mensagem || ''));
 
   console.log('\nO registro guarda o rastro');
   const r = bloqueados.estaBloqueado(TICKET);

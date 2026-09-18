@@ -116,10 +116,37 @@ function listar({ apenasAtivos = false } = {}) {
   return lista.sort((a, b) => String(b.bloqueadoEm).localeCompare(String(a.bloqueadoEm)));
 }
 
+/**
+ * A trilha do ticket, para quem vai decidir: onde travou e onde tentaram
+ * depois.
+ *
+ * É a informação que muda a decisão. "Ticket bloqueado, autoriza?" não diz
+ * nada; "travou no Aristek por falta de vaga e vinte minutos depois pediram no
+ * Solojet" diz tudo — inclusive que o carro saiu de um pátio e foi para outro,
+ * ou que nunca esteve no primeiro.
+ */
+function trilha(registro, { quandoLegivel = (x) => x } = {}) {
+  if (!registro) return '';
+  const tentativas = registro.tentativas || [];
+  const primeira = tentativas[0];
+
+  const linhas = [
+    `1ª tentativa: ${primeira ? (primeira.hangarNome || primeira.hangarId) : (registro.hangarNome || registro.hangarId)}`
+      + ` — ${quandoLegivel(registro.bloqueadoEm)}`
+      + `${primeira && Number.isFinite(primeira.vagasDisponiveis) ? ` (pátio com ${primeira.vagasDisponiveis} vaga(s))` : ''}`,
+  ];
+  for (let i = 1; i < tentativas.length; i += 1) {
+    const t = tentativas[i];
+    linhas.push(`${i + 1}ª tentativa: ${t.hangarNome || t.hangarId} — ${quandoLegivel(t.em)}`
+      + `${t.remetente ? ` (${t.remetente})` : ''}`);
+  }
+  return linhas.join('\n');
+}
+
 function mensagemParaCliente(ticket) {
   return `⚠️ O ticket ${ticket} foi tentado em um pátio *sem vagas disponíveis*.\n\n`
     + 'Por segurança ele ficou *bloqueado* e o caso foi passado para o administrador. '
     + 'A validação só sai depois da autorização dele.';
 }
 
-module.exports = { bloquear, estaBloqueado, autorizar, manterBloqueado, maisRecenteAguardando, listar, mensagemParaCliente, ARQUIVO };
+module.exports = { bloquear, estaBloqueado, autorizar, manterBloqueado, maisRecenteAguardando, listar, trilha, mensagemParaCliente, ARQUIVO };
