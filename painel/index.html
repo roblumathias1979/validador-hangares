@@ -138,6 +138,12 @@
 
 <main>
   <div id="avisos"></div>
+  <div class="secao" id="sec-bloqueados">
+    <h2>Tickets bloqueados</h2>
+    <div class="sub">Tentativa de validação em pátio sem vagas. O ticket fica travado em <b>todos</b> os pátios até alguém autorizar — é o caminho que uma fraude usaria: tentar aqui, não caber, e pedir validação em outro hangar.</div>
+    <div id="bloqueados"></div>
+  </div>
+
   <div class="secao" id="sec-novo">
     <h2>Criar pátio</h2>
     <div class="sub">O login do ValidPark é opcional aqui — sem ele o pátio nasce marcado "sem credencial" e não valida até você informar.</div>
@@ -570,6 +576,53 @@ async function excluirHangar(id, botao) {
   }
 }
 
+async function carregarBloqueados() {
+  const caixa = $('#bloqueados');
+  let d;
+  try { d = await (await fetch('/api/bloqueados')).json(); }
+  catch (e) { caixa.innerHTML = `<div class="vazio">Não consegui carregar: ${escapar(e.message)}</div>`; return; }
+
+  const ativos = d.bloqueados.filter(b => !b.autorizadoEm);
+  const liberados = d.bloqueados.filter(b => b.autorizadoEm).slice(0, 10);
+
+  if (!d.bloqueados.length) {
+    caixa.innerHTML = '<div class="vazio">Nenhum ticket bloqueado. Aparecem aqui os que forem tentados em pátio cheio.</div>';
+    return;
+  }
+
+  const linha = (b) => `<tr>
+    <td><code>${escapar(b.ticket)}</code></td>
+    <td>${escapar(b.hangarNome || b.hangarId)}</td>
+    <td>${quando(b.bloqueadoEm)}</td>
+    <td>${(b.tentativas || []).length}${(b.tentativas || []).length > 1 ? ' <span class="st ruim">insistiu</span>' : ''}</td>
+    <td>${b.autorizadoEm
+      ? `<span class="st bom">liberado por ${escapar(b.autorizadoPor)}</span> ${quando(b.autorizadoEm)}`
+      : `<button onclick="autorizarTicket('${escapar(b.ticket)}', this)">Autorizar</button>`}</td>
+  </tr>`;
+
+  caixa.innerHTML = `${ativos.length ? `<div class="aviso pendente"><b>${ativos.length} ticket(s) aguardando sua decisão.</b>
+      Enquanto não autorizar, eles não validam em pátio nenhum.</div>` : ''}
+    <div class="rolavel"><table>
+    <thead><tr><th>ticket</th><th>onde travou</th><th>quando</th><th>tentativas</th><th>situação</th></tr></thead>
+    <tbody>${ativos.concat(liberados).map(linha).join('')}</tbody></table></div>`;
+}
+
+async function autorizarTicket(ticket, botao) {
+  if (!confirm(`Autorizar a validação do ticket ${ticket}?\n\nEle foi tentado em um pátio sem vagas. Autorizando, ele poderá ser validado em qualquer pátio.`)) return;
+  botao.disabled = true; botao.textContent = 'autorizando…';
+  try {
+    const r = await fetch('/api/bloqueado-autorizar', {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ticket }),
+    });
+    const d = await r.json();
+    if (!r.ok) { alert(d.erro || 'erro'); botao.disabled = false; botao.textContent = 'Autorizar'; return; }
+    await carregarBloqueados();
+  } catch (e) {
+    alert('falha de rede: ' + e.message);
+    botao.disabled = false; botao.textContent = 'Autorizar';
+  }
+}
+
 async function carregar() {
   // Os dois em paralelo: a lista de grupos vem da Evolution e pode demorar,
   // mas o painel não deve esperar por ela para mostrar os pátios.
@@ -819,6 +872,7 @@ carregar().then(() => {
   $('#f-hangar').innerHTML = '<option value="">todos os hangares</option>' +
     estado.hangares.filter(h => h.ativo).map(h => `<option value="${h.id}">${h.nome}</option>`).join('');
   carregarHistorico();
+  carregarBloqueados();
   carregarUsuarios();
   // Conta somente leitura não deve ver botões que vão falhar com 403.
   if (estado.usuario && estado.usuario.somenteLeitura) {

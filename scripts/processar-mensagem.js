@@ -39,6 +39,7 @@ const avisoPatio = require('./lib/aviso-patio');
 const fotosUsadas = require('./lib/fotos-usadas');
 const cotaMensal = require('./lib/cota-mensal');
 const { salvarEComitar } = require('./lib/salvar-config');
+const bloqueados = require('./lib/tickets-bloqueados');
 const { dentroDoPrazo } = require('./validate-ticket');
 const { lerTicket, lerLocal } = require('./ocr-ticket');
 const { consultarPatio } = require('./consultar-patio');
@@ -146,6 +147,29 @@ function validar(hangar, msg, pedido, usarCota, faturamento = {}) {
     faturamento.fotoAutorizacao || '',
   ]);
 
+  // Pátio cheio: trava o ticket até a administração decidir.
+  //
+  // Se não há vaga, o carro daquele ticket provavelmente não está ali. Pode ser
+  // honesto — a pessoa chegou e não achou lugar — mas é também o formato exato
+  // de uma fraude, e o sistema não sabe distinguir os dois. Para e chama gente.
+  if (validacao.status === 'sem_vagas') {
+    try {
+      bloqueados.bloquear(pedido.ticket, {
+        hangarId: hangar.id,
+        hangarNome: hangar.hangar || hangar.id,
+        grupoId: msg.grupoId,
+        remetente: msg.remetente,
+        vagasDisponiveis: validacao.vagasDisponiveis ?? null,
+      });
+      validacao.mensagemWhatsapp = bloqueados.mensagemParaCliente(pedido.ticket);
+      validacao.mensagem = `${validacao.mensagem || 'Pátio sem vagas.'} Ticket BLOQUEADO até autorização no painel.`;
+    } catch (erro) {
+      // Falhar aqui não pode esconder a recusa por falta de vaga, que é a
+      // informação que o cliente precisa de qualquer jeito.
+      validacao.erroBloqueio = erro.message;
+    }
+  }
+
   let mensagem = validacao.mensagemWhatsapp;
   if (validacao.status === 'validado' && pedido.placaEhGenerica) {
     mensagem += ` (validei com a placa padrão ${pedido.placa} porque não veio placa na legenda da foto — se precisar corrigir, fale com a administração. Da próxima vez, escreva a placa junto ao enviar a foto.)`;
@@ -225,7 +249,8 @@ function validar(hangar, msg, pedido, usarCota, faturamento = {}) {
 // não encontrado, formato inválido, foto fora do local — porque para esses a
 // resposta já diz o que fazer e reenviar resolve.
 const STATUS_QUE_ESCALAM = new Set([
-  'sem_vagas',              // pátio cheio
+  'sem_vagas',              // pátio cheio — e trava o ticket
+  'ticket_bloqueado',       // ticket travado esperando autorização
   'prazo_excedido_no_site', // ValidPark recusa por idade do ticket
   'fora_do_prazo',          // passou das horas do hangar; resolve-se à mão
   'erro_validacao',         // recusa que não soubemos classificar
@@ -873,6 +898,28 @@ async function conduzir(body, { aoReceber } = {}) {
       notificarAdmin: ocr.notificarAdmin === true,
       responder: true,
       ocr,
+    };
+  }
+
+  // Ticket travado por tentativa em pátio cheio. Vem cedo: um ticket que
+  // depende de decisão humana não deve consumir OCR, navegador nem foto do
+  // cliente — e muito menos validar em outro pátio enquanto espera.
+  const travado = bloqueados.estaBloqueado(ocr.ticket);
+  if (travado) {
+    return {
+      status: 'ticket_bloqueado',
+      hangarId: hangar.id,
+      grupoId: msg.grupoId,
+      ticket: ocr.ticket,
+      bloqueadoEm: travado.bloqueadoEm,
+      bloqueadoNoHangar: travado.hangarNome || travado.hangarId,
+      tentativas: (travado.tentativas || []).length,
+      mensagem: `Ticket ${ocr.ticket} bloqueado desde ${travado.bloqueadoEm} (tentativa em pátio cheio no ${travado.hangarNome || travado.hangarId}). `
+        + `Esta é a tentativa ${(travado.tentativas || []).length + 1}. Autorize no painel para liberar.`,
+      mensagemWhatsapp: bloqueados.mensagemParaCliente(ocr.ticket),
+      notificarAdmin: true,
+      responder: true,
+      etapa: 'ticket_bloqueado',
     };
   }
 

@@ -54,6 +54,7 @@ const cotaMensal = require('../scripts/lib/cota-mensal');
 const evolution = require('../scripts/lib/evolution');
 // Gravar o config é compartilhado com o bot: ver a nota em salvar-config.js.
 const { salvarEComitar } = require('../scripts/lib/salvar-config');
+const bloqueados = require('../scripts/lib/tickets-bloqueados');
 const registro = require(path.join(RAIZ, 'scripts', 'lib', 'registro'));
 const { lerJson } = require(path.join(RAIZ, 'scripts', 'lib', 'trava-arquivo'));
 const usuarios = require('./usuarios');
@@ -418,6 +419,25 @@ const servidor = http.createServer(async (req, res) => {
         // Não é 500: a Evolution fora do ar não é erro do painel, e a tela
         // precisa continuar oferecendo o campo manual.
         json(res, 200, { grupos: null, erro: erro.message });
+      }
+      return;
+    }
+
+    // Tickets travados por tentativa em pátio cheio, esperando decisão.
+    if (req.method === 'GET' && url.pathname === '/api/bloqueados') {
+      json(res, 200, { bloqueados: bloqueados.listar() });
+      return;
+    }
+
+    // Libera um ticket travado. Fica registrado QUEM autorizou: é uma decisão
+    // com efeito financeiro, e decisão sem dono não se audita depois.
+    if (req.method === 'POST' && url.pathname === '/api/bloqueado-autorizar') {
+      const { ticket } = await lerCorpo(req);
+      try {
+        const r = bloqueados.autorizar(String(ticket || '').trim(), usuario.nome);
+        json(res, 200, { ok: true, ticket: r.ticket, autorizadoPor: r.autorizadoPor, autorizadoEm: r.autorizadoEm });
+      } catch (e) {
+        json(res, 400, { erro: e.message });
       }
       return;
     }
