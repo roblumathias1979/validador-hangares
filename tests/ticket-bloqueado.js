@@ -98,6 +98,38 @@ async function main() {
   conferir('conta as tentativas', (r.tentativas || []).length >= 1, `${(r.tentativas || []).length}`);
   conferir('não se autoriza sozinho', r.autorizadoEm === null);
 
+  console.log('\nADMINISTRAÇÃO decide pelo privado');
+  const ADMIN = '5511913119423@s.whatsapp.net';
+  const privado = (t) => ({ data: {
+    key: { remoteJid: ADMIN, fromMe: false, id: `P${Math.random()}` },
+    pushName: 'Rodrigo', message: { conversation: t },
+  } });
+
+  // Número que não é administração de hangar nenhum: ignorado em silêncio.
+  const estranho = await processar({ data: {
+    key: { remoteJid: '5511000000000@s.whatsapp.net', fromMe: false, id: 'Z' },
+    pushName: 'Desconhecido', message: { conversation: 'sim' },
+  } }, {});
+  conferir('privado de estranho é ignorado', estranho.status === 'ignorado', `veio "${estranho.status}"`);
+  conferir('e não responde nada', estranho.responder === false);
+  conferir('o ticket segue bloqueado', bloqueados.estaBloqueado(TICKET) !== null);
+
+  // Texto sem decisão: lista o que espera, em vez de adivinhar.
+  const confuso = await processar(privado('e aí'), {});
+  conferir('pede a decisão', confuso.status === 'autorizacao_nao_entendida', `veio "${confuso.status}"`);
+  conferir('lista o ticket que espera', (confuso.mensagemWhatsapp || '').includes(TICKET));
+
+  // NÃO: mantém bloqueado e avisa o grupo de origem.
+  let avisadoNoGrupo = null;
+  const negado = await processar(privado('não'), {
+    aoNotificarAdmin: async (destino, texto) => { avisadoNoGrupo = { destino, texto }; },
+  });
+  conferir('mantém bloqueado', negado.status === 'bloqueio_mantido', `veio "${negado.status}"`);
+  conferir('continua travado', bloqueados.estaBloqueado(TICKET) !== null);
+  conferir('avisa o GRUPO de origem', avisadoNoGrupo && avisadoNoGrupo.destino === GRUPO_ARISTEK,
+    JSON.stringify(avisadoNoGrupo && avisadoNoGrupo.destino));
+  conferir('e manda ao totem', /totem/i.test((avisadoNoGrupo || {}).texto || ''));
+
   console.log('\nDepois da autorização, valida');
   bloqueados.autorizar(TICKET, 'rodrigo');
   conferir('sai da lista de travados', bloqueados.estaBloqueado(TICKET) === null);

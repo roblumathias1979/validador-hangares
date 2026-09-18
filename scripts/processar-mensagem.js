@@ -309,6 +309,11 @@ async function avisarAdmin(hangar, resultado, aoNotificarAdmin) {
     resultado.valor ? `Valor: R$ ${resultado.valor}` : null,
     resultado.mensagem ? `Detalhe: ${resultado.mensagem}` : null,
     `Grupo de origem: ${resultado.grupoId}`,
+    // Ticket travado espera uma decisão SUA. Sem esta linha o alerta seria
+    // informação, e informação sozinha deixa o cliente parado no pátio.
+    resultado.status === 'sem_vagas' || resultado.status === 'ticket_bloqueado'
+      ? `\nResponda aqui *SIM* para autorizar a validação do ticket ${resultado.ticket}, ou *NÃO* para mantê-lo bloqueado.`
+      : null,
   ].filter(Boolean);
 
   try {
@@ -335,6 +340,21 @@ async function processar(body, opcoes = {}) {
   // Nunca lança: o ticket já pode ter sido validado, e o cliente precisa da
   // resposta mais do que nós do registro.
   registro.registrar(resultado);
+
+  // A decisão da administração precisa CHEGAR AO GRUPO onde o cliente está
+  // esperando. Sem isso, o "aguardando autorização" ficaria sem desfecho: o
+  // administrador responderia no privado e a pessoa no pátio nunca saberia.
+  if (resultado.avisarGrupoDeOrigem && resultado.grupoDeOrigem && opcoes.aoNotificarAdmin) {
+    try {
+      await opcoes.aoNotificarAdmin(resultado.grupoDeOrigem, resultado.avisarGrupoDeOrigem);
+      resultado.grupoAvisado = true;
+    } catch (erro) {
+      // A decisão já está registrada e vale. Falhar aqui perde o aviso, não o
+      // efeito — e o administrador vê na resposta que o grupo não foi avisado.
+      resultado.grupoAvisado = false;
+      resultado.erroAvisoGrupo = erro.message;
+    }
+  }
 
   // Aviso de pátio cheio. Usa o número que a validação ou a consulta JÁ leram —
   // sem login extra.
@@ -413,6 +433,11 @@ async function conduzir(body, { aoReceber } = {}) {
 
   if (msg.ignorar) {
     return { status: 'ignorado', motivo: msg.motivoIgnorar, grupoId: msg.grupoId, responder: false };
+  }
+
+  // Privado: só serve para a administração decidir sobre ticket bloqueado.
+  if (msg.tipo === 'texto_privado') {
+    return responderAutorizacaoPrivada(msg);
   }
 
   const hangar = buscarHangarPorGrupo(carregarConfig(), msg.grupoId);
@@ -1219,6 +1244,94 @@ async function conduzir(body, { aoReceber } = {}) {
       dataEmissaoIso: ocr.dataEmissaoIso,
     }, false),
   };
+}
+
+/**
+ * Resposta da administração, em conversa privada, sobre ticket bloqueado.
+ *
+ * Existe porque o aviso de bloqueio chega no privado de quem decide, e mandar
+ * essa pessoa abrir o painel para digitar um "sim" é atrito no pior momento —
+ * tem cliente parado no pátio esperando.
+ *
+ * QUEM PODE: só um número cadastrado como `grupoAdministracao` de algum
+ * hangar. Qualquer outro privado é ignorado em silêncio, sem resposta: o
+ * número do bot é público dentro dos grupos, e responder a estranhos
+ * confirmaria que existe algo ali para ser explorado.
+ */
+function responderAutorizacaoPrivada(msg) {
+  const config = carregarConfig();
+  const ehAdmin = config.hangares.some(
+    (h) => (h.grupoAdministracao || '').trim() === msg.grupoId
+  );
+  if (!ehAdmin) {
+    return { status: 'ignorado', motivo: 'privado de número que não é administração', grupoId: msg.grupoId, responder: false };
+  }
+
+  // Sem sim/não não há decisão. Responde explicando, porque aqui do outro lado
+  // há alguém que o sistema conhece e que pode ter escrito diferente.
+  if (msg.resposta !== 'sim' && msg.resposta !== 'nao') {
+    const aguardando = bloqueados.listar({ apenasAtivos: true });
+    if (!aguardando.length) {
+      return {
+        status: 'ignorado', motivo: 'privado sem decisão e sem ticket aguardando',
+        grupoId: msg.grupoId, responder: false,
+      };
+    }
+    return {
+      status: 'autorizacao_nao_entendida', grupoId: msg.grupoId,
+      mensagemWhatsapp: `Há ${aguardando.length} ticket(s) aguardando sua decisão:\n\n`
+        + aguardando.slice(0, 5).map((b) => `• ${b.ticket} — ${b.hangarNome || b.hangarId}, ${quandoLegivel(b.bloqueadoEm)}`).join('\n')
+        + '\n\nResponda *SIM* para autorizar ou *NÃO* para manter bloqueado.'
+        + (aguardando.length > 1 ? '\nCom mais de um, diga o número: _SIM 011809140000_' : ''),
+      notificarAdmin: false, responder: true, etapa: 'autorizacao_privada',
+    };
+  }
+
+  // Com número, é aquele. Sem número, é o mais recente — quem acabou de
+  // receber o aviso está falando dele. A confirmação sempre diz QUAL foi,
+  // para um engano aparecer na hora e não no fim do mês.
+  const alvo = msg.ticketCitado
+    ? bloqueados.estaBloqueado(msg.ticketCitado)
+    : bloqueados.maisRecenteAguardando();
+
+  if (!alvo) {
+    return {
+      status: 'autorizacao_sem_alvo', grupoId: msg.grupoId,
+      mensagemWhatsapp: msg.ticketCitado
+        ? `O ticket ${msg.ticketCitado} não está bloqueado — pode já ter sido decidido.`
+        : 'Não há ticket bloqueado aguardando decisão no momento.',
+      notificarAdmin: false, responder: true, etapa: 'autorizacao_privada',
+    };
+  }
+
+  const quem = msg.remetente || msg.grupoId;
+  try {
+    if (msg.resposta === 'sim') {
+      bloqueados.autorizar(alvo.ticket, quem);
+      return {
+        status: 'bloqueio_autorizado', grupoId: msg.grupoId, ticket: alvo.ticket,
+        grupoDeOrigem: alvo.grupoId,
+        mensagemWhatsapp: `✅ Ticket *${alvo.ticket}* liberado (${alvo.hangarNome || alvo.hangarId}).\n\n`
+          + 'Ele já pode ser validado. Avisei o grupo.',
+        avisarGrupoDeOrigem: `✅ O ticket ${alvo.ticket} foi *autorizado* pela administração. Pode mandá-lo novamente para validar.`,
+        notificarAdmin: false, responder: true, etapa: 'autorizacao_privada',
+      };
+    }
+    bloqueados.manterBloqueado(alvo.ticket, quem);
+    return {
+      status: 'bloqueio_mantido', grupoId: msg.grupoId, ticket: alvo.ticket,
+      grupoDeOrigem: alvo.grupoId,
+      mensagemWhatsapp: `🚫 Ticket *${alvo.ticket}* segue bloqueado (${alvo.hangarNome || alvo.hangarId}).\n\nAvisei o grupo.`,
+      avisarGrupoDeOrigem: `🚫 O ticket ${alvo.ticket} *não foi autorizado* pela administração. Para pagar, use o totem de autopagamento no terminal do aeroporto.`,
+      notificarAdmin: false, responder: true, etapa: 'autorizacao_privada',
+    };
+  } catch (erro) {
+    return {
+      status: 'erro', grupoId: msg.grupoId, mensagem: erro.message,
+      mensagemWhatsapp: `⚠️ Não consegui registrar a decisão: ${erro.message}`,
+      notificarAdmin: false, responder: true, etapa: 'autorizacao_privada',
+    };
+  }
 }
 
 /** Data e hora em horário de São Paulo, para ler no WhatsApp. */

@@ -80,6 +80,35 @@ function autorizar(ticket, quem) {
   });
 }
 
+/**
+ * Nega a liberação. O ticket segue travado, mas com a decisão registrada —
+ * diferente de simplesmente não responder, que deixa o caso em aberto para
+ * sempre sem ninguém saber se foi analisado.
+ */
+function manterBloqueado(ticket, quem) {
+  return comTrava(ARQUIVO, () => {
+    const todos = lerJson(ARQUIVO, {});
+    const r = todos[ticket];
+    if (!r) throw new Error(`Ticket ${ticket} não está na lista de bloqueados.`);
+    if (r.autorizadoEm) throw new Error(`Ticket ${ticket} já foi autorizado em ${r.autorizadoEm}.`);
+    r.negadoEm = new Date().toISOString();
+    r.negadoPor = quem || 'desconhecido';
+    salvarAtomico(ARQUIVO, todos);
+    return r;
+  });
+}
+
+/**
+ * O bloqueio mais recente que ainda espera decisão.
+ *
+ * Serve à resposta sem número: quem recebeu o aviso agora e responde "sim"
+ * está falando do caso que acabou de chegar. A confirmação sempre diz QUAL
+ * ticket foi afetado, para um engano aparecer na hora.
+ */
+function maisRecenteAguardando() {
+  return listar({ apenasAtivos: true })[0] || null;
+}
+
 /** `apenasAtivos` traz só os que ainda esperam decisão. */
 function listar({ apenasAtivos = false } = {}) {
   const todos = Object.values(lerJson(ARQUIVO, {}));
@@ -93,4 +122,4 @@ function mensagemParaCliente(ticket) {
     + 'A validação só sai depois da autorização dele.';
 }
 
-module.exports = { bloquear, estaBloqueado, autorizar, listar, mensagemParaCliente, ARQUIVO };
+module.exports = { bloquear, estaBloqueado, autorizar, manterBloqueado, maisRecenteAguardando, listar, mensagemParaCliente, ARQUIVO };

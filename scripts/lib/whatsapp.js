@@ -233,14 +233,33 @@ function interpretarMensagem(body) {
     return { ...base, ignorar: true, motivoIgnorar: `evento "${b.event}" não é mensagem` };
   }
 
-  // Conversa privada não identifica hangar: o roteamento é por grupo. Confirmado
-  // na prática — as duas primeiras mensagens de teste vieram em privado e não
-  // tinham como ser roteadas.
+  // Conversa privada não identifica hangar: o roteamento é por grupo.
+  //
+  // TEXTO no privado passa a ser entregue desde 18/09/2026, porque a
+  // administração responde por ali a autorização de ticket bloqueado. Quem
+  // decide se aquele número TEM esse direito é processar-mensagem.js, olhando
+  // o grupoAdministracao dos hangares — aqui não há como saber.
+  //
+  // FOTO no privado continua ignorada: validar exige saber de qual pátio é o
+  // ticket, e o privado não diz. Foi o que aconteceu nas duas primeiras
+  // mensagens de teste do projeto, que vieram em privado e não tinham como ser
+  // roteadas.
   if (!base.ehGrupo) {
+    const textoPrivado =
+      (msg.conversation || (msg.extendedTextMessage && msg.extendedTextMessage.text) || '').trim();
+    if (!textoPrivado) {
+      return { ...base, ignorar: true, motivoIgnorar: 'mensagem fora de grupo sem texto (privado não identifica hangar)' };
+    }
+    const ticketCitado = (textoPrivado.match(/\b(\d{12})\b/) || [])[1] || null;
     return {
       ...base,
-      ignorar: true,
-      motivoIgnorar: 'mensagem fora de grupo (conversa privada não identifica hangar)',
+      tipo: 'texto_privado',
+      texto: textoPrivado,
+      // O número sai antes de interpretar o sim/não: "SIM 011809140000" é uma
+      // resposta com destinatário, e `interpretarResposta` é estrito de
+      // propósito — ele devolveria null para a frase inteira.
+      resposta: interpretarResposta(ticketCitado ? textoPrivado.replace(ticketCitado, ' ').trim() : textoPrivado),
+      ticketCitado,
     };
   }
 
