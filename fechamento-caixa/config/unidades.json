@@ -1,35 +1,35 @@
 {
   "_comentario": "Cada unidade de estacionamento que manda fechamento de caixa. MUDANÇA DE DESENHO (25/09/2026): agora é um GRUPO DE WHATSAPP PRÓPRIO POR UNIDADE — mesmo padrão do validador de hangares (config/hangares.json daquele projeto). O grupo (grupoWhatsappId) é quem diz a unidade; nome/apelidos servem só para conferir se o nome impresso no relatório bate com a unidade do grupo (ver scripts/lib/unidades.js).",
   "_observacao_cnpj": "NÃO cadastre por CNPJ — o usuário confirmou (25/09/2026) que existem máquinas de cartão em UNIDADES DIFERENTES compartilhando o mesmo CNPJ.",
-  "_pendente": "Lista de unidades confirmada pelo usuário (25/09/2026). Falta preencher grupoWhatsappId de cada unidade (o usuário vai criar um grupo por unidade, reaproveitando o mesmo número/instância da Evolution API do validador de hangares) e grupoAdministracaoPadrao (ou grupoAdministracao por unidade). Unidade sem grupoWhatsappId fica invisível ao bot — mesma regra do outro projeto (buscarUnidadePorGrupo só considera unidades com o campo preenchido).",
+  "_pendente": "grupoWhatsappId preenchido via scripts/listar-grupos.js (25/09/2026) para 5 das 8 unidades: rua-paraiba, hotel-nacional-inn, argentina-mall, hotel-ibis-styles, hotel-dan-euro. Faltam os grupos de 1carwash, 1park-ubatuba e vila-mariana (ainda não criados) e grupoAdministracaoPadrao (ou grupoAdministracao por unidade). Unidade sem grupoWhatsappId fica invisível ao bot (buscarUnidadePorGrupo só considera unidades com o campo preenchido).",
   "grupoAdministracaoPadrao": "",
   "unidades": [
     {
       "id": "rua-paraiba",
       "nome": "Rua Paraíba",
       "apelidos": ["rua paraiba", "paraiba"],
-      "grupoWhatsappId": "",
+      "grupoWhatsappId": "120363431368192781@g.us",
       "grupoAdministracao": ""
     },
     {
       "id": "hotel-nacional-inn",
       "nome": "Hotel Nacional Inn",
       "apelidos": ["nacional inn", "nacional"],
-      "grupoWhatsappId": "",
+      "grupoWhatsappId": "120363430341217645@g.us",
       "grupoAdministracao": ""
     },
     {
       "id": "argentina-mall",
       "nome": "Argentina Mall",
       "apelidos": ["argentina mall", "argentina"],
-      "grupoWhatsappId": "",
+      "grupoWhatsappId": "120363431719138382@g.us",
       "grupoAdministracao": ""
     },
     {
       "id": "hotel-ibis-styles",
       "nome": "Hotel Ibis Styles",
       "apelidos": ["ibis styles", "ibis"],
-      "grupoWhatsappId": "",
+      "grupoWhatsappId": "120363430267620231@g.us",
       "grupoAdministracao": ""
     },
     {
@@ -37,7 +37,7 @@
       "nome": "Hotel Dan/Euro",
       "_observacao": "Nome composto passado pelo usuário como 'Hotel Dan/Euro' — mesma unidade conhecida pelos dois nomes.",
       "apelidos": ["hotel dan", "hotel euro", "dan euro", "dan/euro"],
-      "grupoWhatsappId": "",
+      "grupoWhatsappId": "120363430848900325@g.us",
       "grupoAdministracao": ""
     },
     {
