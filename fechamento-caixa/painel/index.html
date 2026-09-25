@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fechamento de Caixa</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 2rem; background: #f7f7f8; color: #222; }
+  h1 { margin-bottom: .25rem; }
+  .sub { color: #666; margin-bottom: 1.5rem; }
+  .filtros { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: 1rem; align-items: center; }
+  .filtros input, .filtros select { padding: .4rem .5rem; border: 1px solid #ccc; border-radius: 4px; }
+  button { padding: .5rem 1rem; border: none; border-radius: 4px; background: #2563eb; color: #fff; cursor: pointer; }
+  button:hover { background: #1d4ed8; }
+  table { width: 100%; border-collapse: collapse; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+  th, td { padding: .5rem .75rem; text-align: left; border-bottom: 1px solid #eee; font-size: .9rem; }
+  th { background: #eef1f6; position: sticky; top: 0; }
+  tr.linha { cursor: pointer; }
+  tr.inconsistente { background: #fee2e2; }
+  tr.a_conferir { background: #ffedd5; }
+  tr.parcial { background: #eff6ff; }
+  tr.detalhe td { background: #fafafa; font-size: .82rem; color: #444; white-space: pre-wrap; }
+  .badge { padding: .1rem .5rem; border-radius: 999px; font-size: .75rem; font-weight: 600; white-space: nowrap; }
+  .badge.consistente { background: #dcfce7; color: #166534; }
+  .badge.inconsistente { background: #fecaca; color: #991b1b; }
+  .badge.indeterminada { background: #fef08a; color: #854d0e; }
+  .badge.dentro_do_esperado { background: #dcfce7; color: #166534; }
+  .badge.a_conferir { background: #fed7aa; color: #9a3412; }
+  .badge.sem_referencia { background: #e5e7eb; color: #374151; }
+  #vazio { color: #666; padding: 2rem; text-align: center; }
+</style>
+</head>
+<body>
+  <h1>Fechamento de Caixa</h1>
+  <p class="sub">Fechamentos recebidos por WhatsApp — conferência interna do relatório e comparação com o comprovante anexado (maquininha/depósito). Clique numa linha para ver os detalhes.</p>
+
+  <div class="filtros">
+    <input id="unidade" placeholder="id da unidade (ex: norte)">
+    <input id="desde" type="date">
+    <input id="ate" type="date">
+    <label><input type="checkbox" id="apenasInconsistentes"> só com problema</label>
+    <button onclick="carregar()">Filtrar</button>
+    <button onclick="exportar()">Exportar planilha (CSV)</button>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Recebido em</th>
+        <th>Unidade</th>
+        <th>Nº / Situação</th>
+        <th>Valor faturado</th>
+        <th>Conferência interna</th>
+        <th>Vs. comprovante anexado</th>
+        <th>Identificação</th>
+      </tr>
+    </thead>
+    <tbody id="corpo"></tbody>
+  </table>
+  <div id="vazio" style="display:none">Nenhum fechamento encontrado.</div>
+
+<script>
+function reais(v) { return typeof v === 'number' ? 'R$ ' + v.toFixed(2).replace('.', ',') : '—'; }
+
+function querystring() {
+  const p = new URLSearchParams();
+  const unidade = document.getElementById('unidade').value.trim();
+  const desde = document.getElementById('desde').value;
+  const ate = document.getElementById('ate').value;
+  const apenasInconsistentes = document.getElementById('apenasInconsistentes').checked;
+  if (unidade) p.set('unidade', unidade);
+  if (desde) p.set('desde', new Date(desde).toISOString());
+  if (ate) p.set('ate', new Date(ate + 'T23:59:59').toISOString());
+  if (apenasInconsistentes) p.set('apenasInconsistentes', 'true');
+  return p.toString();
+}
+
+function badge(status, texto) {
+  return `<span class="badge ${status || ''}">${texto || status || '—'}</span>`;
+}
+
+function linhaClasse(f) {
+  const interna = (f.conferenciaInterna || {}).status;
+  const maq = (f.conferenciaMaquininha || {}).status;
+  if (interna === 'inconsistente') return 'inconsistente';
+  if (maq === 'a_conferir') return 'a_conferir';
+  if ((f.relatorio || {}).situacao === 'parcial') return 'parcial';
+  return '';
+}
+
+async function carregar() {
+  const r = await fetch('/api/fechamentos?' + querystring());
+  const { fechamentos } = await r.json();
+  const corpo = document.getElementById('corpo');
+  const vazio = document.getElementById('vazio');
+  corpo.innerHTML = '';
+  vazio.style.display = fechamentos.length ? 'none' : 'block';
+
+  fechamentos.forEach((f, i) => {
+    const rel = f.relatorio || {};
+    const interna = f.conferenciaInterna || {};
+    const maq = f.conferenciaMaquininha || {};
+    const anexo = f.documentoAnexo || {};
+
+    const tr = document.createElement('tr');
+    tr.className = 'linha ' + linhaClasse(f);
+    tr.onclick = () => {
+      const det = document.getElementById('det-' + i);
+      det.style.display = det.style.display === 'none' ? 'table-row' : 'none';
+    };
+    tr.innerHTML = `
+      <td>${new Date(f.criadoEm).toLocaleString('pt-BR')}</td>
+      <td>${f.unidadeNome || f.unidadeId}</td>
+      <td>${rel.numero || '—'}${rel.situacao === 'parcial' ? ' (parcial)' : ''}${rel.reimpressao ? ' (reimpressão)' : ''}</td>
+      <td>${reais(rel.valorFaturado)}</td>
+      <td>${badge(interna.status)}</td>
+      <td>${anexo.tipo && anexo.tipo !== 'nenhum' ? badge(maq.status) + (maq.diferenca != null ? ` (dif. ${reais(Math.abs(maq.diferenca))})` : '') : '<span class="badge sem_referencia">sem comprovante</span>'}</td>
+      <td>${(f.identificacao || {}).confianca || '—'} (${((f.identificacao || {}).sinais || []).join(', ')})</td>
+    `;
+    corpo.appendChild(tr);
+
+    const detTr = document.createElement('tr');
+    detTr.id = 'det-' + i;
+    detTr.className = 'detalhe';
+    detTr.style.display = 'none';
+    const formas = (rel.formasDePagamento || []).map((fp) => `${fp.forma}: ${reais(fp.valor)}`).join('\n') || '(sem tabela de formas de pagamento)';
+    const anexoTxt = anexo.tipo === 'maquininha'
+      ? `Maquininha (${anexo.maquininha.provedor || '?'}): total geral ${reais(anexo.maquininha.totalGeral)}, débito ${reais(anexo.maquininha.debitoTotal)}, crédito ${reais(anexo.maquininha.creditoTotal)}, pix ${reais(anexo.maquininha.pixTotal)}`
+      : anexo.tipo === 'deposito_bancario'
+      ? `Depósito bancário (${anexo.deposito.banco || '?'}): ${reais(anexo.deposito.valor)}`
+      : 'Nenhum comprovante anexado nesta foto.';
+    detTr.innerHTML = `<td colspan="7">Formas de pagamento:\n${formas}\n\n${anexoTxt}${(f.camposNaoReconhecidos || []).length ? `\n\nNão reconhecido: ${f.camposNaoReconhecidos.join('; ')}` : ''}</td>`;
+    corpo.appendChild(detTr);
+  });
+}
+
+function exportar() {
+  window.location = '/api/planilha?' + querystring();
+}
+
+carregar();
+</script>
+</body>
+</html>

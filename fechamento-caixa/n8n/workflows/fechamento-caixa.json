@@ -1,0 +1,93 @@
+{
+  "id": "fechamento-caixa",
+  "name": "Fechamento de Caixa por Unidade",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "fechamento-caixa",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook",
+      "name": "WebhookFechamentoCaixa",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-80, -60]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Mesmo motivo do validador de hangares: mandar o evento inteiro como\n// argumento de linha de comando estoura o limite do shell quando a Evolution\n// embute thumbnail grande. Whitelist explícita, só com o que\n// processar-fechamento.js usa.\nconst bruto = $input.first().json.body || $input.first().json;\nconst data = bruto.data || {};\nconst key = data.key || {};\nconst msg = data.message || {};\nconst img = msg.imageMessage || null;\n\nconst enxuto = {\n  event: bruto.event,\n  instance: bruto.instance,\n  data: {\n    key: {\n      remoteJid: key.remoteJid,\n      fromMe: key.fromMe,\n      id: key.id,\n      participant: key.participant,\n      participantAlt: key.participantAlt,\n    },\n    pushName: data.pushName,\n    message: {\n      ...(img ? { imageMessage: { caption: img.caption || null, mimetype: img.mimetype || null } } : {}),\n    },\n  },\n};\n\nconst payloadB64 = Buffer.from(JSON.stringify(enxuto)).toString('base64');\n\nif (payloadB64.length > 60000) {\n  throw new Error(`Payload enxuto ficou grande demais (${payloadB64.length} chars).`);\n}\n\nreturn [{ json: { payloadB64 } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [180, -60],
+      "id": "preparar-payload",
+      "name": "Preparar Payload"
+    },
+    {
+      "parameters": {
+        "command": "=node \"/home/ubuntu/validador-hangares/fechamento-caixa/scripts/processar-fechamento.js\" \"{{ $json.payloadB64 }}\" --enviar"
+      },
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [420, -60],
+      "id": "processar-fechamento",
+      "name": "Processar Fechamento"
+    },
+    {
+      "parameters": {
+        "jsCode": "// processar-fechamento.js imprime UM json em stdout com o resultado do fluxo\n// inteiro e já enviou a resposta ao grupo (e ao admin, se aplicável) via\n// --enviar. O n8n aqui só lê o resultado para responder o webhook.\nconst stdout = $input.item.json.stdout || '';\nconst linhas = stdout.trim().split('\\n').filter(Boolean);\nconst ultimaLinha = linhas[linhas.length - 1];\n\nif (!ultimaLinha) {\n  return { json: { status: 'erro', mensagem: 'processar-fechamento.js não retornou nada em stdout.' } };\n}\n\ntry {\n  return { json: JSON.parse(ultimaLinha) };\n} catch (err) {\n  return { json: { status: 'erro', mensagem: `Saída não-json: ${ultimaLinha.slice(0, 300)}` } };\n}\n"
+      },
+      "id": "parse-resultado",
+      "name": "Parse Resultado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, -60]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { status: $json.status } }}",
+        "options": {}
+      },
+      "id": "responder-200",
+      "name": "Responder 200 ao Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [900, -60]
+    },
+    {
+      "parameters": {
+        "content": "## Sobre este workflow\n\nEnvio de resposta ao grupo e aviso à administração já acontecem DENTRO de `processar-fechamento.js` (flag `--enviar`), diferente do workflow do validador de hangares, que ainda tinha nós placeholder para isso. Aqui o n8n só recebe o webhook, chama o script e responde 200 — não há nó de envio separado para trocar depois.\n\nAntes de ativar de verdade:\n- Preencher `grupoFechamentoCaixaId` e as unidades em `fechamento-caixa/config/unidades.json`.\n- Ajustar o caminho do Execute Command para onde o repositório está no servidor.\n- Configurar o webhook da Evolution API para apontar para este workflow (grupo de fechamento de caixa).",
+        "height": 320,
+        "width": 420
+      },
+      "id": "nota",
+      "name": "Nota",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [900, 160]
+    }
+  ],
+  "connections": {
+    "WebhookFechamentoCaixa": {
+      "main": [[{ "node": "Preparar Payload", "type": "main", "index": 0 }]]
+    },
+    "Preparar Payload": {
+      "main": [[{ "node": "Processar Fechamento", "type": "main", "index": 0 }]]
+    },
+    "Processar Fechamento": {
+      "main": [[{ "node": "Parse Resultado", "type": "main", "index": 0 }]]
+    },
+    "Parse Resultado": {
+      "main": [[{ "node": "Responder 200 ao Webhook", "type": "main", "index": 0 }]]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "fechamento-caixa"
+  }
+}
