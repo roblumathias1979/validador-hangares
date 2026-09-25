@@ -1,7 +1,7 @@
 {
   "_comentario": "Cada unidade de estacionamento que manda fechamento de caixa. MUDANÇA DE DESENHO (25/09/2026): agora é um GRUPO DE WHATSAPP PRÓPRIO POR UNIDADE — mesmo padrão do validador de hangares (config/hangares.json daquele projeto). O grupo (grupoWhatsappId) é quem diz a unidade; nome/apelidos servem só para conferir se o nome impresso no relatório bate com a unidade do grupo (ver scripts/lib/unidades.js).",
   "_observacao_cnpj": "NÃO cadastre por CNPJ — o usuário confirmou (25/09/2026) que existem máquinas de cartão em UNIDADES DIFERENTES compartilhando o mesmo CNPJ.",
-  "_pendente": "grupoWhatsappId preenchido via scripts/listar-grupos.js (25/09/2026) para 5 das 8 unidades: rua-paraiba, hotel-nacional-inn, argentina-mall, hotel-ibis-styles, hotel-dan-euro. Faltam os grupos de 1carwash, 1park-ubatuba e vila-mariana (ainda não criados) e grupoAdministracaoPadrao (ou grupoAdministracao por unidade). Unidade sem grupoWhatsappId fica invisível ao bot (buscarUnidadePorGrupo só considera unidades com o campo preenchido).",
+  "_pendente": "grupoWhatsappId preenchido via scripts/listar-grupos.js para as 8 unidades (25/09/2026). Falta só grupoAdministracaoPadrao (ou grupoAdministracao por unidade) — sem isso, notificarAdmin não tem para onde mandar o aviso.",
   "grupoAdministracaoPadrao": "",
   "unidades": [
     {
@@ -44,21 +44,21 @@
       "id": "1carwash",
       "nome": "1Carwash",
       "apelidos": ["carwash", "1carwash", "car wash"],
-      "grupoWhatsappId": "",
+      "grupoWhatsappId": "120363412563748562@g.us",
       "grupoAdministracao": ""
     },
     {
       "id": "1park-ubatuba",
       "nome": "1Park Ubatuba",
       "apelidos": ["ubatuba", "1park ubatuba"],
-      "grupoWhatsappId": "",
+      "grupoWhatsappId": "120363427549295352@g.us",
       "grupoAdministracao": ""
     },
     {
       "id": "vila-mariana",
       "nome": "Vila Mariana",
       "apelidos": ["vila mariana"],
-      "grupoWhatsappId": "",
+      "grupoWhatsappId": "120363430273393526@g.us",
       "grupoAdministracao": ""
     }
   ]
