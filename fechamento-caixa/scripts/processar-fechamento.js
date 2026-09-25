@@ -160,6 +160,11 @@ async function processar(payloadBase64) {
     partes.push(`⚠️ Possível grupo errado: ${identificacao.alerta}`);
   }
 
+  // "notificarAdmin" não dispara uma SEGUNDA mensagem — decisão do usuário
+  // (25/09/2026): como cada unidade já tem grupo próprio, o aviso já vai
+  // dentro da própria resposta (as linhas com ⚠️ acima), no mesmo grupo.
+  // O campo continua servindo para o painel destacar/filtrar os
+  // fechamentos que precisam de atenção.
   const notificarAdmin = interna.status === 'inconsistente' || maquininha.status === 'a_conferir' || Boolean(identificacao.alerta);
 
   return {
@@ -168,7 +173,6 @@ async function processar(payloadBase64) {
     registro,
     mensagemWhatsapp: partes.join('\n'),
     notificarAdmin,
-    grupoAdministracao: unidade.grupoAdministracao || config.grupoAdministracaoPadrao || null,
   };
 }
 
@@ -196,20 +200,14 @@ async function main() {
     };
   }
 
-  if (flagEnviar === '--enviar') {
-    if (resultado.grupoId && resultado.mensagemWhatsapp) {
-      try {
-        await enviarTexto(resultado.grupoId, resultado.mensagemWhatsapp);
-      } catch (erro) {
-        resultado.erroEnvio = erro.message;
-      }
-    }
-    if (resultado.notificarAdmin && resultado.grupoAdministracao) {
-      try {
-        await enviarTexto(resultado.grupoAdministracao, `[fechamento-caixa] ${resultado.mensagemWhatsapp}`);
-      } catch (erro) {
-        resultado.erroEnvioAdmin = erro.message;
-      }
+  // Só um envio, para o mesmo grupo de onde a foto chegou — não existe
+  // grupo de administração central neste projeto (decisão do usuário,
+  // 25/09/2026): os alertas (⚠️) já vêm dentro de mensagemWhatsapp.
+  if (flagEnviar === '--enviar' && resultado.grupoId && resultado.mensagemWhatsapp) {
+    try {
+      await enviarTexto(resultado.grupoId, resultado.mensagemWhatsapp);
+    } catch (erro) {
+      resultado.erroEnvio = erro.message;
     }
   }
 

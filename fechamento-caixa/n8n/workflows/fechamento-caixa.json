@@ -61,7 +61,7 @@
     },
     {
       "parameters": {
-        "content": "## Sobre este workflow\n\nEnvio de resposta ao grupo e aviso à administração já acontecem DENTRO de `processar-fechamento.js` (flag `--enviar`), diferente do workflow do validador de hangares, que ainda tinha nós placeholder para isso. Aqui o n8n só recebe o webhook, chama o script e responde 200 — não há nó de envio separado para trocar depois.\n\nAntes de ativar de verdade:\n- Preencher `grupoFechamentoCaixaId` e as unidades em `fechamento-caixa/config/unidades.json`.\n- Ajustar o caminho do Execute Command para onde o repositório está no servidor.\n- Configurar o webhook da Evolution API para apontar para este workflow (grupo de fechamento de caixa).",
+        "content": "## Sobre este workflow\n\nEnvio de resposta ao grupo já acontece DENTRO de `processar-fechamento.js` (flag `--enviar`), diferente do workflow do validador de hangares, que ainda tinha nós placeholder para isso. Aqui o n8n só recebe o webhook, chama o script e responde 200 — não há nó de envio separado para trocar depois. Não existe grupo de administração central: alertas de inconsistência já vão na resposta ao MESMO grupo de onde a foto chegou (decisão do usuário, 25/09/2026).\n\nEste workflow atende TODOS os grupos das unidades cadastradas em `fechamento-caixa/config/unidades.json` (`grupoWhatsappId` por unidade) — um webhook só, igual ao validador de hangares.\n\nAntes de ativar de verdade:\n- Ajustar o caminho do Execute Command para onde o repositório está no servidor.\n- Configurar o webhook da Evolution API para apontar para este workflow.",
         "height": 320,
         "width": 420
       },

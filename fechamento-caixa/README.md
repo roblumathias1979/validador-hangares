@@ -24,13 +24,16 @@ PagVendas/PagBank, ou envelope de depósito bancário em dinheiro). O bot:
    no relatório/legenda só para **alertar** quando parecem divergir (ex: foto
    do Ibis Styles mandada sem querer no grupo do Argentina Mall) — ver
    `scripts/lib/unidades.js`. O grupo sempre decide a unidade; a divergência
-   vira aviso à administração, nunca um bloqueio. **Não usa CNPJ**:
+   vira um alerta na própria resposta, nunca um bloqueio. **Não usa CNPJ**:
    confirmado que máquinas de unidades diferentes compartilham o mesmo CNPJ.
 3. Confere a matemática do PRÓPRIO relatório (a soma das formas de pagamento
    bate com o valor faturado?) e compara com o comprovante anexado na mesma
    foto, quando houver.
-4. Grava o registro em `data/fechamentos.jsonl` (append-only) e responde no
-   grupo — avisando a administração quando há algo para conferir.
+4. Grava o registro em `data/fechamentos.jsonl` (append-only) e responde
+   **no mesmo grupo** de onde a foto chegou — com qualquer alerta (⚠️) já
+   embutido na resposta. **Não existe grupo de administração central**
+   (decisão do usuário, 25/09/2026): cada unidade só vê o que é dela, e o
+   painel é quem concentra a visão de todas.
 5. O painel web (`painel/`) lista os fechamentos (com o detalhe de cada
    forma de pagamento) e exporta planilha (CSV).
 
@@ -85,8 +88,9 @@ disponível).
 
 - `config/unidades.json` — cadastro das unidades (nome, apelidos para
   conferir contra o relatório/legenda, `grupoWhatsappId` — um grupo por
-  unidade —, grupo de administração). Não guarda segredo nenhum — só
-  configuração, versionado de propósito.
+  unidade). Não guarda segredo nenhum — só configuração, versionado de
+  propósito. Sem grupo de administração central: alertas vão para o
+  próprio grupo da unidade (decisão do usuário, 25/09/2026).
 - `.env.example` — variáveis de ambiente (Evolution API, Anthropic, painel).
   Copie para `.env` (gitignored).
 - `scripts/lib/unidades.js` — cadastro + `buscarUnidadePorGrupo` (autoritativo,
@@ -113,8 +117,8 @@ disponível).
 - `painel/` — painel web (Basic Auth por senha única) que lista os
   fechamentos (com detalhe por linha) e exporta a planilha.
 - `n8n/workflows/fechamento-caixa.json` — o workflow: Webhook → Execute
-  Command → responde 200. O envio de mensagens (grupo e administração) já
-  acontece dentro do próprio script (`--enviar`), não em nós separados.
+  Command → responde 200. O envio da resposta ao grupo já acontece dentro do
+  próprio script (`--enviar`), não em nó separado.
 - `scripts/listar-grupos.js` — lista os grupos de WhatsApp de que o bot já
   participa e sugere qual unidade cadastrada cada um parece ser, para
   preencher `grupoWhatsappId` sem catar o id manualmente. **Só funciona onde
@@ -141,31 +145,38 @@ uma mensagem real no grupo para ter um `messageId` de onde baixar a foto):
 node scripts/processar-fechamento.js "$(node -e "console.log(Buffer.from(JSON.stringify({
   event: 'messages.upsert',
   data: {
-    key: { remoteJid: '<grupoFechamentoCaixaId>', id: '<messageId real>', participantAlt: '<telefone>@s.whatsapp.net' },
+    key: { remoteJid: '<grupoWhatsappId de uma unidade em config/unidades.json>', id: '<messageId real>', participantAlt: '<telefone>@s.whatsapp.net' },
     pushName: 'Teste',
-    message: { imageMessage: { caption: 'fechamento norte', mimetype: 'image/jpeg' } },
+    message: { imageMessage: { caption: '', mimetype: 'image/jpeg' } },
   },
 }).toString('base64')))")"
 ```
 
+## Estado atual (25/09/2026)
+
+As 8 unidades já têm `grupoWhatsappId` preenchido em `config/unidades.json`
+(confirmado contra a Evolution API real, via `scripts/listar-grupos.js`):
+Rua Paraíba, Hotel Nacional Inn, Argentina Mall, Hotel Ibis Styles, Hotel
+Dan/Euro, 1Carwash, 1Park Ubatuba, Vila Mariana.
+
 ## Antes de ir para produção
 
-1. Preencher `config/unidades.json`: `grupoFechamentoCaixaId` (o grupo do
-   WhatsApp) e cada unidade (nome exatamente como impresso no cabeçalho do
-   relatório, apelidos, telefones).
-2. Preencher `fechamento-caixa/.env` com as mesmas credenciais da Evolution
-   API já em uso (ou uma instância própria) e a `ANTHROPIC_API_KEY`.
-3. Rodar o OCR contra fotos reais de CADA unidade antes de confiar — o
+1. Preencher `fechamento-caixa/.env` no servidor com as mesmas credenciais da
+   Evolution API já em uso pelo validador de hangares e a
+   `ANTHROPIC_API_KEY` (`cp .env fechamento-caixa/.env` a partir da raiz do
+   repositório).
+2. Rodar o OCR contra fotos reais de CADA unidade antes de confiar — o
    esquema foi confirmado em 3 unidades, mas rótulos de "Formas de
    Pagamento" variam (cada unidade pode ter máquinas diferentes).
-4. Ajustar a tolerância de `conferirMaquininha` (`TOLERANCIA_MAQUININHA_PADRAO`
+3. Ajustar a tolerância de `conferirMaquininha` (`TOLERANCIA_MAQUININHA_PADRAO`
    em `scripts/lib/conferencia.js`, hoje 5%) depois de ver alguns dias reais
    de diferença "normal" entre o período do #1 Park e o da maquininha.
-5. Ajustar o caminho do "Execute Command" no workflow do n8n para onde este
-   repositório fica no servidor.
-6. Configurar o webhook da Evolution API para este workflow, apontando para
-   o grupo de fechamento de caixa (não o mesmo webhook do validador de
-   hangares — são workflows separados).
-7. Decidir a integração com API de Stone/PagBank só depois de confirmar
+4. Ajustar o caminho do "Execute Command" no workflow do n8n
+   (`n8n/workflows/fechamento-caixa.json`) para onde este repositório fica
+   no servidor.
+5. Importar o workflow no n8n e configurar o webhook da Evolution API para
+   apontar para ele (webhook próprio, diferente do validador de hangares —
+   workflows separados, mesma instância do WhatsApp).
+6. Decidir a integração com API de Stone/PagBank só depois de confirmar
    qual produto de API cada uma oferece e ter credenciais de teste — ver
    seção acima.
