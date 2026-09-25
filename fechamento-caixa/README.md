@@ -5,6 +5,14 @@ neste mesmo repositório e servidor só por economia de infraestrutura — reusa
 o mesmo EC2 e a mesma instância da Evolution API/WhatsApp já pagos, mas não
 compartilha código de negócio com ele).
 
+**Única exceção, por necessidade técnica:** a Evolution API só aceita UMA url
+de webhook por instância (confirmado em 25/09/2026 via `GET /webhook/find` —
+`"webhookByEvents": false`), e essa instância já está em produção atendendo
+os hangares. Por isso existe `scripts/despachar-webhook.js`: o único arquivo
+que conhece os dois projetos, e cuja única função é olhar o GRUPO de onde
+a mensagem veio e decidir para qual dos dois passar adiante. Ver seção
+"Webhook compartilhado" abaixo.
+
 ## O que faz
 
 Cada unidade de estacionamento tem o seu **próprio grupo de WhatsApp**
@@ -36,6 +44,31 @@ PagVendas/PagBank, ou envelope de depósito bancário em dinheiro). O bot:
    painel é quem concentra a visão de todas.
 5. O painel web (`painel/`) lista os fechamentos (com o detalhe de cada
    forma de pagamento) e exporta planilha (CSV).
+
+## Webhook compartilhado com o validador de hangares
+
+Os dois projetos usam o MESMO número de WhatsApp (mesma instância da
+Evolution API), e a Evolution só aceita uma URL de webhook por instância —
+hoje ela aponta para o workflow do validador de hangares
+(`validador-tickets-hangares-sbjd`), que já está em produção atendendo 16
+hangares. Não dá para simplesmente apontar uma segunda URL para este
+projeto.
+
+A solução: `scripts/despachar-webhook.js` decide, só pelo GRUPO de onde a
+mensagem veio (contra `config/unidades.json`), se ela é de uma unidade de
+fechamento de caixa ou de um hangar, e repassa o mesmo payload para
+`fechamento-caixa/scripts/processar-fechamento.js` ou para
+`scripts/processar-mensagem.js` (do validador de hangares), sem conhecer a
+lógica de nenhum dos dois. É o ÚNICO arquivo do repositório que referencia
+os dois projetos ao mesmo tempo, de propósito — para não espalhar esse
+acoplamento em mais lugares.
+
+O payload que o nó "Preparar Payload" do workflow EXISTENTE já monta para o
+validador de hangares contém, por coincidência feliz, exatamente os campos
+que `scripts/lib/whatsapp-fechamento.js` também precisa — então a ÚNICA
+mudança necessária no workflow de produção é trocar o comando do nó
+"Execute Command" para chamar `despachar-webhook.js` em vez de
+`processar-mensagem.js` diretamente. Nada mais no workflow muda.
 
 ## As duas conferências, e por que uma delas nunca "trava" nada
 
@@ -116,14 +149,17 @@ disponível).
   terminal.
 - `painel/` — painel web (Basic Auth por senha única) que lista os
   fechamentos (com detalhe por linha) e exporta a planilha.
-- `n8n/workflows/fechamento-caixa.json` — o workflow: Webhook → Execute
-  Command → responde 200. O envio da resposta ao grupo já acontece dentro do
-  próprio script (`--enviar`), não em nó separado.
+- `scripts/despachar-webhook.js` — roteador entre os dois projetos (ver
+  "Webhook compartilhado" acima). Chamado pelo workflow EXISTENTE do
+  validador de hangares no n8n — não existe (nem precisa existir) um
+  workflow próprio para este projeto.
 - `scripts/listar-grupos.js` — lista os grupos de WhatsApp de que o bot já
   participa e sugere qual unidade cadastrada cada um parece ser, para
   preencher `grupoWhatsappId` sem catar o id manualmente. **Só funciona onde
   a Evolution API for alcançável** (hoje, o servidor AWS) — não roda em
   ambiente de desenvolvimento local.
+- `scripts/checar-webhook-evolution.js` — diagnóstico só-leitura da
+  configuração atual do webhook da Evolution (mesmo motivo acima).
 - `tests/` — testes da lógica pura, com fixtures tiradas das três fotos reais
   (`tests/conferencia.js`) e da identificação de unidade
   (`tests/unidades.js`). Sem dependência de rede.
@@ -171,12 +207,16 @@ Dan/Euro, 1Carwash, 1Park Ubatuba, Vila Mariana.
 3. Ajustar a tolerância de `conferirMaquininha` (`TOLERANCIA_MAQUININHA_PADRAO`
    em `scripts/lib/conferencia.js`, hoje 5%) depois de ver alguns dias reais
    de diferença "normal" entre o período do #1 Park e o da maquininha.
-4. Ajustar o caminho do "Execute Command" no workflow do n8n
-   (`n8n/workflows/fechamento-caixa.json`) para onde este repositório fica
-   no servidor.
-5. Importar o workflow no n8n e configurar o webhook da Evolution API para
-   apontar para ele (webhook próprio, diferente do validador de hangares —
-   workflows separados, mesma instância do WhatsApp).
-6. Decidir a integração com API de Stone/PagBank só depois de confirmar
+4. **No workflow "Validador de Tickets - Hangares SBJD" (produção, 16
+   hangares), trocar o comando do nó "Processar Mensagem" (Execute Command)**
+   de
+   `node ".../validador-hangares/scripts/processar-mensagem.js" "{{ $json.payloadB64 }}" --enviar`
+   para
+   `node ".../validador-hangares/fechamento-caixa/scripts/despachar-webhook.js" "{{ $json.payloadB64 }}" --enviar`.
+   É a única mudança necessária — nenhum outro nó muda. Ver "Webhook
+   compartilhado" acima para o porquê. Baixe uma cópia do workflow (botão
+   "Download" no n8n) antes de editar, para poder reverter rápido se algo
+   sair diferente do esperado.
+5. Decidir a integração com API de Stone/PagBank só depois de confirmar
    qual produto de API cada uma oferece e ter credenciais de teste — ver
    seção acima.
