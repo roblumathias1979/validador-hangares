@@ -56,6 +56,7 @@ const evolution = require('../scripts/lib/evolution');
 const { salvarEComitar } = require('../scripts/lib/salvar-config');
 const bloqueados = require('../scripts/lib/tickets-bloqueados');
 const { enviarTexto } = require('../scripts/lib/evolution');
+const validacoesPendentes = require('../scripts/lib/validacoes-pendentes');
 const registro = require(path.join(RAIZ, 'scripts', 'lib', 'registro'));
 const { lerJson } = require(path.join(RAIZ, 'scripts', 'lib', 'trava-arquivo'));
 const usuarios = require('./usuarios');
@@ -402,6 +403,35 @@ const servidor = http.createServer(async (req, res) => {
         credenciados: corpo.credenciados,
       });
       json(res, 200, { ok: true, patios: corpo.patios.length, avulsos: corpo.avulsos.length, credenciados: corpo.credenciados.length });
+    } catch (erro) {
+      json(res, 400, { erro: erro.message });
+    }
+    return;
+  }
+
+  // O coletor PUXA as validações autorizadas (ticket vencido liberado por cota
+  // ou por você). Autenticado com o mesmo token do coletor, e antes do login de
+  // painel: é máquina, não pessoa.
+  if (req.method === 'GET' && req.url === '/api/techparking/validacoes') {
+    if (!coletorAutorizado(req)) { json(res, 401, { erro: 'Token do coletor inválido.' }); return; }
+    json(res, 200, { validacoes: validacoesPendentes.retirarParaProcessar() });
+    return;
+  }
+
+  // E REPORTA o resultado. O grupo do cliente é avisado aqui, quando a resposta
+  // chega — é o desfecho do "autorizado, validando...".
+  if (req.method === 'POST' && req.url === '/api/techparking/validacao-resultado') {
+    if (!coletorAutorizado(req)) { json(res, 401, { erro: 'Token do coletor inválido.' }); return; }
+    try {
+      const corpo = await lerCorpo(req);
+      const v = validacoesPendentes.registrarResultado(corpo.id, corpo);
+      if (v && v.grupoId) {
+        const msg = v.resultado.ok
+          ? `✅ Ticket ${v.ticket} validado com sucesso.${v.simular ? ' (teste — nada foi alterado)' : ''}`
+          : `⚠️ Não consegui validar o ticket ${v.ticket} agora. Nossa equipe foi avisada.`;
+        try { await enviarTexto(v.grupoId, msg); } catch (e) { /* o resultado já ficou registrado */ }
+      }
+      json(res, 200, { ok: true });
     } catch (erro) {
       json(res, 400, { erro: erro.message });
     }
