@@ -16,3 +16,17 @@ ca_bundle = ca-validador.pem
 [coletor]
 ; Segundos entre um envio e outro.
 intervalo = 60
+
+; Validação de ticket vencido (opcional — só é usada no teste --validar e,
+; depois, na execução das autorizações vindas do WhatsApp). Os padrões já são
+; os valores certos; preencha só se algo mudar.
+[validador]
+; Pátio onde o ticket vencido é validado. 31 = #1PARK.
+patio_id = 31
+patio_label = #1PARK
+; Nova tolerância, em dias.
+dias = 20
+; Nome que fica registrado como quem validou.
+usuario_logged = BOT_1PARK
+; Token Bearer da API, SE ela exigir para o PUT. Vazio = tenta sem.
+token =

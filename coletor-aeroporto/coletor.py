@@ -29,7 +29,7 @@ import time
 import ssl
 import urllib.error
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 PASTA = os.path.dirname(os.path.abspath(__file__))
 
@@ -80,6 +80,19 @@ def ler_config():
         # ca-validador.pem que vem junto do coletor. Deixe em branco no .ini
         # para usar as raízes da máquina.
         "ca": resolver_ca(c.get("destino", "ca_bundle", fallback="ca-validador.pem").strip()),
+        # Validação de ticket vencido (seção [validador], toda opcional). O
+        # pátio #1PARK (id 31) é o que a 1Park usa para tickets sem trava,
+        # confirmado pelo usuário em 29/09/2026.
+        "patio_id": c.getint("validador", "patio_id", fallback=31),
+        "patio_label": c.get("validador", "patio_label", fallback="#1PARK").strip(),
+        "dias": c.getint("validador", "dias", fallback=20),
+        # usuario_logged é o nome que fica registrado como quem validou. O
+        # capturado do navegador era "ADMIN"; para separar o automático do
+        # manual na auditoria, o padrão aqui é BOT_1PARK.
+        "usuario_logged": c.get("validador", "usuario_logged", fallback="BOT_1PARK").strip(),
+        # Token Bearer da API, se ela exigir. Vazio: tenta sem — o GET funciona
+        # sem token, e ainda não sabemos se o PUT exige.
+        "tk_token": c.get("validador", "token", fallback="").strip(),
     }
 
 
@@ -192,9 +205,90 @@ def ciclo(cfg, log):
     return False
 
 
+def _abrir(req):
+    """urlopen que, no erro HTTP, devolve corpo e código em vez de estourar —
+    é o corpo do erro que diz se faltou token (401), campo (422) ou se quebrou
+    do lado deles (500)."""
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return r.status, r.read().decode("utf-8")
+    except urllib.error.HTTPError as e:
+        return e.code, e.read().decode("utf-8", "replace")
+
+
+def ler_ticket(cfg, ticket):
+    """GET do estado do ticket. Leitura pura, não altera nada."""
+    url = f"{cfg['techparking']}/validador/ticket/{ticket}"
+    req = urllib.request.Request(url, headers={"accept": "application/json"})
+    codigo, corpo = _abrir(req)
+    return codigo, corpo
+
+
+def validar_ticket(cfg, ticket):
+    """Valida um ticket no TECHPARKING, sob o pátio de tickets sem trava.
+
+    Reproduz o corpo que o validador web (:85) envia ao salvar, capturado em
+    29/09/2026. Muda só a tolerância (para hoje + `dias`); o resto do ticket
+    (placa, data de entrada) vem do próprio registro, lido antes.
+
+    NÃO É REVERSÍVEL: escreve no sistema real. Quem chama decide quando.
+    """
+    codigo, bruto = ler_ticket(cfg, ticket)
+    if codigo != 200:
+        return {"ok": False, "etapa": "leitura", "codigo": codigo, "resposta": bruto}
+    try:
+        res = (json.loads(bruto).get("results") or {})
+    except ValueError:
+        return {"ok": False, "etapa": "leitura", "codigo": codigo, "resposta": bruto}
+
+    nova = datetime.now(timezone.utc) + timedelta(days=cfg["dias"])
+    corpo = {
+        "patio": {"label": cfg["patio_label"], "id": cfg["patio_id"],
+                  "data": {"id": cfg["patio_id"], "label": cfg["patio_label"]}},
+        "usuario": cfg["patio_label"],
+        "data_ent": res.get("data_ent") or res.get("datahoraentrada"),
+        # tolerancia no formato local sem fuso, como o site enviou.
+        "tolerancia": nova.astimezone().strftime("%Y-%m-%dT%H:%M:%S"),
+        "placa": res.get("placa", "") or "",
+        # nova_tolerancia em UTC com Z, como o site enviou.
+        "nova_tolerancia": nova.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+        "usuario_logged": cfg["usuario_logged"],
+    }
+    dados = json.dumps(corpo).encode("utf-8")
+    headers = {"Content-Type": "application/json", "accept": "application/json"}
+    if cfg["tk_token"]:
+        headers["Authorization"] = "Bearer " + cfg["tk_token"]
+
+    url = f"{cfg['techparking']}/validador/ticket/{ticket}"
+    codigo, resposta = _abrir(urllib.request.Request(url, data=dados, method="PUT", headers=headers))
+    return {"ok": codigo == 200, "etapa": "put", "codigo": codigo, "resposta": resposta, "enviado": corpo}
+
+
+def teste_validacao(cfg, ticket):
+    """Um-shot para provar a validação com o olho humano: mostra o ticket
+    ANTES, o que foi enviado, e o ticket DEPOIS. É como se confere, sem crer."""
+    c1, antes = ler_ticket(cfg, ticket)
+    print("=== ANTES ===", c1)
+    print(antes)
+    r = validar_ticket(cfg, ticket)
+    print("\n=== PUT ===", r["codigo"], "ok" if r["ok"] else "FALHOU")
+    if "enviado" in r:
+        print("enviado:", json.dumps(r["enviado"], ensure_ascii=False))
+    print("resposta:", r["resposta"])
+    c2, depois = ler_ticket(cfg, ticket)
+    print("\n=== DEPOIS ===", c2)
+    print(depois)
+    return r["ok"]
+
+
 def main():
     log = configurar_log()
     cfg = ler_config()
+    if "--validar" in sys.argv:
+        i = sys.argv.index("--validar")
+        if i + 1 >= len(sys.argv):
+            sys.exit("uso: python coletor.py --validar NUMERO_DO_TICKET")
+        sys.exit(0 if teste_validacao(cfg, sys.argv[i + 1]) else 1)
     if "--uma-vez" in sys.argv:
         sys.exit(0 if ciclo(cfg, log) else 1)
     log.info("coletor iniciado, a cada %ss", cfg["intervalo"])
