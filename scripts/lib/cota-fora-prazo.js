@@ -25,9 +25,13 @@ const ARQUIVO_ESTADO = path.join(__dirname, '..', '..', 'data', 'cota-fora-prazo
 // isso está explícito no config de cada um — nunca aqui.
 const COTA_PADRAO = 2;
 
-function mesAtual() {
-  const agora = new Date();
-  return `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, '0')}`;
+// A competência é calculada em horário de SÃO PAULO, não no do servidor (UTC).
+// Sem isso o mês virava 3h cedo: das 21h do último dia em diante o servidor já
+// contava o mês seguinte e a cota renovava antes da hora. Mesmo cuidado da
+// cota mensal do VOASP (lib/cota-mensal.js).
+function mesAtual(quando = new Date()) {
+  // 'en-CA' devolve AAAA-MM-DD; os 7 primeiros caracteres são AAAA-MM.
+  return new Date(quando).toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' }).slice(0, 7);
 }
 
 function lerEstado() {
