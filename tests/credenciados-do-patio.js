@@ -97,9 +97,20 @@ try {
   const vazio = montarMensagemCredenciados({ id: 'y', hangar: 'Y', bolsaoTechparking: 'CONCORDE' }, { ...CONTAGEM, credenciados: 0 });
   conferir('afirma com segurança que não há', /Nenhum credenciado neste pátio/.test(vazio), vazio);
 
-  console.log('\nQuando as duas fontes discordam, o bot conta');
+  console.log('\nDivergência pequena é normal e não vira aviso');
+  // Um carro entrando entre a leitura do site e a foto do aeroporto já produz
+  // diferença de 1. Avisar disso todo dia ensina a ignorar o aviso.
+  for (const n of [1, 2, 3, 4]) {
+    const m2 = montarMensagemCredenciados(HANGAR_1, { ...CONTAGEM, credenciados: n });
+    const avisou = /Diferença grande demais/.test(m2);
+    const esperado = Math.abs(n - 2) >= 3;
+    conferir(`ValidPark ${n} x lista 2 -> ${esperado ? 'avisa' : 'silêncio'}`, avisou === esperado, m2);
+  }
+
+  console.log('\nDivergência grande vira aviso');
   const discorda = montarMensagemCredenciados(HANGAR_1, { ...CONTAGEM, credenciados: 7 });
-  conferir('mostra a divergência', /ValidPark conta 7 e esta lista tem 2/.test(discorda), discorda);
+  conferir('mostra os dois números', /ValidPark conta 7 e esta lista tem 2/.test(discorda), discorda);
+  conferir('e diz que vale conferir', /vale conferir/.test(discorda));
 
   console.log(`\n${falhas ? `${falhas} falha(s)` : 'tudo certo'}`);
 } finally {

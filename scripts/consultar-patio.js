@@ -218,10 +218,19 @@ function acrescentarCredenciados(linhas, hangar, d) {
   acrescentarLista(linhas, c.lista, (p) =>
     `• ${p.nome || '(sem nome)'}${p.placa ? ` — ${p.placa}` : ''}${desdeQuando(p.desde)}`);
 
-  // A discrepância é informação, não defeito a esconder: as duas fontes são
-  // sistemas diferentes e podem estar em momentos diferentes.
-  if (d.credenciados !== null && d.credenciados !== c.lista.length) {
-    linhas.push('', `_O ValidPark conta ${d.credenciados} e esta lista tem ${c.lista.length} — os dois sistemas podem estar defasados entre si._`);
+  // Divergência entre as duas fontes: só avisa quando é GRANDE o bastante para
+  // significar alguma coisa.
+  //
+  // Um ou dois de diferença é o normal: a leitura do ValidPark e a foto do
+  // aeroporto acontecem em instantes diferentes, e basta um carro entrar no
+  // meio. O aviso disparou com 15 contra 16 num teste real (29/09/2026), e
+  // minutos depois as duas fontes diziam 16 — não havia nada errado, só um
+  // carro em movimento. Avisar disso todo dia ensina a ignorar o aviso, e aí
+  // ele não serve quando a diferença for de verdade.
+  const diferenca = Math.abs((d.credenciados ?? 0) - c.lista.length);
+  if (d.credenciados !== null && diferenca >= 3) {
+    linhas.push('', `_O ValidPark conta ${d.credenciados} e esta lista tem ${c.lista.length}. `
+      + 'Diferença grande demais para ser só o intervalo entre as leituras — vale conferir._');
   }
 }
 
