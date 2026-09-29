@@ -31,7 +31,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env'), override: t
 
 const { carregarConfig, buscarHangarPorGrupo } = require('./lib/hangar');
 const { comTravaAsync } = require('./lib/trava-arquivo');
-const { interpretarMensagem, extrairPlaca } = require('./lib/whatsapp');
+const { interpretarMensagem, extrairPlaca, interpretarEscolhaPatio } = require('./lib/whatsapp');
 // O cliente da Evolution vive em lib/evolution.js: o painel também precisa
 // mandar mensagem, e duas cópias do mesmo cliente divergiriam — inclusive no
 // `Connection: close`, que existe por um bug real de socket reaproveitado.
@@ -480,6 +480,29 @@ async function conduzir(body, { aoReceber } = {}) {
   }
 
   if (msg.tipo === 'texto' && msg.pedidoPatio) {
+    // Pergunta GENÉRICA ("como está meu pátio") ganha menu em vez de despejo.
+    //
+    // A resposta completa é longa: contadores, tickets validados e a lista de
+    // credenciados, que em alguns pátios passa de vinte nomes. Quem só queria
+    // saber das vagas recebia tudo isso. Perguntar custa uma mensagem e devolve
+    // exatamente o que foi pedido.
+    //
+    // Quem JÁ disse o que quer — "quais os credenciados", "os tickets
+    // validados" — pula o menu: repetir a pergunta a quem já respondeu é
+    // burocracia.
+    if (msg.pedidoPatio === 'status') {
+      pendencias.registrar(msg.grupoId, msg.remetenteId, { hangarId: hangar.id, tipo: 'escolha_patio' });
+      return {
+        status: 'menu_patio', hangarId: hangar.id, grupoId: msg.grupoId,
+        mensagemWhatsapp: `📊 *${hangar.hangar || hangar.id}* — o que você quer ver?\n\n`
+          + '*1* — Credenciados no pátio\n'
+          + '*2* — Tickets validados\n'
+          + '*3* — Ambos\n\n'
+          + 'Responda com o número.',
+        notificarAdmin: false, responder: true, etapa: 'menu_patio',
+      };
+    }
+
     if (aoReceber) {
       try { await aoReceber(msg.grupoId, '🔎 Consultando o pátio...'); } catch (e) { /* aviso é conforto */ }
     }
@@ -546,6 +569,31 @@ async function conduzir(body, { aoReceber } = {}) {
 
     const ehFaturamento = pendente.tipo === 'autorizar_faturamento';
     const ehCotaMensal = pendente.tipo === 'usar_cota_mensal';
+
+    // Resposta ao menu do pátio: 1, 2, 3 ou a palavra.
+    if (pendente.tipo === 'escolha_patio') {
+      const escolha = interpretarEscolhaPatio(msg.texto);
+      if (!escolha) {
+        return {
+          status: 'menu_patio_nao_entendido', hangarId: hangar.id, grupoId: msg.grupoId,
+          mensagemWhatsapp: 'Não entendi. Responda *1* para credenciados, *2* para tickets validados ou *3* para ambos.',
+          notificarAdmin: false, responder: true, etapa: 'menu_patio',
+        };
+      }
+      pendencias.consumir(msg.grupoId, msg.remetenteId);
+      if (aoReceber) {
+        try { await aoReceber(msg.grupoId, '🔎 Consultando o pátio...'); } catch (e) { /* aviso é conforto */ }
+      }
+      const patio = await consultarPatio(hangar.id, { formato: escolha });
+      return {
+        status: patio.status, hangarId: hangar.id, grupoId: msg.grupoId,
+        mensagemWhatsapp: patio.mensagemWhatsapp,
+        notificarAdmin: patio.notificarAdmin === true, responder: true,
+        etapa: `status_patio_${escolha}`,
+        vagasDisponiveis: patio.disponiveis ?? null,
+        totalVagas: patio.total ?? null,
+      };
+    }
 
     // O texto É a identificação: nome, carro ou placa, como a pessoa quiser.
     if (pendente.tipo === 'informar_identificacao') {

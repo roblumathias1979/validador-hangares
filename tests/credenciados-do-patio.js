@@ -66,7 +66,7 @@ try {
   conferir('lista os nomes', /HANGAR 1 JOAO BATISTA/.test(m), m);
   conferir('mostra a placa quando está no nome', /ABC1D23/.test(m) === false, 'não deve trazer o do Solojet');
   conferir('não traz credenciado de outro pátio', !/JUMPER/.test(m));
-  conferir('mantém a contagem do ValidPark', /Credenciados no pátio agora: \*2\*/.test(m), m);
+  conferir('mantém a contagem do ValidPark', /2 credenciados/.test(m), m);
 
   console.log('\nDesde quando cada um está no pátio');
   conferir('mostra o tempo decorrido', /3h\)/.test(m), m);
@@ -85,7 +85,7 @@ try {
   try { fs.unlinkSync(ARQ); } catch (e) { /* já não existe */ }
   const semFoto = montarMensagemCredenciados(HANGAR_1, CONTAGEM);
   conferir('explica que não chegou', /ainda não chegou/i.test(semFoto), semFoto);
-  conferir('e continua dando a contagem', /Credenciados no pátio agora/.test(semFoto));
+  conferir('e continua dando a contagem', /2 credenciados/.test(semFoto), semFoto);
 
   console.log('\nPátio sem vínculo configurado');
   escrever(1);

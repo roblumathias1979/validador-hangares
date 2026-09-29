@@ -80,13 +80,24 @@ function interpretarResposta(texto) {
 // A lista de verbos nasceu curta demais (16/09/2026): "me fale quais são os
 // credenciados que estão no pátio" não era reconhecido, porque "quais" não
 // estava nela. Ampliada com as formas que as pessoas realmente usam.
-const VERBOS = '(status|situa[çc][ãa]o|como\\s+est[áa]|quant[ao]s?|tem|quais|qual|liste?|lista|'
-  + 'me\\s+(fale|diga|informe|mostre?|d[êe])|informe|mostrar?|mostre|ver|saber)';
-const ASSUNTO_PATIO = '(p[áa]tio|vagas?|estacionamento)';
+// Os padrões são comparados contra o texto NORMALIZADO (sem acento, em
+// minúsculas), e por isso são escritos sem acento.
+//
+// Isso não é estilo: o `\b` do JavaScript trata letra acentuada como
+// separador, então `\best[áa]\b` NÃO casa com "está" seguido de espaço — o "á"
+// já é um não-caractere-de-palavra e o limite depois dele nunca fecha. Foi
+// assim que "como está meu pátio?" deixou de ser reconhecido enquanto "como
+// esta meu patio" funcionava (29/09/2026). Normalizar antes resolve a classe
+// inteira do problema em vez de um caso por vez.
+const VERBOS = '(status|situacao|como\\s+esta|quant[ao]s?|tem|quais|qual|liste?|lista|'
+  + 'me\\s+(fale|diga|informe|mostre?|de)|informe|mostrar?|mostre|ver|saber)';
+const ASSUNTO_PATIO = '(patio|vagas?|estacionamento)';
 const ASSUNTO_CREDENCIADOS = '(credenciad[oa]s?|mensalistas?)';
+const ASSUNTO_TICKETS = '(tickets?\\s+validad[oa]s?|validad[oa]s?)';
 
 const REGEX_PATIO = new RegExp(`\\b${VERBOS}\\b[^?!.]{0,50}\\b${ASSUNTO_PATIO}\\b`, 'i');
 const REGEX_CREDENCIADOS = new RegExp(`\\b${VERBOS}\\b[^?!.]{0,50}\\b${ASSUNTO_CREDENCIADOS}\\b`, 'i');
+const REGEX_TICKETS = new RegExp(`\\b${VERBOS}\\b[^?!.]{0,50}\\b${ASSUNTO_TICKETS}\\b`, 'i');
 
 // Consulta ao histórico: "o ticket do João foi validado?", "a placa ABC1234 já
 // foi validada?", "validaram o 011709101527?".
@@ -171,11 +182,29 @@ function interpretarConsultaValidacao(texto) {
  * ali, não receber outra coisa no lugar.
  */
 function interpretarPedidoPatio(texto) {
-  const t = (texto || '').trim();
+  const t = normalizar(String(texto || '').trim());
   // Frase longa raramente é comando; é conversa que por acaso cita o pátio.
   if (!t || t.length > 140) return null;
+  // Quem já disse O QUE quer recebe direto. 'status' é a pergunta genérica —
+  // "como está meu pátio" —, e essa ganha o menu em vez de um despejo de tudo.
   if (REGEX_CREDENCIADOS.test(t)) return 'credenciados';
+  if (REGEX_TICKETS.test(t)) return 'tickets';
   if (REGEX_PATIO.test(t)) return 'status';
+  return null;
+}
+
+/**
+ * A escolha do menu do pátio: 1/2/3 ou a palavra.
+ *
+ * Aceita número porque é o que a pessoa faz depois de ver uma lista numerada,
+ * e palavra porque é o que ela faz quando não olhou os números.
+ */
+function interpretarEscolhaPatio(texto) {
+  const t = normalizar(texto).replace(/[^a-z0-9\s]/g, ' ').trim();
+  if (!t || t.length > 40) return null;
+  if (/^1\b/.test(t) || /\bcredenciad|\bmensalista/.test(t)) return 'credenciados';
+  if (/^2\b/.test(t) || /\bticket|\bvalidad/.test(t)) return 'tickets';
+  if (/^3\b/.test(t) || /\bambos|\bos dois|\btudo|\btodos/.test(t)) return 'ambos';
   return null;
 }
 
@@ -324,4 +353,4 @@ function interpretarMensagem(body) {
   };
 }
 
-module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus, interpretarPedidoPatio, interpretarConsultaValidacao, interpretarComandoIdentificacao, normalizar };
+module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus, interpretarPedidoPatio, interpretarEscolhaPatio, interpretarConsultaValidacao, interpretarComandoIdentificacao, normalizar };

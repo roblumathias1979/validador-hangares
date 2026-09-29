@@ -106,34 +106,46 @@ function acrescentarLista(linhas, itens, formatar) {
   return mostrados;
 }
 
-function montarMensagem(hangar, d) {
+/**
+ * A mensagem do pátio, com as partes que foram pedidas.
+ *
+ * `partes` é 'tickets', 'credenciados' ou 'ambos'. Os CONTADORES vão sempre:
+ * são duas linhas e respondem a pergunta mais comum — quantas vagas restam —
+ * sem que ninguém precise pedir.
+ */
+function montarMensagemPatio(hangar, d, partes = 'ambos') {
   const linhas = [`📊 *${hangar.hangar || hangar.id}*`, ''];
-
-  if (d.total !== null) {
-    linhas.push(`Vagas: ${d.disponiveis} livres de ${d.total}`);
-    if (d.utilizadas !== null) {
-      const detalhe = [
-        d.tickets !== null ? `${d.tickets} por ticket` : null,
-        d.credenciados !== null ? `${d.credenciados} credenciados` : null,
-      ].filter(Boolean).join(', ');
-      linhas.push(`Ocupadas: ${d.utilizadas}${detalhe ? ` (${detalhe})` : ''}`);
-    }
-  } else {
-    linhas.push('Não consegui ler o contador de vagas do site.');
-  }
-
-  if (d.validados.length) {
-    linhas.push('', `*Tickets validados* (${d.validados.length}):`);
-    // Limite de 10 na mensagem: o site mostra ~21, e uma mensagem com todos
-    // fica ilegível no celular. O resto continua no json, para o painel.
-    acrescentarLista(linhas, d.validados, (v) =>
-      `• ${v.ticket || '(sem número)'} — ${v.placa || 'sem placa'}${v.tolerancia ? ` — até ${v.tolerancia}` : ''}`);
-  } else {
-    linhas.push('', 'Nenhum ticket validado aparece na lista do site agora.');
-  }
-
+  acrescentarContadores(linhas, d);
+  if (partes === 'tickets' || partes === 'ambos') acrescentarValidados(linhas, d);
+  if (partes === 'credenciados' || partes === 'ambos') acrescentarCredenciados(linhas, hangar, d);
   if (d.doCache) linhas.push('', '_dados de até 1 minuto atrás_');
   return linhas.join('\n');
+}
+
+/** Vagas e ocupação. Vão sempre: respondem a pergunta mais comum em 2 linhas. */
+function acrescentarContadores(linhas, d) {
+  if (d.total === null) {
+    linhas.push('Não consegui ler o contador de vagas do site.');
+    return;
+  }
+  linhas.push(`Vagas: ${d.disponiveis} livres de ${d.total}`);
+  if (d.utilizadas === null) return;
+  const detalhe = [
+    d.tickets !== null ? `${d.tickets} por ticket` : null,
+    d.credenciados !== null ? `${d.credenciados} credenciados` : null,
+  ].filter(Boolean).join(', ');
+  linhas.push(`Ocupadas: ${d.utilizadas}${detalhe ? ` (${detalhe})` : ''}`);
+}
+
+/** Os tickets que o ValidPark mostra como validados. */
+function acrescentarValidados(linhas, d) {
+  if (!d.validados.length) {
+    linhas.push('', 'Nenhum ticket validado aparece na lista do site agora.');
+    return;
+  }
+  linhas.push('', `*Tickets validados* (${d.validados.length}):`);
+  acrescentarLista(linhas, d.validados, (v) =>
+    `• ${v.ticket || '(sem número)'} — ${v.placa || 'sem placa'}${v.tolerancia ? ` — até ${v.tolerancia}` : ''}`);
 }
 
 /**
@@ -176,17 +188,8 @@ function desdeQuando(texto) {
  * Dizer isso é melhor que responder outra coisa no lugar: quem perguntou fica
  * sabendo onde procurar, em vez de achar que o bot falhou.
  */
-function montarMensagemCredenciados(hangar, d) {
-  const linhas = [`📊 *${hangar.hangar || hangar.id}*`, ''];
-  if (d.credenciados !== null) {
-    linhas.push(`Credenciados no pátio agora: *${d.credenciados}*`);
-    if (d.utilizadas !== null && d.tickets !== null) {
-      linhas.push(`(das ${d.utilizadas} vagas ocupadas, ${d.tickets} são por ticket)`);
-    }
-  } else {
-    linhas.push('Não consegui ler a contagem de credenciados no site.');
-  }
-
+/** Quem está no pátio, da foto que o coletor do aeroporto manda. */
+function acrescentarCredenciados(linhas, hangar, d) {
   // A LISTA não existe no ValidPark — só o total. Ela vem da API do
   // TECHPARKING, no aeroporto, por uma ponte que pode não estar de pé. Quando
   // está, responde o que sempre faltou; quando não está, o bot diz o que sabe
@@ -194,27 +197,49 @@ function montarMensagemCredenciados(hangar, d) {
   const c = snapshot.credenciadosDoPatio(hangar.bolsaoTechparking);
   if (c.semVinculo) {
     linhas.push('', '_A lista de nomes não está ligada a este pátio. A administração precisa informar o bolsão correspondente no painel._');
-  } else if (!c.existe) {
+    return;
+  }
+  if (!c.existe) {
     linhas.push('', '_A lista de nomes ainda não chegou do sistema do aeroporto._');
-  } else if (!c.fresca) {
+    return;
+  }
+  if (!c.fresca) {
     // Dizer "está velho" em vez de mostrar: uma lista de meia hora atrás faz
     // quem pergunta decidir errado achando que está informado.
     linhas.push('', `_A lista de nomes está desatualizada (última atualização há ${Math.round(c.idadeMs / 60000)} min). Não vou mostrá-la para não induzir a erro._`);
-  } else if (!c.lista.length) {
+    return;
+  }
+  if (!c.lista.length) {
     linhas.push('', 'Nenhum credenciado neste pátio no momento.');
-  } else {
-    linhas.push('', `*Quem está no pátio* (${c.lista.length}):`);
-    acrescentarLista(linhas, c.lista, (p) =>
-      `• ${p.nome || '(sem nome)'}${p.placa ? ` — ${p.placa}` : ''}${desdeQuando(p.desde)}`);
-    // A discrepância é informação, não defeito a esconder: as duas fontes são
-    // sistemas diferentes e podem estar em momentos diferentes.
-    if (d.credenciados !== null && d.credenciados !== c.lista.length) {
-      linhas.push('', `_O ValidPark conta ${d.credenciados} e esta lista tem ${c.lista.length} — os dois sistemas podem estar defasados entre si._`);
-    }
+    return;
   }
 
-  if (d.doCache) linhas.push('', '_dados de até 1 minuto atrás_');
-  return linhas.join('\n');
+  linhas.push('', `*Credenciados no pátio* (${c.lista.length}):`);
+  acrescentarLista(linhas, c.lista, (p) =>
+    `• ${p.nome || '(sem nome)'}${p.placa ? ` — ${p.placa}` : ''}${desdeQuando(p.desde)}`);
+
+  // A discrepância é informação, não defeito a esconder: as duas fontes são
+  // sistemas diferentes e podem estar em momentos diferentes.
+  if (d.credenciados !== null && d.credenciados !== c.lista.length) {
+    linhas.push('', `_O ValidPark conta ${d.credenciados} e esta lista tem ${c.lista.length} — os dois sistemas podem estar defasados entre si._`);
+  }
+}
+
+/** Compatibilidade: o formato "só credenciados" continua existindo. */
+function montarMensagemCredenciados(hangar, d) {
+  return montarMensagemPatio(hangar, d, 'credenciados');
+}
+
+/** Compatibilidade: o formato "só tickets". */
+function montarMensagem(hangar, d) {
+  return montarMensagemPatio(hangar, d, 'tickets');
+}
+
+/** Traduz o formato pedido nas partes da mensagem. */
+function partesDe(formato) {
+  if (formato === 'credenciados') return 'credenciados';
+  if (formato === 'ambos') return 'ambos';
+  return 'tickets';
 }
 
 async function consultarPatio(hangarId, { usarCache = true, formato = 'status' } = {}) {
@@ -223,8 +248,7 @@ async function consultarPatio(hangarId, { usarCache = true, formato = 'status' }
   if (usarCache) {
     const c = lerCache(hangarId);
     if (c) {
-      const m = formato === 'credenciados' ? montarMensagemCredenciados : montarMensagem;
-      return { ...c, doCache: true, mensagemWhatsapp: m(hangar, { ...c, doCache: true }) };
+      return { ...c, doCache: true, mensagemWhatsapp: montarMensagemPatio(hangar, { ...c, doCache: true }, partesDe(formato)) };
     }
   }
 
@@ -253,8 +277,7 @@ async function consultarPatio(hangarId, { usarCache = true, formato = 'status' }
 
     const dados = { status: 'patio_ok', hangar: hangarId, ...numeros, validados, em: new Date().toISOString() };
     gravarCache(hangarId, dados);
-    const montar = formato === 'credenciados' ? montarMensagemCredenciados : montarMensagem;
-    return { ...dados, doCache: false, mensagemWhatsapp: montar(hangar, { ...dados, doCache: false }) };
+    return { ...dados, doCache: false, mensagemWhatsapp: montarMensagemPatio(hangar, { ...dados, doCache: false }, partesDe(formato)) };
   } finally {
     await navegador.close();
   }
@@ -288,4 +311,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { consultarPatio, extrairValidados, montarMensagem, montarMensagemCredenciados };
+module.exports = { consultarPatio, extrairValidados, montarMensagem, montarMensagemCredenciados, montarMensagemPatio };
