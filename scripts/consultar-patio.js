@@ -72,6 +72,40 @@ function gravarCache(hangarId, dados) {
   } catch (e) { /* cache é otimização; falhar aqui não pode derrubar a consulta */ }
 }
 
+/**
+ * Acrescenta uma lista inteira, cortando só pelo LIMITE DO WHATSAPP.
+ *
+ * Antes havia um teto fixo — 10 tickets, 20 credenciados — e o "e mais N" no
+ * fim. Mas o "Ver mais" do WhatsApp expande o que foi ENVIADO: os itens que o
+ * bot cortou nunca saíram daqui, então tocar nele não revelava nada. Quem
+ * precisava da lista completa não tinha como chegar nela.
+ *
+ * O teto real é o da mensagem do WhatsApp, 4096 caracteres. Reservamos folga
+ * para o cabeçalho e os avisos que vêm depois, e só então cortamos — dizendo
+ * quantos ficaram de fora, que aí é limite de verdade e não escolha nossa.
+ */
+const LIMITE_WHATSAPP = 4096;
+const FOLGA_CABECALHO = 600;
+
+function acrescentarLista(linhas, itens, formatar) {
+  const jaUsado = linhas.join('\n').length;
+  let orcamento = LIMITE_WHATSAPP - FOLGA_CABECALHO - jaUsado;
+  let mostrados = 0;
+
+  for (const item of itens) {
+    const linha = formatar(item);
+    if (linha.length + 1 > orcamento) break;
+    linhas.push(linha);
+    orcamento -= linha.length + 1;
+    mostrados += 1;
+  }
+
+  if (mostrados < itens.length) {
+    linhas.push(`_(mais ${itens.length - mostrados} não couberam nesta mensagem)_`);
+  }
+  return mostrados;
+}
+
 function montarMensagem(hangar, d) {
   const linhas = [`📊 *${hangar.hangar || hangar.id}*`, ''];
 
@@ -89,13 +123,11 @@ function montarMensagem(hangar, d) {
   }
 
   if (d.validados.length) {
-    linhas.push('', `*Tickets validados* (${d.validados.length} mais recentes):`);
+    linhas.push('', `*Tickets validados* (${d.validados.length}):`);
     // Limite de 10 na mensagem: o site mostra ~21, e uma mensagem com todos
     // fica ilegível no celular. O resto continua no json, para o painel.
-    for (const v of d.validados.slice(0, 10)) {
-      linhas.push(`• ${v.ticket || '(sem número)'} — ${v.placa || 'sem placa'}${v.tolerancia ? ` — até ${v.tolerancia}` : ''}`);
-    }
-    if (d.validados.length > 10) linhas.push(`_(e mais ${d.validados.length - 10})_`);
+    acrescentarLista(linhas, d.validados, (v) =>
+      `• ${v.ticket || '(sem número)'} — ${v.placa || 'sem placa'}${v.tolerancia ? ` — até ${v.tolerancia}` : ''}`);
   } else {
     linhas.push('', 'Nenhum ticket validado aparece na lista do site agora.');
   }
@@ -172,10 +204,8 @@ function montarMensagemCredenciados(hangar, d) {
     linhas.push('', 'Nenhum credenciado neste pátio no momento.');
   } else {
     linhas.push('', `*Quem está no pátio* (${c.lista.length}):`);
-    for (const p of c.lista.slice(0, 20)) {
-      linhas.push(`• ${p.nome || '(sem nome)'}${p.placa ? ` — ${p.placa}` : ''}${desdeQuando(p.desde)}`);
-    }
-    if (c.lista.length > 20) linhas.push(`_(e mais ${c.lista.length - 20})_`);
+    acrescentarLista(linhas, c.lista, (p) =>
+      `• ${p.nome || '(sem nome)'}${p.placa ? ` — ${p.placa}` : ''}${desdeQuando(p.desde)}`);
     // A discrepância é informação, não defeito a esconder: as duas fontes são
     // sistemas diferentes e podem estar em momentos diferentes.
     if (d.credenciados !== null && d.credenciados !== c.lista.length) {
