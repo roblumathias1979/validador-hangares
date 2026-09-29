@@ -194,15 +194,20 @@ def ciclo(cfg, log):
     except Exception as e:
         log.error("TECHPARKING não respondeu: %s", e)
         return False
+    enviou = False
     try:
         r = enviar(cfg, dados)
         log.info("enviado: %s pátios, %s tickets, %s credenciados", r.get("patios"), r.get("avulsos"), r.get("credenciados"))
-        return True
+        enviou = True
     except urllib.error.HTTPError as e:
         log.error("servidor recusou (%s): %s", e.code, e.read().decode("utf-8", "replace")[:300])
     except Exception as e:
         log.error("não consegui enviar: %s", e)
-    return False
+
+    # As validações autorizadas são independentes do snapshot: rodam mesmo que
+    # o envio acima falhe, contanto que o TECHPARKING (lido acima) esteja de pé.
+    executar_validacoes(cfg, log)
+    return enviou
 
 
 def _abrir(req):
@@ -224,15 +229,23 @@ def ler_ticket(cfg, ticket):
     return codigo, corpo
 
 
-def validar_ticket(cfg, ticket):
+def validar_ticket(cfg, ticket, patio_id=None, patio_label=None, dias=None, placa=None, simular=False):
     """Valida um ticket no TECHPARKING, sob o pátio de tickets sem trava.
 
     Reproduz o corpo que o validador web (:85) envia ao salvar, capturado em
-    29/09/2026. Muda só a tolerância (para hoje + `dias`); o resto do ticket
-    (placa, data de entrada) vem do próprio registro, lido antes.
+    29/09/2026. Muda só a tolerância (para hoje + `dias`); a data de entrada vem
+    do próprio registro, lido antes. `patio_id`/`patio_label`/`dias`/`placa`
+    sobrescrevem o padrão do cfg quando o pedido traz valores próprios.
 
-    NÃO É REVERSÍVEL: escreve no sistema real. Quem chama decide quando.
+    `simular=True` faz tudo MENOS o PUT: prova que o coletor lê o ticket e
+    monta o corpo, sem escrever. É como se testa o canal sem tocar em dado real.
+
+    NÃO É REVERSÍVEL fora da simulação: escreve no sistema real.
     """
+    pid = patio_id if patio_id is not None else cfg["patio_id"]
+    plabel = patio_label or cfg["patio_label"]
+    ndias = dias if dias is not None else cfg["dias"]
+
     codigo, bruto = ler_ticket(cfg, ticket)
     if codigo != 200:
         return {"ok": False, "etapa": "leitura", "codigo": codigo, "resposta": bruto}
@@ -241,19 +254,20 @@ def validar_ticket(cfg, ticket):
     except ValueError:
         return {"ok": False, "etapa": "leitura", "codigo": codigo, "resposta": bruto}
 
-    nova = datetime.now(timezone.utc) + timedelta(days=cfg["dias"])
+    nova = datetime.now(timezone.utc) + timedelta(days=ndias)
     corpo = {
-        "patio": {"label": cfg["patio_label"], "id": cfg["patio_id"],
-                  "data": {"id": cfg["patio_id"], "label": cfg["patio_label"]}},
-        "usuario": cfg["patio_label"],
+        "patio": {"label": plabel, "id": pid, "data": {"id": pid, "label": plabel}},
+        "usuario": plabel,
         "data_ent": res.get("data_ent") or res.get("datahoraentrada"),
-        # tolerancia no formato local sem fuso, como o site enviou.
         "tolerancia": nova.astimezone().strftime("%Y-%m-%dT%H:%M:%S"),
-        "placa": res.get("placa", "") or "",
-        # nova_tolerancia em UTC com Z, como o site enviou.
+        "placa": placa if placa is not None else (res.get("placa", "") or ""),
         "nova_tolerancia": nova.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
         "usuario_logged": cfg["usuario_logged"],
     }
+    if simular:
+        return {"ok": True, "etapa": "simulado", "codigo": 200,
+                "resposta": "simulacao: PUT nao enviado", "enviado": corpo}
+
     dados = json.dumps(corpo).encode("utf-8")
     headers = {"Content-Type": "application/json", "accept": "application/json"}
     if cfg["tk_token"]:
@@ -262,6 +276,63 @@ def validar_ticket(cfg, ticket):
     url = f"{cfg['techparking']}/validador/ticket/{ticket}"
     codigo, resposta = _abrir(urllib.request.Request(url, data=dados, method="PUT", headers=headers))
     return {"ok": codigo == 200, "etapa": "put", "codigo": codigo, "resposta": resposta, "enviado": corpo}
+
+
+def _base_servidor(cfg):
+    """A URL do nosso servidor sem o /snapshot final — as rotas de validação
+    são irmãs dela."""
+    return cfg["destino"].rsplit("/", 1)[0]
+
+
+def _ctx_https(cfg):
+    return ssl.create_default_context(cafile=cfg["ca"]) if cfg["ca"] else None
+
+
+def executar_validacoes(cfg, log):
+    """Puxa as validações autorizadas do nosso servidor, executa cada uma no
+    TECHPARKING e reporta o resultado. Roda a cada ciclo, depois do snapshot.
+
+    Uma validação que falha não derruba as outras: cada uma é reportada por si,
+    e o servidor avisa o grupo do cliente conforme o resultado."""
+    try:
+        url = _base_servidor(cfg) + "/validacoes"
+        req = urllib.request.Request(url, headers={
+            "Authorization": "Bearer " + cfg["token"], "accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=30, context=_ctx_https(cfg)) as r:
+            pendentes = json.loads(r.read().decode("utf-8")).get("validacoes", [])
+    except Exception as e:  # noqa: BLE001 — rede instável não pode quebrar o ciclo
+        log.warning("nao consegui buscar validacoes: %s", e)
+        return
+
+    for v in pendentes:
+        try:
+            r = validar_ticket(
+                cfg, v["ticket"],
+                patio_id=v.get("patioId"), patio_label=v.get("patioLabel"),
+                dias=v.get("dias"), placa=v.get("placa"),
+                simular=v.get("simular") is True,
+            )
+            log.info("validacao %s ticket %s -> %s (%s)", v["id"], v["ticket"],
+                     "ok" if r["ok"] else "falhou", r["codigo"])
+        except Exception as e:  # noqa: BLE001
+            r = {"ok": False, "codigo": None, "resposta": str(e)[:300]}
+            log.warning("validacao %s estourou: %s", v.get("id"), e)
+        _reportar(cfg, v["id"], r, log)
+
+
+def _reportar(cfg, id_validacao, r, log):
+    try:
+        url = _base_servidor(cfg) + "/validacao-resultado"
+        dados = json.dumps({"id": id_validacao, "ok": r["ok"],
+                            "codigo": r.get("codigo"), "resposta": r.get("resposta")}).encode("utf-8")
+        req = urllib.request.Request(url, data=dados, method="POST", headers={
+            "Authorization": "Bearer " + cfg["token"], "Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=30, context=_ctx_https(cfg)):
+            pass
+    except Exception as e:  # noqa: BLE001
+        # Se o report se perde, o servidor devolve a validação à fila depois do
+        # tempo de reentrega — melhor repetir que dar por feito o que não foi.
+        log.warning("nao consegui reportar validacao %s: %s", id_validacao, e)
 
 
 def teste_validacao(cfg, ticket):
