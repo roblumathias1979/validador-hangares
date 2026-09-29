@@ -109,7 +109,7 @@
       "_observacao_patio": "CONFIRMADO pelo usuário e por medição em 16/09/2026: AIBM 1 e AIBM 2 são pátios SEPARADOS, com login próprio e capacidade própria — não compartilham vagas nem lista de tickets. Medido nos dois: AIBM 1 tem 12 vagas e AIBM 2 tem 41. Isso encerra a dúvida registrada no ESTADO-ATUAL.md, que dava como indefinido se o AIBM 2 tinha acesso próprio.",
       "_observacao_credencial": "A senha de BOT_AIBM estava truncada (5 caracteres) e o login falhava com 'Usúario ou senha incorretos'. Corrigida em 16/09/2026 e testada contra o site real: autentica, e o pátio responde 'AIBM | Total de vagas: 12'. Mais uma confirmação de que AIBM 1 e AIBM 2 são pátios distintos — 12 vagas contra 41.",
       "perguntarIdentificacao": false,
-      "bolsaoTechparking": ""
+      "bolsaoTechparking": "AIBM"
     },
     {
       "id": "aibm-2",
@@ -165,7 +165,7 @@
       "_observacao_grupo": "Grupo criado em 16/09/2026. Login BOT_AIBM2, seletores e leitura de vagas testados contra o site real na mesma data: pátio de 41 vagas, 39 livres. ATENÇÃO: este hangar exige foto do veículo no local (exigeFotoVeiculoNoLocal), e a conferência fica bem melhor com fotos de referência do pátio subidas pelo painel — sem elas, a comparação usa só a descrição em texto de localReferencia.",
       "_observacao_patio": "CONFIRMADO pelo usuário e por medição em 16/09/2026: AIBM 1 e AIBM 2 são pátios SEPARADOS, com login próprio e capacidade própria — não compartilham vagas nem lista de tickets. Medido nos dois: AIBM 1 tem 12 vagas e AIBM 2 tem 41. Isso encerra a dúvida registrada no ESTADO-ATUAL.md, que dava como indefinido se o AIBM 2 tinha acesso próprio.",
       "perguntarIdentificacao": false,
-      "bolsaoTechparking": ""
+      "bolsaoTechparking": "AIBM 2"
     },
     {
       "id": "solojet-shares",
@@ -468,7 +468,7 @@
       "diasValidacaoPadrao": 20,
       "exigeFotoVeiculoNoLocal": false,
       "avisarPatioCheio": false,
-      "bolsaoTechparking": ""
+      "bolsaoTechparking": "EPEAC - ESCOLA AVIACAO CIVIL"
     },
     {
       "id": "dux-express",
@@ -600,7 +600,7 @@
       "exigeFotoVeiculoNoLocal": false,
       "avisarVagasAbaixoDe": 5,
       "perguntarIdentificacao": true,
-      "bolsaoTechparking": ""
+      "bolsaoTechparking": "CIMED \\ ALLJET"
     },
     {
       "id": "bravo-aviation",
@@ -733,7 +733,7 @@
       "avisarVagasAbaixoDe": null,
       "perguntarIdentificacao": false,
       "avisarPatioCheio": false,
-      "bolsaoTechparking": ""
+      "bolsaoTechparking": "AERIE AVIACAO EXECUTIVA"
     },
     {
       "id": "voasp",
