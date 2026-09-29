@@ -8,6 +8,10 @@ url = http://172.16.10.252:7002
 url = https://validador.1park.com.br/api/techparking/snapshot
 ; O mesmo valor de TECHPARKING_COLETOR_TOKEN no .env do servidor.
 token =
+; Arquivo de raizes para validar o HTTPS. Padrao: ca-validador.pem, que vem
+; junto do coletor — a maquina do aeroporto tem raizes vencidas e recusa a
+; conexao sem ele. Deixe em branco para usar as raizes da propria maquina.
+ca_bundle = ca-validador.pem
 
 [coletor]
 ; Segundos entre um envio e outro.

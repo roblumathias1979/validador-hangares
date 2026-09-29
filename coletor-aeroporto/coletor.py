@@ -26,6 +26,7 @@ import logging.handlers
 import os
 import sys
 import time
+import ssl
 import urllib.error
 import urllib.request
 from datetime import datetime
@@ -75,7 +76,33 @@ def ler_config():
         "destino": c.get("destino", "url", fallback="https://validador.1park.com.br/api/techparking/snapshot"),
         "token": token,
         "intervalo": c.getint("coletor", "intervalo", fallback=60),
+        # Arquivo de raízes para validar o HTTPS do destino. Padrão: o
+        # ca-validador.pem que vem junto do coletor. Deixe em branco no .ini
+        # para usar as raízes da máquina.
+        "ca": resolver_ca(c.get("destino", "ca_bundle", fallback="ca-validador.pem").strip()),
     }
+
+
+def resolver_ca(valor):
+    """Caminho do arquivo de raízes, ou None para usar as da máquina.
+
+    A máquina do aeroporto tem o repositório de certificados desatualizado, e
+    o Python de lá recusa o nosso servidor com CERTIFICATE_VERIFY_FAILED /
+    "certificate has expired" — apesar de o certificado do site estar válido
+    (visto em 29/09/2026). O que venceu é uma raiz antiga que aquela máquina
+    ainda considera necessária.
+
+    Por isso o padrão é o arquivo que acompanha o coletor. Não desligamos a
+    verificação: um coletor que aceita qualquer certificado manda o pátio
+    inteiro para quem estiver no meio do caminho.
+    """
+    if not valor:
+        return None
+    caminho = valor if os.path.isabs(valor) else os.path.join(PASTA, valor)
+    if not os.path.exists(caminho):
+        sys.exit(f"Falta o arquivo de certificados {caminho}. Baixe-o junto com o coletor, "
+                 "ou deixe ca_bundle em branco no coletor.ini para usar os da máquina.")
+    return caminho
 
 
 def filtrar(lista, campos):
@@ -103,7 +130,8 @@ def enviar(cfg, dados):
         method="POST",
         headers={"Content-Type": "application/json", "Authorization": "Bearer " + cfg["token"]},
     )
-    with urllib.request.urlopen(pedido, timeout=30) as r:
+    contexto = ssl.create_default_context(cafile=cfg["ca"]) if cfg["ca"] else None
+    with urllib.request.urlopen(pedido, timeout=30, context=contexto) as r:
         return json.loads(r.read().decode("utf-8"))
 
 
