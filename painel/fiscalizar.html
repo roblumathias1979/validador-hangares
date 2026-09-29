@@ -24,6 +24,11 @@
   placa volta num segundo quadro. Uma leitura errada isolada não vira abordagem.
   Placa digitada à mão conta como confirmada.
 
+  A CONFIRMAÇÃO NÃO ESPERA A VEZ. Quando aparece uma placa nova, o quadro
+  seguinte sai assim que o servidor aceita (1,5 s depois do anterior), sem
+  esperar o ciclo de 2 s nem a checagem de movimento. Sem isso o alerta levava
+  3 a 5 s, e o fiscal já tinha passado do veículo.
+
   Mesmo login do painel. Contas somente leitura podem usar esta tela.
 -->
 <style>
@@ -124,7 +129,8 @@
   const mini = document.createElement('canvas');
   mini.width = 32; mini.height = 18;
 
-  let rodando = false, enviando = false, ultimoEnvio = 0, miniAnterior = null;
+  let rodando = false, enviando = false, ultimoEnvio = 0, miniAnterior = null, confirmarLogo = false;
+  const INTERVALO_SERVIDOR_MS = 1600; // o servidor recusa menos que 1,5 s entre quadros
   let audio = null, travaTela = null, posicao = null;
   const vistas = new Map(); // placa -> { leituras, primeira, resultado, alertadaEm, confirmada }
 
@@ -220,7 +226,7 @@
     if (confirmadaNaHora || v.leituras >= 2) v.confirmada = true;
     vistas.set(r.placa, v);
 
-    if (!v.confirmada) { anotarNaLista(r, 'lendo'); return; }
+    if (!v.confirmada) { anotarNaLista(r, 'lendo'); confirmarLogo = true; return; }
     anotarNaLista(r, 'ok');
     const novoAlerta = agora - v.alertadaEm > REALERTA_MS;
     mostrar(r, novoAlerta);
@@ -268,10 +274,13 @@
     return { mudou: diferenca >= MUDANCA_MINIMA, cinza };
   }
 
-  async function ciclo() {
+  async function ciclo(confirmando = false) {
     if (!rodando || enviando || video.readyState < 2) return;
+    // Cedo demais o servidor recusa (429): melhor esperar o próximo tique.
+    if (Date.now() - ultimoEnvio < INTERVALO_SERVIDOR_MS) return;
     const { mudou, cinza } = mudouBastante();
-    if (!mudou && Date.now() - ultimoEnvio < REENVIO_MESMO_QUADRO_MS) { $('estadoLeitura').textContent = 'aguardando movimento'; return; }
+    if (!confirmando && !mudou && Date.now() - ultimoEnvio < REENVIO_MESMO_QUADRO_MS) { $('estadoLeitura').textContent = 'aguardando movimento'; return; }
+    confirmarLogo = false;
 
     const escala = Math.min(1, LARGURA_ENVIO / video.videoWidth);
     quadro.width = Math.round(video.videoWidth * escala);
@@ -303,6 +312,9 @@
       $('estadoLeitura').textContent = 'sem conexão';
     } finally {
       enviando = false;
+      if (confirmarLogo && rodando) {
+        setTimeout(() => ciclo(true), Math.max(0, INTERVALO_SERVIDOR_MS - (Date.now() - ultimoEnvio)));
+      }
     }
   }
 
