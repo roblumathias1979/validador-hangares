@@ -42,6 +42,8 @@ const registro = require('./lib/registro');
 const avisoPatio = require('./lib/aviso-patio');
 const fotosUsadas = require('./lib/fotos-usadas');
 const cotaMensal = require('./lib/cota-mensal');
+const cotaForaPrazo = require('./lib/cota-fora-prazo');
+const filaValidacoes = require('./lib/validacoes-pendentes');
 const { salvarEComitar } = require('./lib/salvar-config');
 const bloqueados = require('./lib/tickets-bloqueados');
 const { dentroDoPrazo } = require('./validate-ticket');
@@ -570,6 +572,77 @@ async function conduzir(body, { aoReceber } = {}) {
     const ehFaturamento = pendente.tipo === 'autorizar_faturamento';
     const ehCotaMensal = pendente.tipo === 'usar_cota_mensal';
 
+    // Decisão do cliente sobre usar a cota fora do prazo.
+    if (pendente.tipo === 'usar_cota_fora_prazo') {
+      if (msg.resposta === 'nao') {
+        pendencias.descartar(msg.grupoId, msg.remetenteId);
+        return {
+          status: 'cancelado_pelo_cliente', hangarId: hangar.id, grupoId: msg.grupoId, ticket: pendente.ticket,
+          // O faturamento entra aqui no próximo passo; por ora orienta ao totem.
+          mensagemWhatsapp: `Tudo bem, não validei o ticket ${pendente.ticket}. `
+            + 'Para pagar, use o totem de autopagamento no terminal do aeroporto.',
+          notificarAdmin: false, responder: true, etapa: 'resposta',
+        };
+      }
+      if (msg.resposta !== 'sim') {
+        return {
+          status: 'resposta_nao_entendida', hangarId: hangar.id, grupoId: msg.grupoId, ticket: pendente.ticket,
+          mensagemWhatsapp: `Não entendi. Para validar o ticket ${pendente.ticket} usando uma das validações fora do prazo, responda SIM. Para deixar pra lá, responda NÃO.`,
+          notificarAdmin: false, responder: true, etapa: 'resposta',
+        };
+      }
+
+      // SIM: consome a cota SOB TRAVA e enfileira a validação para o coletor.
+      const pedido = pendencias.consumir(msg.grupoId, msg.remetenteId);
+      if (!pedido) {
+        return { status: 'ignorado', motivo: 'pendência já consumida por outra mensagem', grupoId: msg.grupoId, responder: false };
+      }
+      const consumo = cotaForaPrazo.consumirUmaValidacao(hangar);
+      if (!consumo.dentroDaCota) {
+        // A cota acabou entre a pergunta e o SIM (outra pessoa gastou a última).
+        // consumir já debitou, então devolve antes de recusar.
+        cotaForaPrazo.devolverUmaValidacao(hangar);
+        return {
+          status: 'cota_esgotada', hangarId: hangar.id, grupoId: msg.grupoId, ticket: pedido.ticket,
+          mensagemWhatsapp: `A última validação fora do prazo deste pátio acabou de ser usada. `
+            + 'Nossa equipe foi avisada.',
+          notificarAdmin: true, responder: true, etapa: 'resposta',
+        };
+      }
+
+      try {
+        filaValidacoes.enfileirar({
+          ticket: pedido.ticket,
+          grupoId: msg.grupoId,
+          hangarId: hangar.id,
+          motivo: 'cota',
+          autorizadoPor: msg.remetente || null,
+        });
+      } catch (erro) {
+        // Não conseguiu enfileirar: devolve a cota, senão o cliente perde uma
+        // validação por uma falha nossa.
+        cotaForaPrazo.devolverUmaValidacao(hangar);
+        return {
+          status: 'erro', hangarId: hangar.id, grupoId: msg.grupoId, ticket: pedido.ticket,
+          mensagem: erro.message,
+          mensagemWhatsapp: '⚠️ Não consegui registrar a validação agora. Nossa equipe foi avisada.',
+          notificarAdmin: true, responder: true, etapa: 'resposta',
+        };
+      }
+
+      const rest = cotaForaPrazo.obterRestante(hangar);
+      return {
+        status: 'fora_do_prazo_enfileirado', hangarId: hangar.id, grupoId: msg.grupoId, ticket: pedido.ticket,
+        usouCotaForaPrazo: true,
+        // A validação roda no aeroporto no próximo ciclo do coletor; o cliente
+        // é avisado quando ficar pronta (o servidor avisa ao receber o
+        // resultado). Aqui só confirmamos o recebimento.
+        mensagemWhatsapp: `✅ Autorizado. Vou validar o ticket ${pedido.ticket} — aviso aqui assim que estiver pronto.\n\n`
+          + `_(usada 1 validação fora do prazo; restam ${rest} neste mês)_`,
+        notificarAdmin: false, responder: true, etapa: 'validacao_cota_fora_prazo',
+      };
+    }
+
     // Resposta ao menu do pátio: 1, 2, 3 ou a palavra.
     if (pendente.tipo === 'escolha_patio') {
       const escolha = interpretarEscolhaPatio(msg.texto);
@@ -952,33 +1025,6 @@ async function conduzir(body, { aoReceber } = {}) {
     };
   }
 
-  // Fora do prazo: recusa AQUI, antes de qualquer trabalho.
-  //
-  // A recusa também existe dentro do validate-ticket.js, que é onde a regra
-  // vale de verdade — esta é adiantada, não substituta. Sem ela, um hangar que
-  // exige foto mandaria o cliente até o veículo, esperaria a foto, conferiria o
-  // local e só então diria que o ticket estava vencido desde o começo. É
-  // exatamente o trabalho perdido que a consulta prévia foi criada para evitar.
-  //
-  // Nos demais hangares economiza um login e um Chromium por ticket vencido.
-  const prazo = dentroDoPrazo(hangar, ocr.dataEmissaoIso);
-  if (prazo.ok === false) {
-    return {
-      status: 'fora_do_prazo',
-      hangarId: hangar.id,
-      grupoId: msg.grupoId,
-      ticket: ocr.ticket,
-      horasDecorridas: prazo.horasDecorridas,
-      mensagem: `Ticket emitido há ${prazo.horasDecorridas.toFixed(1)}h — acima do limite de ${hangar.prazoValidacaoHoras}h.`,
-      mensagemWhatsapp: `⚠️ O ticket ${ocr.ticket} foi emitido há ${prazo.horasDecorridas.toFixed(1)}h, `
-        + `acima do limite de ${hangar.prazoValidacaoHoras}h para validação.\n\n`
-        + 'Não consigo validar por aqui. Nossa equipe foi avisada e vai verificar.',
-      notificarAdmin: true,
-      responder: true,
-      etapa: 'conferencia_prazo',
-    };
-  }
-
   // Ticket que JÁ FOI VALIDADO por nós, em qualquer pátio.
   //
   // Cada hangar tem seu login no ValidPark, e cada login enxerga só o próprio
@@ -1018,6 +1064,56 @@ async function conduzir(body, { aoReceber } = {}) {
       notificarAdmin: true,
       responder: true,
       etapa: 'conferencia_duplicidade',
+    };
+  }
+
+  // Ticket fora do prazo (>2h): oferece a cota, se o hangar tiver.
+  //
+  // Vem depois de "já validado" (não faz sentido gastar cota num ticket que já
+  // foi usado) e antes do resto. A validação de vencido roda no COLETOR, sob o
+  // pátio #1PARK — o ValidPark recusa vencido. Aqui o bot só DECIDE: havendo
+  // cota, pergunta ao cliente; ele aceitando, a validação é enfileirada e a
+  // cota descontada. Sem cota, o caminho é o faturamento (a montar) — por ora,
+  // escala para a administração.
+  const prazo = dentroDoPrazo(hangar, ocr.dataEmissaoIso);
+  if (prazo.ok === false) {
+    const restanteForaPrazo = cotaForaPrazo.obterRestante(hangar);
+    if (restanteForaPrazo > 0) {
+      pendencias.registrar(msg.grupoId, msg.remetenteId, {
+        ticket: ocr.ticket,
+        hangarId: hangar.id,
+        horasDecorridas: prazo.horasDecorridas,
+        tipo: 'usar_cota_fora_prazo',
+      });
+      return {
+        status: 'fora_do_prazo_requer_decisao',
+        hangarId: hangar.id,
+        grupoId: msg.grupoId,
+        ticket: ocr.ticket,
+        cotaRestante: restanteForaPrazo,
+        mensagemWhatsapp: `⚠️ O ticket ${ocr.ticket} está fora do prazo de ${hangar.prazoValidacaoHoras}h `
+          + `(emitido há ${prazo.horasDecorridas.toFixed(1)}h).\n\n`
+          + `Este pátio tem *${restanteForaPrazo}* validação(ões) fora do prazo neste mês. `
+          + 'Quer usar *1* para validar mesmo assim? Responda *SIM* ou *NÃO*.',
+        notificarAdmin: false,
+        responder: true,
+        etapa: 'decisao_cota_fora_prazo',
+      };
+    }
+    // Sem cota: o faturamento entra aqui no próximo passo. Por enquanto escala,
+    // como antes — o cliente não fica sem resposta e a administração é avisada.
+    return {
+      status: 'fora_do_prazo',
+      hangarId: hangar.id,
+      grupoId: msg.grupoId,
+      ticket: ocr.ticket,
+      horasDecorridas: prazo.horasDecorridas,
+      mensagem: `Ticket há ${prazo.horasDecorridas.toFixed(1)}h, acima de ${hangar.prazoValidacaoHoras}h, sem cota fora do prazo neste pátio.`,
+      mensagemWhatsapp: `⚠️ O ticket ${ocr.ticket} está fora do prazo e este pátio não tem cota disponível no momento. `
+        + 'Nossa equipe foi avisada e vai verificar.',
+      notificarAdmin: true,
+      responder: true,
+      etapa: 'conferencia_prazo',
     };
   }
 

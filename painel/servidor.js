@@ -57,6 +57,8 @@ const { salvarEComitar } = require('../scripts/lib/salvar-config');
 const bloqueados = require('../scripts/lib/tickets-bloqueados');
 const { enviarTexto } = require('../scripts/lib/evolution');
 const validacoesPendentes = require('../scripts/lib/validacoes-pendentes');
+const cotaForaPrazo = require('../scripts/lib/cota-fora-prazo');
+const { carregarConfig, buscarHangar } = require('../scripts/lib/hangar');
 const registro = require(path.join(RAIZ, 'scripts', 'lib', 'registro'));
 const { lerJson } = require(path.join(RAIZ, 'scripts', 'lib', 'trava-arquivo'));
 const usuarios = require('./usuarios');
@@ -425,11 +427,19 @@ const servidor = http.createServer(async (req, res) => {
     try {
       const corpo = await lerCorpo(req);
       const v = validacoesPendentes.registrarResultado(corpo.id, corpo);
-      if (v && v.grupoId) {
-        const msg = v.resultado.ok
-          ? `✅ Ticket ${v.ticket} validado com sucesso.${v.simular ? ' (teste — nada foi alterado)' : ''}`
-          : `⚠️ Não consegui validar o ticket ${v.ticket} agora. Nossa equipe foi avisada.`;
-        try { await enviarTexto(v.grupoId, msg); } catch (e) { /* o resultado já ficou registrado */ }
+      if (v) {
+        // Validação que FALHOU e tinha gasto cota: devolve a cota. Sem isto, o
+        // cliente perderia uma validação por uma falha do lado do aeroporto.
+        if (v.resultado && !v.resultado.ok && v.motivo === 'cota' && v.hangarId && !v.simular) {
+          try { cotaForaPrazo.devolverUmaValidacao(buscarHangar(carregarConfig(), v.hangarId)); }
+          catch (e) { /* devolução é o melhor esforço; o erro real já vai ao grupo */ }
+        }
+        if (v.grupoId) {
+          const msg = v.resultado.ok
+            ? `✅ Ticket ${v.ticket} validado com sucesso.${v.simular ? ' (teste — nada foi alterado)' : ''}`
+            : `⚠️ Não consegui validar o ticket ${v.ticket} agora. Nossa equipe foi avisada${v.motivo === 'cota' ? ' e a validação da cota foi devolvida' : ''}.`;
+          try { await enviarTexto(v.grupoId, msg); } catch (e) { /* o resultado já ficou registrado */ }
+        }
       }
       json(res, 200, { ok: true });
     } catch (erro) {
