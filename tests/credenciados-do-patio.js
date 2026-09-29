@@ -33,10 +33,23 @@ const conferir = (nome, ok, detalhe) => {
 };
 
 // Registros na forma exata da API do aeroporto.
+// As datas do TECHPARKING vêm SEM FUSO e são hora de Jundiaí. Relativas a
+// agora, para o teste não depender do calendário: uma entrada de hoje cedo e
+// outra de dias atrás, que é a diferença que a mensagem precisa mostrar.
+const semFuso = (msAtras) => {
+  const d = new Date(Date.now() - msAtras);
+  const p = (n) => String(n).padStart(2, '0');
+  // Formata em horário de São Paulo, que é como a API do aeroporto escreve.
+  const [data, hora] = d.toLocaleString('sv-SE', { timeZone: 'America/Sao_Paulo' }).split(' ');
+  return `${data}T${hora}`;
+};
+const HA_3_HORAS = semFuso(3 * 3600 * 1000);
+const HA_5_DIAS = semFuso(5 * 24 * 3600 * 1000);
+
 const CREDENCIADOS = [
-  { CARTAO: '5150185', USUARIO: 'HANGAR 1 JOAO BATISTA', DATAHORA: '2026-09-29T03:49:46', PLACA: '', GRUPO: 'HANGAR1', BOLSAO: 'HANGAR-1' },
-  { CARTAO: '9613365', USUARIO: 'HANGAR 1', DATAHORA: '2026-09-28T16:30:32', PLACA: '', GRUPO: 'HANGAR1', BOLSAO: 'HANGAR-1' },
-  { CARTAO: '9440971', USUARIO: 'SOLOJET JUMPER ABC1D23', DATAHORA: '2026-09-28T11:43:46', PLACA: '', GRUPO: 'HANGAR SOLOJET', BOLSAO: 'HANGAR SOLOJET' },
+  { CARTAO: '5150185', USUARIO: 'HANGAR 1 JOAO BATISTA', DATAHORA: HA_3_HORAS, PLACA: '', GRUPO: 'HANGAR1', BOLSAO: 'HANGAR-1' },
+  { CARTAO: '9613365', USUARIO: 'HANGAR 1', DATAHORA: HA_5_DIAS, PLACA: '', GRUPO: 'HANGAR1', BOLSAO: 'HANGAR-1' },
+  { CARTAO: '9440971', USUARIO: 'SOLOJET JUMPER ABC1D23', DATAHORA: HA_3_HORAS, PLACA: '', GRUPO: 'HANGAR SOLOJET', BOLSAO: 'HANGAR SOLOJET' },
 ];
 const escrever = (minutosAtras) => fs.writeFileSync(ARQ, JSON.stringify({
   recebidoEm: new Date(Date.now() - minutosAtras * 60 * 1000).toISOString(),
@@ -54,6 +67,12 @@ try {
   conferir('mostra a placa quando está no nome', /ABC1D23/.test(m) === false, 'não deve trazer o do Solojet');
   conferir('não traz credenciado de outro pátio', !/JUMPER/.test(m));
   conferir('mantém a contagem do ValidPark', /Credenciados no pátio agora: \*2\*/.test(m), m);
+
+  console.log('\nDesde quando cada um está no pátio');
+  conferir('mostra o tempo decorrido', /3h\)/.test(m), m);
+  // Quem está há dias precisa da DATA: só a hora faria parecer que chegou hoje.
+  conferir('quem chegou hoje mostra só a hora', /\(desde \d{2}:\d{2}, 3h\)/.test(m), m);
+  conferir('quem está há dias mostra a data', /\(desde \d{2}\/\d{2}\/\d{4} \d{2}:\d{2}, 5d\)/.test(m), m);
 
   console.log('\nFoto velha: diz que está velha em vez de mostrar');
   escrever(45);

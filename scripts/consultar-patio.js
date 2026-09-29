@@ -19,6 +19,7 @@ const path = require('path');
 const { chromium } = require('playwright');
 const { carregarConfig, buscarHangar, login } = require('./lib/hangar');
 const snapshot = require('./lib/snapshot-techparking');
+const { lerData } = require('./lib/fiscalizacao');
 
 const CACHE = path.join(__dirname, '..', 'data', 'cache-patio.json');
 const CACHE_MS = 60 * 1000;
@@ -104,6 +105,36 @@ function montarMensagem(hangar, d) {
 }
 
 /**
+ * Desde quando o veículo está no pátio.
+ *
+ * A data do TECHPARKING vem SEM FUSO ("2026-09-29T03:49:46") e é hora de
+ * Jundiaí; o servidor roda em UTC. Ler sem fuso erraria três horas e mostraria
+ * madrugada onde é fim de tarde — por isso passa por `lerData`, que é o mesmo
+ * tratamento que a fiscalização já faz.
+ *
+ * Mostra a HORA quando é de hoje, e a data junto quando não é. Muitos
+ * credenciados estão no pátio há dias, e "07:12" sozinho faria parecer que
+ * chegaram hoje de manhã. O tempo decorrido vem junto porque é o que responde
+ * de fato a "há quanto tempo esse carro está aí".
+ */
+function desdeQuando(texto) {
+  const d = lerData(texto);
+  if (!d) return '';
+
+  const SP = { timeZone: 'America/Sao_Paulo' };
+  const dia = (x) => x.toLocaleDateString('pt-BR', SP);
+  const hora = d.toLocaleTimeString('pt-BR', { ...SP, hour: '2-digit', minute: '2-digit' });
+  const ehHoje = dia(d) === dia(new Date());
+
+  const horas = (Date.now() - d.getTime()) / 3600000;
+  const decorrido = horas < 1 ? `${Math.max(1, Math.round(horas * 60))}min`
+    : horas < 48 ? `${Math.round(horas)}h`
+      : `${Math.round(horas / 24)}d`;
+
+  return ` _(desde ${ehHoje ? hora : `${dia(d)} ${hora}`}, ${decorrido})_`;
+}
+
+/**
  * Resposta para quem pergunta QUEM são os credenciados.
  *
  * O ValidPark mostra apenas a CONTAGEM deles — não há lista, tabela ou seletor
@@ -142,7 +173,7 @@ function montarMensagemCredenciados(hangar, d) {
   } else {
     linhas.push('', `*Quem está no pátio* (${c.lista.length}):`);
     for (const p of c.lista.slice(0, 20)) {
-      linhas.push(`• ${p.nome || '(sem nome)'}${p.placa ? ` — ${p.placa}` : ''}`);
+      linhas.push(`• ${p.nome || '(sem nome)'}${p.placa ? ` — ${p.placa}` : ''}${desdeQuando(p.desde)}`);
     }
     if (c.lista.length > 20) linhas.push(`_(e mais ${c.lista.length - 20})_`);
     // A discrepância é informação, não defeito a esconder: as duas fontes são
