@@ -44,6 +44,9 @@ const fotosUsadas = require('./lib/fotos-usadas');
 const cotaMensal = require('./lib/cota-mensal');
 const cotaForaPrazo = require('./lib/cota-fora-prazo');
 const filaValidacoes = require('./lib/validacoes-pendentes');
+const filaFaturamentos = require('./lib/faturamentos-pendentes');
+const { calcularValorPermanencia, formatarReais } = require('./lib/precos');
+const asaas = require('./lib/asaas');
 const { salvarEComitar } = require('./lib/salvar-config');
 const bloqueados = require('./lib/tickets-bloqueados');
 const { dentroDoPrazo } = require('./validate-ticket');
@@ -385,7 +388,7 @@ async function conduzir(body, { aoReceber } = {}) {
 
   // Privado: só serve para a administração decidir sobre ticket bloqueado.
   if (msg.tipo === 'texto_privado') {
-    return responderAutorizacaoPrivada(msg);
+    return await responderAutorizacaoPrivada(msg);
   }
 
   const hangar = buscarHangarPorGrupo(carregarConfig(), msg.grupoId);
@@ -571,6 +574,25 @@ async function conduzir(body, { aoReceber } = {}) {
 
     const ehFaturamento = pendente.tipo === 'autorizar_faturamento';
     const ehCotaMensal = pendente.tipo === 'usar_cota_mensal';
+
+    // Cliente desistindo do faturamento por texto (a foto é o caminho do SIM).
+    if (pendente.tipo === 'faturar_fora_prazo') {
+      if (msg.resposta === 'nao') {
+        pendencias.descartar(msg.grupoId, msg.remetenteId);
+        return {
+          status: 'cancelado_pelo_cliente', hangarId: hangar.id, grupoId: msg.grupoId, ticket: pendente.ticket,
+          mensagemWhatsapp: `Tudo bem, não faturei o ticket ${pendente.ticket}. `
+            + 'Para pagar, use o totem de autopagamento no terminal do aeroporto.',
+          notificarAdmin: false, responder: true, etapa: 'resposta',
+        };
+      }
+      return {
+        status: 'faturamento_aguardando_foto', hangarId: hangar.id, grupoId: msg.grupoId, ticket: pendente.ticket,
+        mensagemWhatsapp: `Para faturar o ticket ${pendente.ticket} preciso da *FOTO* de autorização. `
+          + 'Mande a foto, ou responda *NÃO* para deixar pra lá.',
+        notificarAdmin: false, responder: true, etapa: 'resposta',
+      };
+    }
 
     // Decisão do cliente sobre usar a cota fora do prazo.
     if (pendente.tipo === 'usar_cota_fora_prazo') {
@@ -922,6 +944,41 @@ async function conduzir(body, { aoReceber } = {}) {
   }
 
   // ---- foto chegando com faturamento pendente = é a autorização ----
+  // Foto de autorização do faturamento de ticket VENCIDO. Não emite nada aqui:
+  // cria o pedido e manda para o admin. O boleto só sai no aval dele.
+  const ofertaFat = pendencias.buscar(msg.grupoId, msg.remetenteId);
+  if (ofertaFat && ofertaFat.tipo === 'faturar_fora_prazo') {
+    const pedido = pendencias.consumir(msg.grupoId, msg.remetenteId);
+    if (!pedido) {
+      return { status: 'ignorado', motivo: 'pendência já consumida por outra mensagem', grupoId: msg.grupoId, responder: false };
+    }
+    filaFaturamentos.enfileirar({
+      ticket: pedido.ticket,
+      hangarId: hangar.id,
+      grupoId: msg.grupoId,
+      valor: pedido.valor,
+      horasDecorridas: pedido.horasDecorridas,
+      fotoMsgId: msg.messageId,
+      solicitadoPor: msg.remetente,
+    });
+    return {
+      status: 'faturamento_aguardando_admin',
+      hangarId: hangar.id,
+      grupoId: msg.grupoId,
+      ticket: pedido.ticket,
+      valor: pedido.valor,
+      // Vai ao ADMIN (notificarAdmin) com o que ele precisa para decidir.
+      mensagem: `FATURAMENTO pedido — ticket ${pedido.ticket}, ${hangar.hangar || hangar.id}, R$ ${formatarReais(pedido.valor)}, `
+        + `cliente ${msg.remetente || '?'}, foto de autorização recebida.\n`
+        + `Responda aqui *SIM* para EMITIR O BOLETO e liberar, ou *NÃO* para recusar.`,
+      mensagemWhatsapp: `Recebi sua autorização do ticket ${pedido.ticket}. `
+        + 'Encaminhei à administração; assim que for aprovado, o boleto é emitido e o ticket liberado. Aviso aqui.',
+      notificarAdmin: true,
+      responder: true,
+      etapa: 'faturamento_aguardando_admin',
+    };
+  }
+
   // O bot acabou de pedir uma foto confirmando a autorização, então uma foto
   // desta pessoa agora é essa confirmação, não um ticket novo. Mandá-la ao
   // OCR seria errado duas vezes: não há ticket nela para ler, e o pedido
@@ -1100,20 +1157,31 @@ async function conduzir(body, { aoReceber } = {}) {
         etapa: 'decisao_cota_fora_prazo',
       };
     }
-    // Sem cota: o faturamento entra aqui no próximo passo. Por enquanto escala,
-    // como antes — o cliente não fica sem resposta e a administração é avisada.
+    // Sem cota: oferece FATURAR. O boleto é real (Asaas produção) e só sai depois
+    // do aval do admin — mas isso é lá na frente. Aqui o bot informa o valor e
+    // pede a FOTO de autorização, que é o registro de quem mandou cobrar.
+    const valorFaturar = calcularValorPermanencia(prazo.horasDecorridas);
+    pendencias.registrar(msg.grupoId, msg.remetenteId, {
+      ticket: ocr.ticket,
+      hangarId: hangar.id,
+      horasDecorridas: prazo.horasDecorridas,
+      valor: valorFaturar,
+      tipo: 'faturar_fora_prazo',
+    });
     return {
-      status: 'fora_do_prazo',
+      status: 'fora_do_prazo_requer_autorizacao_faturamento',
       hangarId: hangar.id,
       grupoId: msg.grupoId,
       ticket: ocr.ticket,
-      horasDecorridas: prazo.horasDecorridas,
-      mensagem: `Ticket há ${prazo.horasDecorridas.toFixed(1)}h, acima de ${hangar.prazoValidacaoHoras}h, sem cota fora do prazo neste pátio.`,
-      mensagemWhatsapp: `⚠️ O ticket ${ocr.ticket} está fora do prazo e este pátio não tem cota disponível no momento. `
-        + 'Nossa equipe foi avisada e vai verificar.',
-      notificarAdmin: true,
+      valor: valorFaturar,
+      mensagem: `Ticket há ${prazo.horasDecorridas.toFixed(1)}h, sem cota fora do prazo. Faturamento oferecido: R$ ${formatarReais(valorFaturar)}.`,
+      mensagemWhatsapp: `⚠️ O ticket ${ocr.ticket} está fora do prazo de ${hangar.prazoValidacaoHoras}h e este pátio não tem cota disponível.\n\n`
+        + `Dá para *faturar e liberar*: R$ ${formatarReais(valorFaturar)}, boleto para o hangar.\n\n`
+        + 'Para autorizar, mande uma *FOTO* confirmando (registro de quem autorizou a cobrança). '
+        + 'Ou responda *NÃO* para deixar pra lá.',
+      notificarAdmin: false,
       responder: true,
-      etapa: 'conferencia_prazo',
+      etapa: 'oferta_faturamento',
     };
   }
 
@@ -1367,7 +1435,7 @@ async function conduzir(body, { aoReceber } = {}) {
  * número do bot é público dentro dos grupos, e responder a estranhos
  * confirmaria que existe algo ali para ser explorado.
  */
-function responderAutorizacaoPrivada(msg) {
+async function responderAutorizacaoPrivada(msg) {
   const config = carregarConfig();
   const ehAdmin = config.hangares.some(
     (h) => (h.grupoAdministracao || '').trim() === msg.grupoId
@@ -1376,62 +1444,85 @@ function responderAutorizacaoPrivada(msg) {
     return { status: 'ignorado', motivo: 'privado de número que não é administração', grupoId: msg.grupoId, responder: false };
   }
 
-  // Sem sim/não não há decisão. Responde explicando, porque aqui do outro lado
-  // há alguém que o sistema conhece e que pode ter escrito diferente.
+  // O admin decide sobre DUAS coisas pelo privado: ticket bloqueado (pátio
+  // cheio) e faturamento de ticket vencido. O número do ticket desempata; sem
+  // ele, se só um tipo espera, age nele; se os dois esperam, pede o número.
+  const fatCitado = msg.ticketCitado ? filaFaturamentos.aguardandoPorTicket(msg.ticketCitado) : null;
+  const bloqCitado = msg.ticketCitado ? bloqueados.estaBloqueado(msg.ticketCitado) : null;
+  const fats = filaFaturamentos.listar().filter((f) => f.estado === 'aguardando_admin');
+  const blocks = bloqueados.listar({ apenasAtivos: true });
+
   if (msg.resposta !== 'sim' && msg.resposta !== 'nao') {
-    const aguardando = bloqueados.listar({ apenasAtivos: true });
-    if (!aguardando.length) {
-      return {
-        status: 'ignorado', motivo: 'privado sem decisão e sem ticket aguardando',
-        grupoId: msg.grupoId, responder: false,
-      };
+    const total = fats.length + blocks.length;
+    if (!total) {
+      return { status: 'ignorado', motivo: 'privado sem decisão e sem nada aguardando', grupoId: msg.grupoId, responder: false };
     }
+    const linhasFat = fats.slice(0, 5).map((f) => `• 💰 ${f.ticket} — ${f.hangarId}, faturar R$ ${formatarReais(f.valor)}`);
+    const linhasBloq = blocks.slice(0, 5).map((b) => `• 🚫 ${b.ticket} — ${b.hangarNome || b.hangarId}, pátio cheio`);
     return {
       status: 'autorizacao_nao_entendida', grupoId: msg.grupoId,
-      mensagemWhatsapp: `Há ${aguardando.length} ticket(s) aguardando sua decisão:\n\n`
-        + aguardando.slice(0, 5).map((b) => `• ${b.ticket} — ${b.hangarNome || b.hangarId}, ${quandoLegivel(b.bloqueadoEm)}`).join('\n')
-        + '\n\nResponda *SIM* para autorizar ou *NÃO* para manter bloqueado.'
-        + (aguardando.length > 1 ? '\nCom mais de um, diga o número: _SIM 011809140000_' : ''),
+      mensagemWhatsapp: `Há ${total} pedido(s) aguardando sua decisão:\n\n`
+        + linhasFat.concat(linhasBloq).join('\n')
+        + '\n\nResponda *SIM* para autorizar ou *NÃO* para recusar.'
+        + (total > 1 ? '\nCom mais de um, diga o número: _SIM 011809140000_' : ''),
       notificarAdmin: false, responder: true, etapa: 'autorizacao_privada',
     };
   }
 
-  // Com número, é aquele. Sem número, é o mais recente — quem acabou de
-  // receber o aviso está falando dele. A confirmação sempre diz QUAL foi,
-  // para um engano aparecer na hora e não no fim do mês.
-  const alvo = msg.ticketCitado
-    ? bloqueados.estaBloqueado(msg.ticketCitado)
-    : bloqueados.maisRecenteAguardando();
+  // Escolhe o alvo. Faturamento tem prioridade quando o número casa com um.
+  let tipo = null;
+  let alvoFat = null;
+  let alvoBloq = null;
+  if (msg.ticketCitado) {
+    if (fatCitado) { tipo = 'faturamento'; alvoFat = fatCitado; }
+    else if (bloqCitado) { tipo = 'bloqueio'; alvoBloq = bloqCitado; }
+  } else if (fats.length + blocks.length === 1) {
+    if (fats.length === 1) { tipo = 'faturamento'; alvoFat = fats[0]; }
+    else { tipo = 'bloqueio'; alvoBloq = blocks[0]; }
+  } else if (fats.length + blocks.length > 1) {
+    return {
+      status: 'autorizacao_ambigua', grupoId: msg.grupoId,
+      mensagemWhatsapp: 'Há mais de um pedido aguardando. Diga o número do ticket: _SIM 011809140000_.',
+      notificarAdmin: false, responder: true, etapa: 'autorizacao_privada',
+    };
+  }
 
-  if (!alvo) {
+  if (!tipo) {
     return {
       status: 'autorizacao_sem_alvo', grupoId: msg.grupoId,
       mensagemWhatsapp: msg.ticketCitado
-        ? `O ticket ${msg.ticketCitado} não está bloqueado — pode já ter sido decidido.`
-        : 'Não há ticket bloqueado aguardando decisão no momento.',
+        ? `O ticket ${msg.ticketCitado} não está aguardando decisão — pode já ter sido resolvido.`
+        : 'Não há nada aguardando sua decisão no momento.',
       notificarAdmin: false, responder: true, etapa: 'autorizacao_privada',
     };
   }
 
   const quem = msg.remetente || msg.grupoId;
+
+  if (tipo === 'faturamento') {
+    return aprovarOuRecusarFaturamento(alvoFat, msg.resposta === 'sim', quem, config, msg.grupoId);
+  }
+
+  // --- ticket bloqueado (pátio cheio) ---
   try {
     if (msg.resposta === 'sim') {
-      bloqueados.autorizar(alvo.ticket, quem);
+      bloqueados.autorizar(alvoBloq.ticket, quem);
+      // Autorizar o bloqueio VALIDA o ticket: enfileira para o coletor.
+      filaValidacoes.enfileirar({ ticket: alvoBloq.ticket, grupoId: alvoBloq.grupoId, hangarId: alvoBloq.hangarId, motivo: 'bloqueio_liberado', autorizadoPor: quem });
       return {
-        status: 'bloqueio_autorizado', grupoId: msg.grupoId, ticket: alvo.ticket,
-        grupoDeOrigem: alvo.grupoId,
-        mensagemWhatsapp: `✅ Ticket *${alvo.ticket}* liberado (${alvo.hangarNome || alvo.hangarId}).\n\n`
-          + 'Ele já pode ser validado. Avisei o grupo.',
-        avisarGrupoDeOrigem: `✅ O ticket ${alvo.ticket} foi *autorizado* pela administração. Pode mandá-lo novamente para validar.`,
+        status: 'bloqueio_autorizado', grupoId: msg.grupoId, ticket: alvoBloq.ticket,
+        grupoDeOrigem: alvoBloq.grupoId,
+        mensagemWhatsapp: `✅ Ticket *${alvoBloq.ticket}* liberado (${alvoBloq.hangarNome || alvoBloq.hangarId}). Vou validá-lo e avisei o grupo.`,
+        avisarGrupoDeOrigem: `✅ O ticket ${alvoBloq.ticket} foi *autorizado* pela administração. Estou validando.`,
         notificarAdmin: false, responder: true, etapa: 'autorizacao_privada',
       };
     }
-    bloqueados.manterBloqueado(alvo.ticket, quem);
+    bloqueados.manterBloqueado(alvoBloq.ticket, quem);
     return {
-      status: 'bloqueio_mantido', grupoId: msg.grupoId, ticket: alvo.ticket,
-      grupoDeOrigem: alvo.grupoId,
-      mensagemWhatsapp: `🚫 Ticket *${alvo.ticket}* segue bloqueado (${alvo.hangarNome || alvo.hangarId}).\n\nAvisei o grupo.`,
-      avisarGrupoDeOrigem: `🚫 O ticket ${alvo.ticket} *não foi autorizado* pela administração. Para pagar, use o totem de autopagamento no terminal do aeroporto.`,
+      status: 'bloqueio_mantido', grupoId: msg.grupoId, ticket: alvoBloq.ticket,
+      grupoDeOrigem: alvoBloq.grupoId,
+      mensagemWhatsapp: `🚫 Ticket *${alvoBloq.ticket}* segue bloqueado (${alvoBloq.hangarNome || alvoBloq.hangarId}). Avisei o grupo.`,
+      avisarGrupoDeOrigem: `🚫 O ticket ${alvoBloq.ticket} *não foi autorizado* pela administração. Para pagar, use o totem de autopagamento no terminal do aeroporto.`,
       notificarAdmin: false, responder: true, etapa: 'autorizacao_privada',
     };
   } catch (erro) {
@@ -1444,20 +1535,67 @@ function responderAutorizacaoPrivada(msg) {
 }
 
 /**
- * Quando número e data impressa discordam, a palavra final é do SITE.
+ * O aval do admin sobre um faturamento. SIM emite o boleto (Asaas) e libera a
+ * validação; NÃO recusa. O boleto real é o ÚLTIMO passo — nunca antes daqui.
  *
- * A conferência local nasceu de 12 tickets que seguiam `01 | DDMM | HHMMSS`.
- * Em 18/09/2026 apareceu um que não segue — `011111000259`, impresso às
- * 18/09/26 17:42:51, bem legível na foto. Enquanto a divergência era bloqueio,
- * o cliente foi recusado três vezes num ticket bom, e o ValidPark depois
- * confirmou que o número existia.
- *
- * Uma regra que não vale sempre não pode ser bloqueio. Agora a divergência só
- * pesa junto do que o site diz — e o site já é consultado antes de validar, em
- * todos os caminhos, então isto não custa navegador nenhum a mais.
- *
- * Devolve o resultado da recusa, ou null quando está tudo bem.
+ * FATURAMENTO_SIMULAR=true pula a chamada ao Asaas e finge o boleto, para
+ * testar o fluxo inteiro sem cobrar. Com a chave de PRODUÇÃO no servidor, é
+ * assim que se testa sem emitir dinheiro real.
  */
+async function aprovarOuRecusarFaturamento(fat, aprovado, quem, config, adminGrupoId) {
+  const hangar = config.hangares.find((h) => h.id === fat.hangarId) || { id: fat.hangarId };
+
+  if (!aprovado) {
+    filaFaturamentos.decidir(fat.id, { aprovado: false, quem });
+    return {
+      status: 'faturamento_recusado', grupoId: adminGrupoId, ticket: fat.ticket,
+      grupoDeOrigem: fat.grupoId,
+      mensagemWhatsapp: `🚫 Faturamento do ticket *${fat.ticket}* recusado. Avisei o grupo.`,
+      avisarGrupoDeOrigem: `🚫 O faturamento do ticket ${fat.ticket} não foi autorizado. Para pagar, use o totem de autopagamento no terminal do aeroporto.`,
+      notificarAdmin: false, responder: true, etapa: 'autorizacao_privada',
+    };
+  }
+
+  const simular = String(process.env.FATURAMENTO_SIMULAR || '').toLowerCase() === 'true';
+  let boleto;
+  try {
+    if (simular) {
+      boleto = { simulado: true, id: `sim_${fat.id.slice(0, 8)}`, value: fat.valor, bankSlipUrl: null };
+    } else {
+      boleto = await asaas.criarCobrancaBoleto({
+        hangar,
+        valor: fat.valor,
+        descricao: `Estacionamento SBJD — ticket ${fat.ticket} (fora do prazo)`,
+        dataVencimento: new Date(Date.now() + 3 * 24 * 3600 * 1000).toISOString().slice(0, 10),
+      });
+    }
+  } catch (erro) {
+    // Falhou emitir: NÃO marca como faturado, para você poder tentar de novo.
+    // Não valida nem avisa o grupo — nada aconteceu.
+    return {
+      status: 'faturamento_erro', grupoId: adminGrupoId, ticket: fat.ticket,
+      mensagem: `Falha ao emitir boleto do ticket ${fat.ticket}: ${erro.message}`,
+      mensagemWhatsapp: `⚠️ Não consegui emitir o boleto do ticket ${fat.ticket}: ${erro.message}\n\n`
+        + 'O pedido continua aguardando — dá para tentar de novo. '
+        + (/cadastro|CNPJ/i.test(erro.message) ? 'Falta o cadastro do hangar no Asaas.' : ''),
+      notificarAdmin: false, responder: true, etapa: 'autorizacao_privada',
+    };
+  }
+
+  filaFaturamentos.decidir(fat.id, { aprovado: true, quem, resultado: { id: boleto.id, valor: boleto.value, url: boleto.bankSlipUrl || null, simulado: boleto.simulado === true } });
+  // Boleto emitido: agora sim libera a validação no coletor.
+  filaValidacoes.enfileirar({ ticket: fat.ticket, grupoId: fat.grupoId, hangarId: fat.hangarId, motivo: 'faturamento', autorizadoPor: quem });
+
+  return {
+    status: 'faturamento_autorizado', grupoId: adminGrupoId, ticket: fat.ticket,
+    grupoDeOrigem: fat.grupoId,
+    mensagemWhatsapp: `✅ Boleto do ticket *${fat.ticket}* ${boleto.simulado ? '(SIMULADO) ' : ''}emitido — R$ ${formatarReais(fat.valor)}. `
+      + 'Estou validando o ticket e avisei o grupo.',
+    avisarGrupoDeOrigem: `✅ O ticket ${fat.ticket} foi autorizado e faturado pela administração. Estou validando — aviso aqui quando ficar pronto.`,
+    notificarAdmin: false, responder: true, etapa: 'autorizacao_privada',
+  };
+}
+
 function suspeitaDeNumeroTrocado(hangar, msg, ocr, consulta) {
   if (!ocr.conferencia || ocr.conferencia.ok !== false) return null;
 
@@ -1503,6 +1641,7 @@ function conferirEntradaComPapel(entradaDoSite, dataEmissaoIso) {
   return Math.abs(doSite - doPapel) > 2 * 60 * 1000;
 }
 
+/** Data e hora em horário de São Paulo, para ler no WhatsApp. */
 /** Data e hora em horário de São Paulo, para ler no WhatsApp. */
 function quandoLegivel(iso) {
   try {

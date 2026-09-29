@@ -130,10 +130,12 @@ console.log('\nNo fluxo: recusa ANTES de pedir a foto do veículo');
       pushName: 'Teste', message: { imageMessage: { caption: '', mimetype: 'image/jpeg' } },
     } }, {});
 
-    conferir('recusa por prazo', r.status === 'fora_do_prazo', `veio "${r.status}"`);
-    conferir('NÃO pede foto do veículo', r.status !== 'aguardando_foto_veiculo');
-    conferir('não deixa pendência aberta', pendencias.buscar(GRUPO_AIBM1, PESSOA) === null);
-    conferir('aciona a administração', r.notificarAdmin === true);
+    // AIBM não tem cota fora do prazo, então o vencido vai para o FATURAMENTO:
+    // oferece faturar e pede a foto de autorização — não recusa, não abre o
+    // navegador (vencido não vai ao ValidPark) e não pede foto do VEÍCULO.
+    conferir('oferece faturamento', r.status === 'fora_do_prazo_requer_autorizacao_faturamento', `veio "${r.status}"`);
+    conferir('NÃO pede foto do veículo (é foto de autorização)', r.status !== 'aguardando_foto_veiculo');
+    conferir('deixa a pendência de faturamento aberta', (pendencias.buscar(GRUPO_AIBM1, PESSOA) || {}).tipo === 'faturar_fora_prazo');
     conferir('não abriu navegador nem consultou o site', chamados.length === 0, `chamou: ${chamados.join(', ')}`);
   } finally {
     devolver();
