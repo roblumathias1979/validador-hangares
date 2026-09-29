@@ -53,7 +53,8 @@
       "_observacao_administracao": "Conversa PRIVADA do administrador (pushName 'estacionamento', 272447123230847@lid), não um grupo — o campo aceita os dois formatos. Escolha do usuário em 15/09/2026. Ressalva registrada: concentrar os avisos numa pessoa significa que férias, doença ou troca de número deixam os alertas sem ninguém, e nada avisa que isso aconteceu. Trocar para um grupo de administração é mudança só neste campo, sem mexer em código.",
       "_observacao_grupo": "O que vale para o roteamento é grupoWhatsappId, não este nome: o ID do WhatsApp é imutável e renomear o grupo não o altera (confirmado em 16/09/2026, quando o grupo foi renomeado e nada quebrou). Este campo é só rótulo para leitura humana. ATENÇÃO: apagar e recriar o grupo GERA UM ID NOVO — aí o bot para de reconhecer as mensagens até este config ser atualizado.",
       "perguntarIdentificacao": true,
-      "avisarPatioCheio": true
+      "avisarPatioCheio": true,
+      "bolsaoTechparking": "HANGAR SOLOJET"
     },
     {
       "id": "aibm",
@@ -107,7 +108,8 @@
       },
       "_observacao_patio": "CONFIRMADO pelo usuário e por medição em 16/09/2026: AIBM 1 e AIBM 2 são pátios SEPARADOS, com login próprio e capacidade própria — não compartilham vagas nem lista de tickets. Medido nos dois: AIBM 1 tem 12 vagas e AIBM 2 tem 41. Isso encerra a dúvida registrada no ESTADO-ATUAL.md, que dava como indefinido se o AIBM 2 tinha acesso próprio.",
       "_observacao_credencial": "A senha de BOT_AIBM estava truncada (5 caracteres) e o login falhava com 'Usúario ou senha incorretos'. Corrigida em 16/09/2026 e testada contra o site real: autentica, e o pátio responde 'AIBM | Total de vagas: 12'. Mais uma confirmação de que AIBM 1 e AIBM 2 são pátios distintos — 12 vagas contra 41.",
-      "perguntarIdentificacao": false
+      "perguntarIdentificacao": false,
+      "bolsaoTechparking": ""
     },
     {
       "id": "aibm-2",
@@ -162,7 +164,8 @@
       },
       "_observacao_grupo": "Grupo criado em 16/09/2026. Login BOT_AIBM2, seletores e leitura de vagas testados contra o site real na mesma data: pátio de 41 vagas, 39 livres. ATENÇÃO: este hangar exige foto do veículo no local (exigeFotoVeiculoNoLocal), e a conferência fica bem melhor com fotos de referência do pátio subidas pelo painel — sem elas, a comparação usa só a descrição em texto de localReferencia.",
       "_observacao_patio": "CONFIRMADO pelo usuário e por medição em 16/09/2026: AIBM 1 e AIBM 2 são pátios SEPARADOS, com login próprio e capacidade própria — não compartilham vagas nem lista de tickets. Medido nos dois: AIBM 1 tem 12 vagas e AIBM 2 tem 41. Isso encerra a dúvida registrada no ESTADO-ATUAL.md, que dava como indefinido se o AIBM 2 tinha acesso próprio.",
-      "perguntarIdentificacao": false
+      "perguntarIdentificacao": false,
+      "bolsaoTechparking": ""
     },
     {
       "id": "solojet-shares",
@@ -206,7 +209,8 @@
       "diasValidacaoPadrao": 20,
       "exigeFotoVeiculoNoLocal": false,
       "avisarVagasAbaixoDe": 5,
-      "perguntarIdentificacao": true
+      "perguntarIdentificacao": true,
+      "bolsaoTechparking": "SOLOJET SHARES"
     },
     {
       "id": "plane-aviation",
@@ -248,7 +252,8 @@
       },
       "diasValidacaoPadrao": 20,
       "exigeFotoVeiculoNoLocal": false,
-      "perguntarIdentificacao": true
+      "perguntarIdentificacao": true,
+      "bolsaoTechparking": "PLANE AVIATION"
     },
     {
       "id": "nacoes",
@@ -290,7 +295,8 @@
       },
       "diasValidacaoPadrao": 20,
       "exigeFotoVeiculoNoLocal": false,
-      "perguntarIdentificacao": true
+      "perguntarIdentificacao": true,
+      "bolsaoTechparking": "NACOES"
     },
     {
       "id": "indaia",
@@ -332,7 +338,8 @@
       },
       "diasValidacaoPadrao": 20,
       "exigeFotoVeiculoNoLocal": false,
-      "perguntarIdentificacao": true
+      "perguntarIdentificacao": true,
+      "bolsaoTechparking": "INDAIA"
     },
     {
       "id": "hangar-1",
@@ -374,7 +381,8 @@
       },
       "diasValidacaoPadrao": 20,
       "exigeFotoVeiculoNoLocal": false,
-      "perguntarIdentificacao": true
+      "perguntarIdentificacao": true,
+      "bolsaoTechparking": "HANGAR-1"
     },
     {
       "id": "hangar-aristek",
@@ -416,7 +424,8 @@
       },
       "diasValidacaoPadrao": 20,
       "exigeFotoVeiculoNoLocal": false,
-      "perguntarIdentificacao": true
+      "perguntarIdentificacao": true,
+      "bolsaoTechparking": "HANGAR ARISTEK"
     },
     {
       "id": "epeac",
@@ -458,7 +467,8 @@
       },
       "diasValidacaoPadrao": 20,
       "exigeFotoVeiculoNoLocal": false,
-      "avisarPatioCheio": false
+      "avisarPatioCheio": false,
+      "bolsaoTechparking": ""
     },
     {
       "id": "dux-express",
@@ -501,7 +511,8 @@
       "diasValidacaoPadrao": 20,
       "exigeFotoVeiculoNoLocal": false,
       "avisarVagasAbaixoDe": 5,
-      "perguntarIdentificacao": true
+      "perguntarIdentificacao": true,
+      "bolsaoTechparking": "DUX Express"
     },
     {
       "id": "concorde",
@@ -543,7 +554,8 @@
       },
       "diasValidacaoPadrao": 20,
       "exigeFotoVeiculoNoLocal": false,
-      "perguntarIdentificacao": true
+      "perguntarIdentificacao": true,
+      "bolsaoTechparking": "CONCORDE"
     },
     {
       "id": "cimed-alljet",
@@ -587,7 +599,8 @@
       "diasValidacaoPadrao": 20,
       "exigeFotoVeiculoNoLocal": false,
       "avisarVagasAbaixoDe": 5,
-      "perguntarIdentificacao": true
+      "perguntarIdentificacao": true,
+      "bolsaoTechparking": ""
     },
     {
       "id": "bravo-aviation",
@@ -630,7 +643,8 @@
       "diasValidacaoPadrao": 20,
       "exigeFotoVeiculoNoLocal": false,
       "avisarVagasAbaixoDe": 5,
-      "perguntarIdentificacao": true
+      "perguntarIdentificacao": true,
+      "bolsaoTechparking": "BRAVO AVIATION"
     },
     {
       "id": "alljet",
@@ -673,7 +687,8 @@
       "diasValidacaoPadrao": 20,
       "exigeFotoVeiculoNoLocal": false,
       "_observacao_grupo": "Grupo criado em 16/09/2026. O roteamento usa grupoWhatsappId, não o nome — renomear é inofensivo, apagar e recriar gera ID novo e quebra. Login BOT_ALLJET, seletores e leitura de vagas testados contra o site real na mesma data: pátio de 37 vagas (bem menor que as 90 do Solojet, então a proteção de pátio cheio pesa mais aqui).",
-      "perguntarIdentificacao": true
+      "perguntarIdentificacao": true,
+      "bolsaoTechparking": "ALLJET"
     },
     {
       "id": "aerie-aviacao-executiva",
@@ -717,7 +732,8 @@
       "exigeFotoVeiculoNoLocal": false,
       "avisarVagasAbaixoDe": null,
       "perguntarIdentificacao": false,
-      "avisarPatioCheio": false
+      "avisarPatioCheio": false,
+      "bolsaoTechparking": ""
     },
     {
       "id": "voasp",
@@ -762,7 +778,8 @@
       "cotaMensalValidacoes": 20,
       "_observacao_cota": "Regra comercial confirmada pelo usuario em 16/09/2026: o VOASP pode validar 20 tickets por mes. A renovacao e automatica porque a contagem e por mes de calendario (horario de Sao Paulo) sobre o proprio historico — nao existe contador a zerar. Ausencia deste campo significa SEM TETO, que e o caso dos outros 15 hangares.",
       "perguntarIdentificacao": false,
-      "avisarPatioCheio": true
+      "avisarPatioCheio": true,
+      "bolsaoTechparking": "VOA-SP"
     }
   ],
   "_observacao_faturamento": "Cota de validações fora do prazo (cotaMensalForaPrazo, padrão 5/mês por hangar) e dados do Asaas (asaas.customerId ou asaas.cnpj+razaoSocial+email para criar o cliente automaticamente) usados por scripts/lib/cota-fora-prazo.js e scripts/lib/asaas.js quando um ticket fica fora do prazo de validação (ver docs/perguntas-abertas.md, seção sobre faturamento, adicionada em 11/09/2026)."

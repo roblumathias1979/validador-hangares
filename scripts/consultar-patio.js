@@ -18,6 +18,7 @@ const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
 const { carregarConfig, buscarHangar, login } = require('./lib/hangar');
+const snapshot = require('./lib/snapshot-techparking');
 
 const CACHE = path.join(__dirname, '..', 'data', 'cache-patio.json');
 const CACHE_MS = 60 * 1000;
@@ -122,11 +123,35 @@ function montarMensagemCredenciados(hangar, d) {
   } else {
     linhas.push('Não consegui ler a contagem de credenciados no site.');
   }
-  linhas.push(
-    '',
-    'A *lista* de quem são não aparece na tela do ValidPark — só esse total. '
-    + 'Para saber as placas, é preciso consultar o cadastro de credenciados direto com a administração.'
-  );
+
+  // A LISTA não existe no ValidPark — só o total. Ela vem da API do
+  // TECHPARKING, no aeroporto, por uma ponte que pode não estar de pé. Quando
+  // está, responde o que sempre faltou; quando não está, o bot diz o que sabe
+  // e por que não sabe o resto, em vez de fingir que a informação não existe.
+  const c = snapshot.credenciadosDoPatio(hangar.bolsaoTechparking);
+  if (c.semVinculo) {
+    linhas.push('', '_A lista de nomes não está ligada a este pátio. A administração precisa informar o bolsão correspondente no painel._');
+  } else if (!c.existe) {
+    linhas.push('', '_A lista de nomes ainda não chegou do sistema do aeroporto._');
+  } else if (!c.fresca) {
+    // Dizer "está velho" em vez de mostrar: uma lista de meia hora atrás faz
+    // quem pergunta decidir errado achando que está informado.
+    linhas.push('', `_A lista de nomes está desatualizada (última atualização há ${Math.round(c.idadeMs / 60000)} min). Não vou mostrá-la para não induzir a erro._`);
+  } else if (!c.lista.length) {
+    linhas.push('', 'Nenhum credenciado neste pátio no momento.');
+  } else {
+    linhas.push('', `*Quem está no pátio* (${c.lista.length}):`);
+    for (const p of c.lista.slice(0, 20)) {
+      linhas.push(`• ${p.nome || '(sem nome)'}${p.placa ? ` — ${p.placa}` : ''}`);
+    }
+    if (c.lista.length > 20) linhas.push(`_(e mais ${c.lista.length - 20})_`);
+    // A discrepância é informação, não defeito a esconder: as duas fontes são
+    // sistemas diferentes e podem estar em momentos diferentes.
+    if (d.credenciados !== null && d.credenciados !== c.lista.length) {
+      linhas.push('', `_O ValidPark conta ${d.credenciados} e esta lista tem ${c.lista.length} — os dois sistemas podem estar defasados entre si._`);
+    }
+  }
+
   if (d.doCache) linhas.push('', '_dados de até 1 minuto atrás_');
   return linhas.join('\n');
 }
@@ -202,4 +227,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { consultarPatio, extrairValidados };
+module.exports = { consultarPatio, extrairValidados, montarMensagem, montarMensagemCredenciados };
