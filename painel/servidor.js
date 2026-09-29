@@ -65,6 +65,8 @@ const fiscalizacao = require(path.join(RAIZ, 'scripts', 'lib', 'fiscalizacao'));
 const { salvarAtomico } = require(path.join(RAIZ, 'scripts', 'lib', 'trava-arquivo'));
 const SNAPSHOT_TECHPARKING = path.join(RAIZ, 'data', 'techparking-snapshot.json');
 const REGRAS_FISCALIZACAO = path.join(RAIZ, 'config', 'fiscalizacao.json');
+const registroRonda = require(path.join(RAIZ, 'scripts', 'lib', 'registro-fiscalizacao'));
+const { lerPlacas } = require(path.join(RAIZ, 'scripts', 'lib', 'ler-placas'));
 
 // Teto do slider do ValidPark. 20 dias é exatamente o limite — não há folga, e
 // pedir mais faz o site recusar a validação inteira.
@@ -349,6 +351,38 @@ function indiceFiscalizacao() {
   return { indice: indiceEmCache.indice, regras };
 }
 
+/**
+ * Uma linha no histórico da ronda por placa, por fiscal, a cada 5 minutos. A
+ * câmera lê a mesma placa a cada quadro enquanto ela está enquadrada; sem
+ * esse filtro, parar dez segundos diante de uma moto gravaria cinco linhas.
+ */
+const ultimaAnotacao = new Map();
+let ultimoExpurgo = 0;
+function anotarRonda(usuario, resultado, { origem, local = null }, imagem, regras) {
+  const chave = `${usuario.nome}|${resultado.placa}`;
+  const agora = Date.now();
+  if (agora - (ultimaAnotacao.get(chave) || 0) < 5 * 60 * 1000) return;
+  ultimaAnotacao.set(chave, agora);
+
+  const vermelho = resultado.situacao === 'irregular' || resultado.situacao === 'excedido';
+  const foto = vermelho && imagem ? registroRonda.guardarFoto(resultado.placa, imagem) : null;
+  registroRonda.registrar({
+    usuario: usuario.nome,
+    origem,
+    placa: resultado.placa,
+    situacao: resultado.situacao,
+    motivo: resultado.motivo || null,
+    patio: resultado.patio || null,
+    lotacao: resultado.lotacao ? `${resultado.lotacao.ocupadas}/${resultado.lotacao.vagas}` : null,
+    local,
+    foto,
+  });
+  if (agora - ultimoExpurgo > 3600000) {
+    ultimoExpurgo = agora;
+    registroRonda.expurgar(regras.diasGuardarRonda ?? 30);
+  }
+}
+
 const servidor = http.createServer(async (req, res) => {
   // Antes da autenticação de usuário, e só esta rota: ver coletorAutorizado.
   if (req.method === 'POST' && req.url === '/api/techparking/snapshot') {
@@ -385,12 +419,23 @@ const servidor = http.createServer(async (req, res) => {
 
   // Escrita exige conta com permissão. Checado aqui, num lugar só, em vez de
   // em cada rota — esquecer numa rota nova seria fácil demais.
-  if (req.method !== 'GET' && usuario.somenteLeitura) {
+  //
+  // A exceção é a leitura de placa: é POST só porque a imagem não cabe numa
+  // URL, e não altera configuração nem validação. O fiscal na rua usa conta
+  // somente leitura, de propósito.
+  if (req.method !== 'GET' && usuario.somenteLeitura && url.pathname !== '/api/fiscalizacao/ler') {
     json(res, 403, { erro: 'Sua conta é somente leitura.' });
     return;
   }
 
   try {
+    if (req.method === 'GET' && url.pathname === '/fiscalizar') {
+      const html = fs.readFileSync(path.join(__dirname, 'fiscalizar.html'), 'utf-8');
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.end(html);
+      return;
+    }
+
     if (req.method === 'GET' && url.pathname === '/') {
       const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf-8');
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -733,7 +778,33 @@ const servidor = http.createServer(async (req, res) => {
     // O fiscal na rua não precisa poder mexer em configuração.
     if (req.method === 'GET' && url.pathname === '/api/fiscalizacao/placa') {
       const { indice, regras } = indiceFiscalizacao();
-      json(res, 200, fiscalizacao.avaliar(url.searchParams.get('p'), indice, regras));
+      const resultado = fiscalizacao.avaliar(url.searchParams.get('p'), indice, regras);
+      if (resultado.placa) anotarRonda(usuario, resultado, { origem: 'digitada' }, null, regras);
+      json(res, 200, resultado);
+      return;
+    }
+
+    // Quadro da câmera: lê as placas e já devolve a situação de cada uma, numa
+    // ida só. Duas idas (ler, depois consultar) dobrariam a espera no 4G.
+    if (req.method === 'POST' && url.pathname === '/api/fiscalizacao/ler') {
+      const { indice, regras } = indiceFiscalizacao();
+      const bloqueio = registroRonda.liberarLeitura(usuario.nome, regras);
+      if (bloqueio) {
+        json(res, 429, { erro: bloqueio === 'teto_diario' ? 'Limite diário de leituras atingido.' : 'Leituras rápidas demais.', motivo: bloqueio });
+        return;
+      }
+      const corpo = await lerCorpo(req);
+      const imagem = typeof corpo.imagem === 'string' ? corpo.imagem.replace(/^data:image\/\w+;base64,/, '') : '';
+      if (imagem.length < 1000) { json(res, 400, { erro: 'Imagem ausente ou pequena demais.' }); return; }
+
+      const lidas = await lerPlacas(imagem, { modelo: regras.modeloLeitura });
+      const local = Number.isFinite(corpo.lat) && Number.isFinite(corpo.lng) ? { lat: corpo.lat, lng: corpo.lng, precisao: corpo.precisao ?? null } : null;
+      const placas = lidas.placas.map((p) => {
+        const resultado = { ...fiscalizacao.avaliar(p.placa, indice, regras), veiculo: p.veiculo };
+        anotarRonda(usuario, resultado, { origem: 'camera', local }, imagem, regras);
+        return resultado;
+      });
+      json(res, 200, { placas, descartadas: lidas.descartadas.length, recusado: !!lidas.recusado, leiturasHoje: registroRonda.leiturasHoje() });
       return;
     }
 

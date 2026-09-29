@@ -1,0 +1,380 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#15171a">
+<title>Fiscalização de rua</title>
+<!--
+  Tela do fiscal: câmera aberta, lendo placas continuamente.
+
+  COMO FUNCIONA
+  A cada ~2 s a página tira um quadro do vídeo, reduz para 1280 px e manda ao
+  servidor, que lê as placas e já devolve a situação de cada uma. Nada de
+  modelo roda no celular: o aparelho da empresa (Moto G35) é simples, e o
+  trabalho dele é só capturar e enviar.
+
+  O QUADRO SÓ VAI SE MUDOU. Parado diante do mesmo carro, mandar quadro atrás
+  de quadro é pagar pela mesma resposta. Uma miniatura 32×18 em tons de cinza
+  compara cada quadro com o último enviado; sem mudança, não envia (mas
+  reenvia a cada 8 s, para não travar quando a placa só ficou nítida agora).
+
+  ALERTA SÓ DEPOIS DE CONFIRMAR. Uma placa lida uma vez aparece em cinza
+  ("lendo…"); o alerta (som, vibração, tela colorida) só dispara quando a mesma
+  placa volta num segundo quadro. Uma leitura errada isolada não vira abordagem.
+  Placa digitada à mão conta como confirmada.
+
+  Mesmo login do painel. Contas somente leitura podem usar esta tela.
+-->
+<style>
+  :root {
+    --fundo:#15171a; --cartao:#1e2125; --borda:#333940; --texto:#e8eaed; --fraco:#9aa3af;
+    --ok:#22c55e; --alerta:#f59e0b; --erro:#ef4444; --acento:#58a6ff;
+  }
+  * { box-sizing:border-box; }
+  html, body { margin:0; height:100%; background:var(--fundo); color:var(--texto);
+    font:16px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+  body { display:flex; flex-direction:column; min-height:100dvh; }
+  .topo { display:flex; align-items:center; gap:8px; padding:10px 14px; background:var(--cartao);
+    border-bottom:1px solid var(--borda); font-size:13px; color:var(--fraco); }
+  .topo b { color:var(--texto); font-size:15px; flex:1; }
+  .ponto { width:9px; height:9px; border-radius:50%; background:var(--fraco); }
+  .ponto.vivo { background:var(--ok); }
+  .ponto.velho { background:var(--alerta); }
+  .aviso-dados { display:none; padding:8px 14px; background:#3a2a06; color:#fcd34d; font-size:13px; }
+  .camera { position:relative; background:#000; aspect-ratio:4/3; max-height:48dvh; width:100%; overflow:hidden; }
+  video { width:100%; height:100%; object-fit:cover; display:block; }
+  .mira { position:absolute; inset:18% 10%; border:2px dashed rgba(255,255,255,.35); border-radius:10px; pointer-events:none; }
+  .estado-leitura { position:absolute; left:10px; bottom:10px; background:rgba(0,0,0,.6); color:#fff;
+    padding:4px 10px; border-radius:99px; font-size:12px; }
+  .iniciar { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px;
+    background:var(--fundo); padding:24px; text-align:center; color:var(--fraco); font-size:14px; }
+  button { font:inherit; border:0; border-radius:10px; padding:14px 18px; font-weight:600; cursor:pointer; }
+  .principal { background:var(--acento); color:#08111f; font-size:18px; padding:16px 28px; }
+  .secundario { background:var(--cartao); color:var(--texto); border:1px solid var(--borda); }
+  .resultado { margin:12px 14px 0; border-radius:14px; padding:16px; background:var(--cartao);
+    border:2px solid var(--borda); transition:background .2s; }
+  .resultado .placa { font:700 30px/1 ui-monospace,Menlo,Consolas,monospace; letter-spacing:2px; }
+  .resultado .titulo { font-size:20px; font-weight:700; margin-top:8px; }
+  .resultado .detalhe { color:var(--fraco); font-size:14px; margin-top:4px; }
+  .resultado.regular { border-color:var(--ok); background:#0d2a19; }
+  .resultado.regular .titulo { color:var(--ok); }
+  .resultado.vermelho { border-color:var(--erro); background:#3a1212; }
+  .resultado.vermelho .titulo { color:#fca5a5; }
+  .resultado.conferir { border-color:var(--alerta); background:#33260a; }
+  .resultado.conferir .titulo { color:#fcd34d; }
+  .resultado.vazio { color:var(--fraco); text-align:center; }
+  .piscar { animation:piscar .5s 3; }
+  @keyframes piscar { 50% { filter:brightness(1.8); } }
+  .acoes { display:flex; gap:8px; margin:12px 14px 0; }
+  .acoes input { flex:1; min-width:0; font:600 18px ui-monospace,Menlo,Consolas,monospace; text-transform:uppercase;
+    padding:12px; border-radius:10px; border:1px solid var(--borda); background:var(--cartao); color:var(--texto); }
+  .lista { margin:14px 14px 24px; padding:0; list-style:none; }
+  .lista h2 { font-size:13px; color:var(--fraco); font-weight:600; margin:0 0 6px; text-transform:uppercase; letter-spacing:.5px; }
+  .item { display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid var(--borda); font-size:14px; }
+  .item .cor { width:10px; height:10px; border-radius:50%; flex:none; }
+  .item .p { font:600 15px ui-monospace,Menlo,Consolas,monospace; min-width:84px; }
+  .item .t { flex:1; color:var(--fraco); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .item .h { color:var(--fraco); font-size:12px; }
+  .cor.regular { background:var(--ok); } .cor.vermelho { background:var(--erro); }
+  .cor.conferir { background:var(--alerta); } .cor.lendo { background:var(--fraco); }
+</style>
+</head>
+<body>
+  <div class="topo">
+    <span class="ponto" id="ponto"></span>
+    <b>Fiscalização de rua</b>
+    <span id="infoDados">conectando…</span>
+  </div>
+  <div class="aviso-dados" id="avisoDados"></div>
+
+  <div class="camera">
+    <video id="video" playsinline muted></video>
+    <div class="mira"></div>
+    <div class="estado-leitura" id="estadoLeitura">parado</div>
+    <div class="iniciar" id="telaIniciar">
+      <div>Aponte a câmera para a traseira dos veículos, a 1–3 metros, andando devagar.</div>
+      <button class="principal" id="botaoIniciar">Iniciar ronda</button>
+      <div id="erroCamera" style="color:var(--erro)"></div>
+    </div>
+  </div>
+
+  <div class="resultado vazio" id="resultado">Nenhuma placa lida ainda.</div>
+
+  <div class="acoes">
+    <input id="campoPlaca" placeholder="Digitar placa" maxlength="8" autocomplete="off" autocapitalize="characters" inputmode="text">
+    <button class="secundario" id="botaoConsultar">Consultar</button>
+    <button class="secundario" id="botaoPausar" hidden>Pausar</button>
+  </div>
+
+  <ul class="lista" id="lista"><h2>Nesta ronda</h2></ul>
+
+<script>
+(() => {
+  const INTERVALO_MS = 2000;
+  const REENVIO_MESMO_QUADRO_MS = 8000;
+  const MUDANCA_MINIMA = 6;          // diferença média de cinza (0–255) para contar como quadro novo
+  const CONFIRMA_EM_MS = 20000;      // segunda leitura precisa vir nesse prazo
+  const REALERTA_MS = 5 * 60 * 1000; // mesma placa não alerta de novo antes disso
+  const LARGURA_ENVIO = 1280;
+
+  const $ = (id) => document.getElementById(id);
+  const video = $('video');
+  const quadro = document.createElement('canvas');
+  const mini = document.createElement('canvas');
+  mini.width = 32; mini.height = 18;
+
+  let rodando = false, enviando = false, ultimoEnvio = 0, miniAnterior = null;
+  let audio = null, travaTela = null, posicao = null;
+  const vistas = new Map(); // placa -> { leituras, primeira, resultado, alertadaEm, confirmada }
+
+  // ------------------------------------------------------------ texto do resultado
+  function classe(r) {
+    if (r.situacao === 'regular') return 'regular';
+    if (r.situacao === 'irregular' || r.situacao === 'excedido') return 'vermelho';
+    if (r.situacao === 'sem_vinculo') return 'conferir';
+    return 'lendo';
+  }
+  function titulo(r) {
+    const l = r.lotacao;
+    switch (r.situacao) {
+      case 'regular': return `Regular — ${r.patio}`;
+      case 'excedido': return `Pátio excedido — ${r.patio}${l ? ` (${l.ocupadas}/${l.vagas})` : ''}`;
+      case 'irregular':
+        if (r.motivo === 'fora_do_hangar') return `Irregular — deveria estar no ${r.patio}`;
+        if (r.motivo === 'ticket_vencido') return `Irregular — ticket vencido${r.patio ? ` (${r.patio})` : ''}`;
+        if (r.motivo === 'rotativo') return 'Irregular — rotativo sem validação';
+        return 'Irregular';
+      case 'sem_vinculo': return 'Sem cadastro — conferir';
+      default: return 'Placa inválida';
+    }
+  }
+  function detalhe(r) {
+    const partes = [];
+    if (r.situacao === 'regular' && r.lotacao) partes.push(`pátio com ${r.lotacao.ocupadas} de ${r.lotacao.vagas} vagas`);
+    const v = (r.vinculos || [])[0];
+    if (v) {
+      partes.push(`${v.tipo === 'ticket' ? 'ticket' : 'credenciado'} · placa ${v.fonteDescricao}`);
+      if (v.tipo === 'ticket' && v.tolerancia) partes.push(`válido até ${formatarData(v.tolerancia)}`);
+    }
+    if (r.situacao === 'sem_vinculo') partes.push('placa não achada em ticket nem credenciado; pode ser credenciado sem placa cadastrada');
+    if (r.veiculo && r.veiculo !== 'outro') partes.unshift(r.veiculo);
+    return partes.join(' · ');
+  }
+  function formatarData(s) {
+    const m = String(s).match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+    return m ? `${m[3]}/${m[2]} ${m[4]}:${m[5]}` : s;
+  }
+  const hora = () => new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+  function mostrar(r, piscar) {
+    const caixa = $('resultado');
+    caixa.className = `resultado ${classe(r)}${piscar ? ' piscar' : ''}`;
+    caixa.replaceChildren();
+    const p = document.createElement('div'); p.className = 'placa'; p.textContent = r.placa;
+    const t = document.createElement('div'); t.className = 'titulo'; t.textContent = titulo(r);
+    const d = document.createElement('div'); d.className = 'detalhe'; d.textContent = detalhe(r);
+    caixa.append(p, t, d);
+  }
+
+  function anotarNaLista(r, estado) {
+    const lista = $('lista');
+    let item = lista.querySelector(`[data-placa="${r.placa}"]`);
+    if (!item) {
+      item = document.createElement('li'); item.className = 'item'; item.dataset.placa = r.placa;
+      item.innerHTML = '<span class="cor"></span><span class="p"></span><span class="t"></span><span class="h"></span>';
+      lista.querySelector('h2').after(item);
+      item.addEventListener('click', () => { const v = vistas.get(r.placa); if (v) mostrar(v.resultado, false); });
+    }
+    item.querySelector('.cor').className = `cor ${estado === 'lendo' ? 'lendo' : classe(r)}`;
+    item.querySelector('.p').textContent = r.placa;
+    item.querySelector('.t').textContent = estado === 'lendo' ? 'lendo… (aguardando 2ª leitura)' : titulo(r);
+    item.querySelector('.h').textContent = hora();
+  }
+
+  // ------------------------------------------------------------ alerta
+  function bip(frequencia, duracaoMs, vezes) {
+    if (!audio) return;
+    for (let i = 0; i < vezes; i += 1) {
+      const o = audio.createOscillator(); const g = audio.createGain();
+      o.frequency.value = frequencia; o.connect(g); g.connect(audio.destination);
+      const t0 = audio.currentTime + i * (duracaoMs + 90) / 1000;
+      g.gain.setValueAtTime(0.35, t0); g.gain.setValueAtTime(0, t0 + duracaoMs / 1000);
+      o.start(t0); o.stop(t0 + duracaoMs / 1000 + 0.02);
+    }
+  }
+  function alertar(r) {
+    const c = classe(r);
+    if (c === 'regular') { bip(1320, 90, 1); navigator.vibrate?.(60); }
+    else if (c === 'conferir') { bip(880, 160, 2); navigator.vibrate?.([200, 100, 200]); }
+    else if (c === 'vermelho') { bip(440, 260, 3); navigator.vibrate?.([350, 120, 350, 120, 350]); }
+  }
+
+  // Leitura da câmera: primeira vez fica "lendo"; confirma na segunda.
+  function receber(r, { confirmadaNaHora = false } = {}) {
+    if (!r.placa || r.situacao === 'placa_invalida') return;
+    const agora = Date.now();
+    let v = vistas.get(r.placa);
+    if (!v || agora - v.primeira > CONFIRMA_EM_MS && !v.confirmada) v = { leituras: 0, primeira: agora, alertadaEm: 0, confirmada: false };
+    v.leituras += 1; v.resultado = r;
+    if (confirmadaNaHora || v.leituras >= 2) v.confirmada = true;
+    vistas.set(r.placa, v);
+
+    if (!v.confirmada) { anotarNaLista(r, 'lendo'); return; }
+    anotarNaLista(r, 'ok');
+    const novoAlerta = agora - v.alertadaEm > REALERTA_MS;
+    mostrar(r, novoAlerta);
+    if (novoAlerta) { v.alertadaEm = agora; alertar(r); }
+    atualizarDados(r.dados);
+  }
+
+  // ------------------------------------------------------------ dados do aeroporto
+  function atualizarDados(d) {
+    if (!d) return;
+    const ponto = $('ponto'), aviso = $('avisoDados');
+    if (d.velho) {
+      ponto.className = 'ponto velho';
+      aviso.style.display = 'block';
+      aviso.textContent = d.minutos === null
+        ? 'Sem dados do aeroporto. Os resultados não são confiáveis.'
+        : `Dados do aeroporto de ${d.minutos} min atrás. O coletor pode ter parado; confira antes de abordar.`;
+      $('infoDados').textContent = d.minutos === null ? 'sem dados' : `dados de ${d.minutos} min`;
+    } else {
+      ponto.className = 'ponto vivo';
+      aviso.style.display = 'none';
+      $('infoDados').textContent = d.minutos <= 1 ? 'dados ao vivo' : `dados de ${d.minutos} min`;
+    }
+  }
+  async function consultarEstado() {
+    try {
+      const r = await fetch('/api/fiscalizacao/estado', { cache: 'no-store' });
+      if (r.ok) atualizarDados((await r.json()).dados);
+    } catch (e) { $('infoDados').textContent = 'sem conexão'; $('ponto').className = 'ponto velho'; }
+  }
+
+  // ------------------------------------------------------------ captura
+  function mudouBastante() {
+    const c = mini.getContext('2d', { willReadFrequently: true });
+    c.drawImage(video, 0, 0, mini.width, mini.height);
+    const px = c.getImageData(0, 0, mini.width, mini.height).data;
+    const cinza = new Uint8Array(mini.width * mini.height);
+    for (let i = 0; i < cinza.length; i += 1) cinza[i] = (px[i * 4] * 3 + px[i * 4 + 1] * 6 + px[i * 4 + 2]) / 10;
+    let diferenca = 255;
+    if (miniAnterior) {
+      let soma = 0;
+      for (let i = 0; i < cinza.length; i += 1) soma += Math.abs(cinza[i] - miniAnterior[i]);
+      diferenca = soma / cinza.length;
+    }
+    return { mudou: diferenca >= MUDANCA_MINIMA, cinza };
+  }
+
+  async function ciclo() {
+    if (!rodando || enviando || video.readyState < 2) return;
+    const { mudou, cinza } = mudouBastante();
+    if (!mudou && Date.now() - ultimoEnvio < REENVIO_MESMO_QUADRO_MS) { $('estadoLeitura').textContent = 'aguardando movimento'; return; }
+
+    const escala = Math.min(1, LARGURA_ENVIO / video.videoWidth);
+    quadro.width = Math.round(video.videoWidth * escala);
+    quadro.height = Math.round(video.videoHeight * escala);
+    quadro.getContext('2d').drawImage(video, 0, 0, quadro.width, quadro.height);
+    const imagem = quadro.toDataURL('image/jpeg', 0.72);
+
+    enviando = true; ultimoEnvio = Date.now(); miniAnterior = cinza;
+    $('estadoLeitura').textContent = 'lendo…';
+    try {
+      const resp = await fetch('/api/fiscalizacao/ler', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imagem, ...(posicao || {}) }),
+      });
+      if (resp.status === 429) {
+        const e = await resp.json().catch(() => ({}));
+        $('estadoLeitura').textContent = e.motivo === 'teto_diario' ? 'limite diário atingido' : 'aguardando';
+        if (e.motivo === 'teto_diario') pausar();
+        return;
+      }
+      if (!resp.ok) { $('estadoLeitura').textContent = `erro ${resp.status}`; return; }
+      const dados = await resp.json();
+      for (const r of dados.placas) receber(r);
+      $('estadoLeitura').textContent = dados.placas.length
+        ? `${dados.placas.length} placa(s) no quadro`
+        : 'nenhuma placa legível';
+    } catch (e) {
+      $('estadoLeitura').textContent = 'sem conexão';
+    } finally {
+      enviando = false;
+    }
+  }
+
+  // ------------------------------------------------------------ iniciar / pausar
+  async function iniciar() {
+    $('erroCamera').textContent = '';
+    try {
+      const fluxo = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+      });
+      video.srcObject = fluxo;
+      await video.play();
+    } catch (e) {
+      $('erroCamera').textContent = 'Não consegui abrir a câmera. Permita o acesso à câmera para este site nas configurações do Chrome.';
+      return;
+    }
+    // Som só pode ser criado a partir de um toque do usuário; por isso aqui.
+    try { audio = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { audio = null; }
+    try { travaTela = await navigator.wakeLock?.request('screen'); } catch (e) { travaTela = null; }
+    if (navigator.geolocation) {
+      navigator.geolocation.watchPosition(
+        (p) => { posicao = { lat: p.coords.latitude, lng: p.coords.longitude, precisao: Math.round(p.coords.accuracy) }; },
+        () => { posicao = null; },
+        { enableHighAccuracy: true, maximumAge: 15000 },
+      );
+    }
+    $('telaIniciar').style.display = 'none';
+    $('botaoPausar').hidden = false;
+    retomar();
+  }
+  function retomar() { rodando = true; $('botaoPausar').textContent = 'Pausar'; $('estadoLeitura').textContent = 'lendo…'; }
+  function pausar() { rodando = false; $('botaoPausar').textContent = 'Retomar'; $('estadoLeitura').textContent = 'pausado'; }
+
+  // A trava de tela cai quando a aba sai de foco; volta ao retornar.
+  document.addEventListener('visibilitychange', async () => {
+    if (document.visibilityState === 'visible' && video.srcObject) {
+      try { travaTela = await navigator.wakeLock?.request('screen'); } catch (e) { /* sem trava */ }
+      consultarEstado();
+    }
+  });
+
+  async function consultarDigitada() {
+    const p = $('campoPlaca').value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (!p) return;
+    try {
+      const resp = await fetch(`/api/fiscalizacao/placa?p=${encodeURIComponent(p)}`, { cache: 'no-store' });
+      const r = await resp.json();
+      if (r.situacao === 'placa_invalida') {
+        const caixa = $('resultado');
+        caixa.className = 'resultado vazio';
+        caixa.textContent = `"${p}" não é uma placa válida (AAA1234 ou AAA1A23).`;
+        return;
+      }
+      if (!audio) { try { audio = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { /* sem som */ } }
+      vistas.delete(r.placa);
+      receber(r, { confirmadaNaHora: true });
+      $('campoPlaca').value = '';
+    } catch (e) {
+      $('resultado').textContent = 'Sem conexão com o servidor.';
+    }
+  }
+
+  $('botaoIniciar').addEventListener('click', iniciar);
+  $('botaoPausar').addEventListener('click', () => (rodando ? pausar() : retomar()));
+  $('botaoConsultar').addEventListener('click', consultarDigitada);
+  $('campoPlaca').addEventListener('keydown', (e) => { if (e.key === 'Enter') consultarDigitada(); });
+
+  setInterval(ciclo, INTERVALO_MS);
+  setInterval(consultarEstado, 60000);
+  consultarEstado();
+})();
+</script>
+</body>
+</html>
