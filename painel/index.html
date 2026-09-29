@@ -585,8 +585,8 @@ async function carregarBloqueados() {
   try { d = await (await fetch('/api/bloqueados')).json(); }
   catch (e) { caixa.innerHTML = `<div class="vazio">Não consegui carregar: ${escapar(e.message)}</div>`; return; }
 
-  const ativos = d.bloqueados.filter(b => !b.autorizadoEm);
-  const liberados = d.bloqueados.filter(b => b.autorizadoEm).slice(0, 10);
+  const ativos = d.bloqueados.filter(b => !b.autorizadoEm && !b.negadoEm);
+  const decididos = d.bloqueados.filter(b => b.autorizadoEm || b.negadoEm).slice(0, 10);
 
   if (!d.bloqueados.length) {
     caixa.innerHTML = '<div class="vazio">Nenhum ticket bloqueado. Aparecem aqui os que forem tentados em pátio cheio.</div>';
@@ -602,29 +602,52 @@ async function carregarBloqueados() {
       ${(b.tentativas || []).length > 1 ? `<div class="trilha">${(b.tentativas || []).map((t, i) => `${i + 1}ª ${escapar(t.hangarNome || t.hangarId)}`).join(' → ')}</div>` : ''}</td>
     <td>${b.autorizadoEm
       ? `<span class="st bom">liberado por ${escapar(b.autorizadoPor)}</span> ${quando(b.autorizadoEm)}`
-      : `<button onclick="autorizarTicket('${escapar(b.ticket)}', this)">Autorizar</button>`}</td>
+      : b.negadoEm
+        ? `<span class="st ruim">negado por ${escapar(b.negadoPor)}</span> ${quando(b.negadoEm)}`
+        : `<button onclick="decidirTicket('${escapar(b.ticket)}', true, this)">Autorizar</button>
+           <button class="perigoso" onclick="decidirTicket('${escapar(b.ticket)}', false, this)">Não autorizar</button>`}</td>
   </tr>`;
 
   caixa.innerHTML = `${ativos.length ? `<div class="aviso pendente"><b>${ativos.length} ticket(s) aguardando sua decisão.</b>
       Enquanto não autorizar, eles não validam em pátio nenhum.</div>` : ''}
     <div class="rolavel"><table>
     <thead><tr><th>ticket</th><th>onde travou</th><th>quando</th><th>tentativas</th><th>situação</th></tr></thead>
-    <tbody>${ativos.concat(liberados).map(linha).join('')}</tbody></table></div>`;
+    <tbody>${ativos.concat(decididos).map(linha).join('')}</tbody></table></div>`;
 }
 
-async function autorizarTicket(ticket, botao) {
-  if (!confirm(`Autorizar a validação do ticket ${ticket}?\n\nEle foi tentado em um pátio sem vagas. Autorizando, ele poderá ser validado em qualquer pátio.`)) return;
-  botao.disabled = true; botao.textContent = 'autorizando…';
+/**
+ * Decide sobre um ticket travado. As duas saídas gravam quem decidiu e avisam
+ * o grupo onde o cliente está esperando — negar também é decisão, e não
+ * responder deixaria a pessoa sem desfecho.
+ */
+async function decidirTicket(ticket, autorizar, botao) {
+  const pergunta = autorizar
+    ? `Autorizar a validação do ticket ${ticket}?\n\nEle foi tentado em um pátio sem vagas. Autorizando, poderá ser validado em qualquer pátio.`
+    : `Manter o ticket ${ticket} bloqueado?\n\nO grupo será avisado de que não foi autorizado e orientado ao totem de autopagamento.`;
+  if (!confirm(pergunta)) return;
+
+  const irmaos = botao.parentElement.querySelectorAll('button');
+  irmaos.forEach((b) => { b.disabled = true; });
+  botao.textContent = autorizar ? 'autorizando…' : 'registrando…';
   try {
-    const r = await fetch('/api/bloqueado-autorizar', {
+    const r = await fetch(autorizar ? '/api/bloqueado-autorizar' : '/api/bloqueado-negar', {
       method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ticket }),
     });
     const d = await r.json();
-    if (!r.ok) { alert(d.erro || 'erro'); botao.disabled = false; botao.textContent = 'Autorizar'; return; }
+    if (!r.ok) {
+      alert(d.erro || 'erro');
+      irmaos.forEach((b) => { b.disabled = false; });
+      botao.textContent = autorizar ? 'Autorizar' : 'Não autorizar';
+      return;
+    }
+    if (d.aviso && !d.aviso.enviado) {
+      alert(`Decisão registrada, mas NÃO consegui avisar o grupo: ${d.aviso.motivo}\n\nAvise por lá à mão.`);
+    }
     await carregarBloqueados();
   } catch (e) {
     alert('falha de rede: ' + e.message);
-    botao.disabled = false; botao.textContent = 'Autorizar';
+    irmaos.forEach((b) => { b.disabled = false; });
+    botao.textContent = autorizar ? 'Autorizar' : 'Não autorizar';
   }
 }
 

@@ -164,6 +164,33 @@ async function main() {
     conferir('aceita', semLogin.codigo === 200, JSON.stringify(semLogin.corpo).slice(0, 120));
     conferir('avisa que falta credencial', semLogin.corpo.credenciais === false);
     conferir('não inventou variável no .env', !fs.readFileSync(path.join(RAIZ, '.env'), 'utf-8').includes('PATIO_SEM_LOGIN_SENHA='));
+    console.log('\nDecidir ticket bloqueado pelo painel');
+    const bloqueados = require(path.join(RAIZ, 'scripts', 'lib', 'tickets-bloqueados.js'));
+    const ARQ_BLOQ = path.join(RAIZ, 'data', 'tickets-bloqueados.json');
+    const bloqAntes = fs.existsSync(ARQ_BLOQ) ? fs.readFileSync(ARQ_BLOQ, 'utf-8') : null;
+    fs.writeFileSync(ARQ_BLOQ, '{}');
+    try {
+      // Sem grupoId: o teste não deve tentar falar com a Evolution de verdade.
+      bloqueados.bloquear('011809000001', { hangarId: 'solojet', hangarNome: 'Solojet' });
+      bloqueados.bloquear('011809000002', { hangarId: 'solojet', hangarNome: 'Solojet' });
+
+      const negado = await chamar(porta, '/api/bloqueado-negar', { ticket: '011809000001' });
+      conferir('nega', negado.codigo === 200 && negado.corpo.autorizado === false, JSON.stringify(negado.corpo).slice(0, 110));
+      conferir('registra quem negou', Boolean(bloqueados.listar().find((b) => b.ticket === '011809000001').negadoPor));
+      conferir('o ticket negado CONTINUA bloqueado', bloqueados.estaBloqueado('011809000001') !== null);
+      conferir('mas sai da fila de decisão', !bloqueados.listar({ apenasAtivos: true }).some((b) => b.ticket === '011809000001'));
+
+      const liberado = await chamar(porta, '/api/bloqueado-autorizar', { ticket: '011809000002' });
+      conferir('autoriza', liberado.codigo === 200 && liberado.corpo.autorizado === true, JSON.stringify(liberado.corpo).slice(0, 110));
+      conferir('o autorizado deixa de bloquear', bloqueados.estaBloqueado('011809000002') === null);
+
+      const denovo = await chamar(porta, '/api/bloqueado-negar', { ticket: '011809000002' });
+      conferir('não nega o que já foi autorizado', denovo.codigo === 400, JSON.stringify(denovo.corpo).slice(0, 90));
+    } finally {
+      if (bloqAntes === null) { try { fs.unlinkSync(ARQ_BLOQ); } catch (e) { /* já não existe */ } }
+      else fs.writeFileSync(ARQ_BLOQ, bloqAntes);
+    }
+
     console.log('\nExcluir pátio');
     const semConfirmar = await excluir(porta, { id: 'patio-sem-login' });
     conferir('recusa sem a confirmação digitada', semConfirmar.codigo === 400 && /digite exatamente/i.test(semConfirmar.corpo.erro || ''),

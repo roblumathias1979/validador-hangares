@@ -21,13 +21,13 @@
 // de trabalho por ciclo.
 //
 // A decisão de avisar continua inteira em lib/aviso-patio.js: quem avalia a
-// travessia, o reaviso de 6h e a normalização é o mesmo código do fluxo do bot.
+// travessia, o reaviso e a normalização é o mesmo código do fluxo do bot.
 // Aqui só se escolhe QUANDO olhar.
 
 const { carregarConfig } = require('./lib/hangar');
 const { consultarPatio } = require('./consultar-patio');
 const avisoPatio = require('./lib/aviso-patio');
-const { enviarTexto } = require('./processar-mensagem');
+const { enviarTexto } = require('./lib/evolution');
 
 // Hangar sem grupo cadastrado não tem para onde avisar.
 function hangaresAtivos(config) {

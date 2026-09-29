@@ -32,6 +32,10 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env'), override: t
 const { carregarConfig, buscarHangarPorGrupo } = require('./lib/hangar');
 const { comTravaAsync } = require('./lib/trava-arquivo');
 const { interpretarMensagem, extrairPlaca } = require('./lib/whatsapp');
+// O cliente da Evolution vive em lib/evolution.js: o painel também precisa
+// mandar mensagem, e duas cópias do mesmo cliente divergiriam — inclusive no
+// `Connection: close`, que existe por um bug real de socket reaproveitado.
+const { chamarEvolution, enviarTexto } = require('./lib/evolution');
 const { avaliarLocal } = require('./lib/conferir-local');
 const pendencias = require('./lib/pendencias');
 const registro = require('./lib/registro');
@@ -47,54 +51,6 @@ const { consultarPatio } = require('./consultar-patio');
 const EVOLUTION_URL = process.env.EVOLUTION_URL || 'http://127.0.0.1:8080';
 const EVOLUTION_INSTANCE = process.env.EVOLUTION_INSTANCE || 'validador-hangares';
 
-function chamarEvolution(caminho, corpo) {
-  return new Promise((resolve, reject) => {
-    const chave = process.env.EVOLUTION_API_KEY;
-    if (!chave) {
-      reject(new Error('EVOLUTION_API_KEY não configurada no .env.'));
-      return;
-    }
-    const url = new URL(caminho, EVOLUTION_URL);
-    const dados = JSON.stringify(corpo);
-    const req = http.request(
-      {
-        hostname: url.hostname,
-        port: url.port,
-        path: url.pathname,
-        method: 'POST',
-        headers: {
-          apikey: chave,
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(dados),
-          // Sem keep-alive de propósito. Entre o aviso "recebi seu ticket" e a
-          // resposta final passam ~11s de OCR e navegador; nesse intervalo a
-          // Evolution fecha a conexão ociosa, e o agente padrão do Node
-          // reaproveitava o socket morto — o envio final falhava com
-          // "socket hang up" e o cliente ficava sem resposta (15/09/2026).
-          Connection: 'close',
-        },
-        agent: false,
-        timeout: 60000,
-      },
-      (res) => {
-        let corpoResposta = '';
-        res.on('data', (c) => (corpoResposta += c));
-        res.on('end', () => {
-          try {
-            resolve(JSON.parse(corpoResposta));
-          } catch (e) {
-            reject(new Error(`Evolution devolveu resposta não-json (HTTP ${res.statusCode}): ${corpoResposta.slice(0, 200)}`));
-          }
-        });
-      }
-    );
-    req.on('error', reject);
-    req.on('timeout', () => req.destroy(new Error('Evolution não respondeu em 60s.')));
-    req.write(dados);
-    req.end();
-  });
-}
-
 async function baixarImagemBase64(messageId) {
   const r = await chamarEvolution(
     `/chat/getBase64FromMediaMessage/${EVOLUTION_INSTANCE}`,
@@ -104,25 +60,6 @@ async function baixarImagemBase64(messageId) {
     throw new Error(`Evolution não devolveu a imagem da mensagem ${messageId}.`);
   }
   return { base64: r.base64, mediaType: r.mimetype || 'image/jpeg' };
-}
-
-async function enviarTexto(grupoId, texto) {
-  // Uma tentativa extra: a resposta ao cliente é a parte visível do sistema,
-  // e perdê-la por uma falha momentânea de rede é o pior desfecho possível —
-  // o ticket pode já ter sido validado e o cliente não fica sabendo.
-  let ultimoErro = null;
-  for (let tentativa = 1; tentativa <= 2; tentativa += 1) {
-    try {
-      return await chamarEvolution(`/message/sendText/${EVOLUTION_INSTANCE}`, {
-        number: grupoId,
-        text: texto,
-      });
-    } catch (erro) {
-      ultimoErro = erro;
-      if (tentativa < 2) await new Promise((r) => setTimeout(r, 1000));
-    }
-  }
-  throw ultimoErro;
 }
 
 // Os dois scripts de ticket são CLIs com contrato de json em stdout. Chamamos
@@ -1559,8 +1496,4 @@ if (require.main === module) {
   main();
 }
 
-// `enviarTexto` sai daqui para a varredura de pátios usar o MESMO cliente da
-// Evolution. Reescrever aquelas 80 linhas noutro arquivo criaria uma segunda
-// fonte para o mesmo comportamento — inclusive para o `Connection: close`,
-// que existe por um bug real de socket reaproveitado.
-module.exports = { processar, avisarAdmin, escalar, resultadoDeErro, enviarTexto, STATUS_QUE_ESCALAM };
+module.exports = { processar, avisarAdmin, escalar, resultadoDeErro, STATUS_QUE_ESCALAM };

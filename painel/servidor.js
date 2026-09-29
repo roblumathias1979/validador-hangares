@@ -55,11 +55,16 @@ const evolution = require('../scripts/lib/evolution');
 // Gravar o config é compartilhado com o bot: ver a nota em salvar-config.js.
 const { salvarEComitar } = require('../scripts/lib/salvar-config');
 const bloqueados = require('../scripts/lib/tickets-bloqueados');
+const { enviarTexto } = require('../scripts/lib/evolution');
 const registro = require(path.join(RAIZ, 'scripts', 'lib', 'registro'));
 const { lerJson } = require(path.join(RAIZ, 'scripts', 'lib', 'trava-arquivo'));
 const usuarios = require('./usuarios');
 const referencias = require(path.join(RAIZ, 'scripts', 'lib', 'referencias'));
 const SAUDE = path.join(RAIZ, 'data', 'saude.json');
+const fiscalizacao = require(path.join(RAIZ, 'scripts', 'lib', 'fiscalizacao'));
+const { salvarAtomico } = require(path.join(RAIZ, 'scripts', 'lib', 'trava-arquivo'));
+const SNAPSHOT_TECHPARKING = path.join(RAIZ, 'data', 'techparking-snapshot.json');
+const REGRAS_FISCALIZACAO = path.join(RAIZ, 'config', 'fiscalizacao.json');
 
 // Teto do slider do ValidPark. 20 dias é exatamente o limite — não há folga, e
 // pedir mais faz o site recusar a validação inteira.
@@ -306,7 +311,67 @@ function lerCorpo(req) {
   });
 }
 
+// ------------------------------------------------------------ fiscalização
+
+/**
+ * O coletor do aeroporto é uma máquina, não uma pessoa: autentica por token
+ * próprio, e não por um usuário do painel. Dar a ele um login de gente
+ * deixaria uma senha de pessoa gravada num arquivo em outra máquina, e trocar
+ * essa senha derrubaria o coletor sem ninguém perceber.
+ *
+ * O token só abre UMA rota, a que grava o snapshot. Vazado, o estrago máximo
+ * é alguém forjar a lista de tickets. Sério, mas nada que valide ticket ou
+ * mexa em configuração.
+ */
+function coletorAutorizado(req) {
+  const token = process.env.TECHPARKING_COLETOR_TOKEN || '';
+  const cabecalho = req.headers.authorization || '';
+  if (!token || !cabecalho.startsWith('Bearer ')) return false;
+  const a = Buffer.from(cabecalho.slice(7));
+  const b = Buffer.from(token);
+  return a.length === b.length && require('crypto').timingSafeEqual(a, b);
+}
+
+// O índice é montado uma vez por snapshot, não por consulta: a câmera
+// pergunta várias vezes por minuto, e o snapshot muda a cada minuto.
+let indiceEmCache = { chave: null, indice: null };
+function indiceFiscalizacao() {
+  const regras = lerJson(REGRAS_FISCALIZACAO, {});
+  let mtime = 0;
+  try { mtime = fs.statSync(SNAPSHOT_TECHPARKING).mtimeMs; } catch (e) { /* ainda não chegou nada */ }
+  const regrasMtime = fs.statSync(REGRAS_FISCALIZACAO).mtimeMs;
+  const chave = `${mtime}:${regrasMtime}`;
+  if (indiceEmCache.chave !== chave) {
+    indiceEmCache = { chave, indice: fiscalizacao.montarIndice(lerJson(SNAPSHOT_TECHPARKING, {}), regras) };
+  }
+  return { indice: indiceEmCache.indice, regras };
+}
+
 const servidor = http.createServer(async (req, res) => {
+  // Antes da autenticação de usuário, e só esta rota: ver coletorAutorizado.
+  if (req.method === 'POST' && req.url === '/api/techparking/snapshot') {
+    if (!coletorAutorizado(req)) { json(res, 401, { erro: 'Token do coletor inválido.' }); return; }
+    try {
+      const corpo = await lerCorpo(req);
+      for (const campo of ['patios', 'avulsos', 'credenciados']) {
+        if (!Array.isArray(corpo[campo])) { json(res, 400, { erro: `"${campo}" precisa ser uma lista.` }); return; }
+      }
+      // Guarda só o que a fiscalização usa. O coletor não deve mandar mais
+      // nada, mas isso não depende dele.
+      salvarAtomico(SNAPSHOT_TECHPARKING, {
+        recebidoEm: new Date().toISOString(),
+        coletadoEm: corpo.coletadoEm || null,
+        patios: corpo.patios,
+        avulsos: corpo.avulsos,
+        credenciados: corpo.credenciados,
+      });
+      json(res, 200, { ok: true, patios: corpo.patios.length, avulsos: corpo.avulsos.length, credenciados: corpo.credenciados.length });
+    } catch (erro) {
+      json(res, 400, { erro: erro.message });
+    }
+    return;
+  }
+
   const usuario = autorizado(req);
   if (!usuario) {
     res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="Validador"' });
@@ -429,16 +494,45 @@ const servidor = http.createServer(async (req, res) => {
       return;
     }
 
-    // Libera um ticket travado. Fica registrado QUEM autorizou: é uma decisão
-    // com efeito financeiro, e decisão sem dono não se audita depois.
-    if (req.method === 'POST' && url.pathname === '/api/bloqueado-autorizar') {
+    // Decide sobre um ticket travado: liberar ou manter bloqueado.
+    //
+    // As duas saídas existem porque as duas são decisão. Só "autorizar" deixava
+    // o caso recusado em aberto para sempre, sem ninguém saber se tinha sido
+    // analisado — e o cliente esperando um retorno que nunca vinha.
+    //
+    // Fica registrado QUEM decidiu: tem efeito financeiro, e decisão sem dono
+    // não se audita depois.
+    if (req.method === 'POST' && (url.pathname === '/api/bloqueado-autorizar' || url.pathname === '/api/bloqueado-negar')) {
+      const autorizar = url.pathname.endsWith('autorizar');
       const { ticket } = await lerCorpo(req);
+      let r;
       try {
-        const r = bloqueados.autorizar(String(ticket || '').trim(), usuario.nome);
-        json(res, 200, { ok: true, ticket: r.ticket, autorizadoPor: r.autorizadoPor, autorizadoEm: r.autorizadoEm });
+        r = autorizar
+          ? bloqueados.autorizar(String(ticket || '').trim(), usuario.nome)
+          : bloqueados.manterBloqueado(String(ticket || '').trim(), usuario.nome);
       } catch (e) {
         json(res, 400, { erro: e.message });
+        return;
       }
+
+      // O cliente está esperando no grupo. Pelo WhatsApp a decisão já o
+      // avisava; pelo painel não avisava ninguém, e a pessoa ficava sem
+      // desfecho — mesma decisão, dois comportamentos diferentes.
+      let aviso = { enviado: false, motivo: 'sem grupo de origem' };
+      if (r.grupoId) {
+        try {
+          await enviarTexto(r.grupoId, autorizar
+            ? `✅ O ticket ${r.ticket} foi *autorizado* pela administração. Pode mandá-lo novamente para validar.`
+            : `🚫 O ticket ${r.ticket} *não foi autorizado* pela administração. Para pagar, use o totem de autopagamento no terminal do aeroporto.`);
+          aviso = { enviado: true };
+        } catch (e) {
+          // A decisão já vale. Falhar aqui perde o aviso, não o efeito — e a
+          // tela diz que o grupo não foi avisado, para alguém fazer à mão.
+          aviso = { enviado: false, motivo: String(e.message || e).slice(0, 160) };
+        }
+      }
+
+      json(res, 200, { ok: true, autorizado: autorizar, ticket: r.ticket, por: usuario.nome, aviso });
       return;
     }
 
@@ -630,6 +724,24 @@ const servidor = http.createServer(async (req, res) => {
 
       const r = salvarEComitar(config, `${hangar.hangar || id} — ${aplicadas.join('; ')}`);
       json(res, 200, { ok: true, aplicadas, ...r, commitsPendentes: commitsPendentes() });
+      return;
+    }
+
+    // Consulta da câmera: GET, então vale para conta somente leitura também.
+    // O fiscal na rua não precisa poder mexer em configuração.
+    if (req.method === 'GET' && url.pathname === '/api/fiscalizacao/placa') {
+      const { indice, regras } = indiceFiscalizacao();
+      json(res, 200, fiscalizacao.avaliar(url.searchParams.get('p'), indice, regras));
+      return;
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/fiscalizacao/estado') {
+      const { indice, regras } = indiceFiscalizacao();
+      json(res, 200, {
+        dados: fiscalizacao.avaliar('', indice, regras).dados,
+        estatisticas: indice.estatisticas,
+        mensalistas: (regras.patiosMensalistas || []).map((p) => fiscalizacao.lotacaoDe(indice, p) || { nome: p, vagas: null, ocupadas: 0 }),
+      });
       return;
     }
 

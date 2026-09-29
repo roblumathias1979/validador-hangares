@@ -1,0 +1,14 @@
+; Copie para coletor.ini (na mesma pasta) e preencha o token.
+; O coletor.ini NÃO vai para o git: tem o token.
+
+[techparking]
+url = http://172.16.10.252:7002
+
+[destino]
+url = https://validador.1park.com.br/api/techparking/snapshot
+; O mesmo valor de TECHPARKING_COLETOR_TOKEN no .env do servidor.
+token =
+
+[coletor]
+; Segundos entre um envio e outro.
+intervalo = 60

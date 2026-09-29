@@ -143,6 +143,13 @@ async function main() {
     JSON.stringify(avisadoNoGrupo && avisadoNoGrupo.destino));
   conferir('e manda ao totem', /totem/i.test((avisadoNoGrupo || {}).texto || ''));
 
+  console.log('\nNegado sai da fila, mas continua bloqueado');
+  conferir('não espera mais decisão', bloqueados.maisRecenteAguardando() === null,
+    JSON.stringify((bloqueados.maisRecenteAguardando() || {}).ticket));
+  conferir('mas o ticket segue sem valer', bloqueados.estaBloqueado(TICKET) !== null);
+  const segundaVez = await processar(privado('não'), {});
+  conferir('não oferece o caso de novo', segundaVez.status === 'autorizacao_sem_alvo', `veio "${segundaVez.status}"`);
+
   console.log('\nDepois da autorização, valida');
   bloqueados.autorizar(TICKET, 'rodrigo');
   conferir('sai da lista de travados', bloqueados.estaBloqueado(TICKET) === null);

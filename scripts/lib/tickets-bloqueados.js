@@ -109,10 +109,17 @@ function maisRecenteAguardando() {
   return listar({ apenasAtivos: true })[0] || null;
 }
 
-/** `apenasAtivos` traz só os que ainda esperam decisão. */
+/**
+ * `apenasAtivos` traz só os que ainda ESPERAM decisão.
+ *
+ * Negado não espera mais: alguém já olhou e disse não. Continua bloqueado — o
+ * `estaBloqueado` segue devolvendo o registro, porque o ticket não vale — mas
+ * sai da fila de quem precisa de atenção. Sem essa distinção, um caso decidido
+ * voltaria a ser oferecido à administração toda vez.
+ */
 function listar({ apenasAtivos = false } = {}) {
   const todos = Object.values(lerJson(ARQUIVO, {}));
-  const lista = apenasAtivos ? todos.filter((r) => !r.autorizadoEm) : todos;
+  const lista = apenasAtivos ? todos.filter((r) => !r.autorizadoEm && !r.negadoEm) : todos;
   return lista.sort((a, b) => String(b.bloqueadoEm).localeCompare(String(a.bloqueadoEm)));
 }
 

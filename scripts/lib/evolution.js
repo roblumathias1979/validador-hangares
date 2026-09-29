@@ -21,7 +21,9 @@ const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '..', '..', '.env'), override: true });
 
 const URL_BASE = process.env.EVOLUTION_URL || 'http://127.0.0.1:8080';
+const EVOLUTION_URL = URL_BASE;
 const INSTANCIA = process.env.EVOLUTION_INSTANCE || 'validador-hangares';
+const EVOLUTION_INSTANCE = INSTANCIA;
 
 /**
  * Grupos de que o número do bot participa, como [{ id, nome }].
@@ -125,4 +127,71 @@ function criarGrupo({ nome, participantes = [], descricao = '' , timeoutMs = 300
   });
 }
 
-module.exports = { listarGrupos, criarGrupo };
+function chamarEvolution(caminho, corpo) {
+  return new Promise((resolve, reject) => {
+    const chave = process.env.EVOLUTION_API_KEY;
+    if (!chave) {
+      reject(new Error('EVOLUTION_API_KEY não configurada no .env.'));
+      return;
+    }
+    const url = new URL(caminho, EVOLUTION_URL);
+    const dados = JSON.stringify(corpo);
+    const req = http.request(
+      {
+        hostname: url.hostname,
+        port: url.port,
+        path: url.pathname,
+        method: 'POST',
+        headers: {
+          apikey: chave,
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(dados),
+          // Sem keep-alive de propósito. Entre o aviso "recebi seu ticket" e a
+          // resposta final passam ~11s de OCR e navegador; nesse intervalo a
+          // Evolution fecha a conexão ociosa, e o agente padrão do Node
+          // reaproveitava o socket morto — o envio final falhava com
+          // "socket hang up" e o cliente ficava sem resposta (15/09/2026).
+          Connection: 'close',
+        },
+        agent: false,
+        timeout: 60000,
+      },
+      (res) => {
+        let corpoResposta = '';
+        res.on('data', (c) => (corpoResposta += c));
+        res.on('end', () => {
+          try {
+            resolve(JSON.parse(corpoResposta));
+          } catch (e) {
+            reject(new Error(`Evolution devolveu resposta não-json (HTTP ${res.statusCode}): ${corpoResposta.slice(0, 200)}`));
+          }
+        });
+      }
+    );
+    req.on('error', reject);
+    req.on('timeout', () => req.destroy(new Error('Evolution não respondeu em 60s.')));
+    req.write(dados);
+    req.end();
+  });
+}
+
+async function enviarTexto(grupoId, texto) {
+  // Uma tentativa extra: a resposta ao cliente é a parte visível do sistema,
+  // e perdê-la por uma falha momentânea de rede é o pior desfecho possível —
+  // o ticket pode já ter sido validado e o cliente não fica sabendo.
+  let ultimoErro = null;
+  for (let tentativa = 1; tentativa <= 2; tentativa += 1) {
+    try {
+      return await chamarEvolution(`/message/sendText/${EVOLUTION_INSTANCE}`, {
+        number: grupoId,
+        text: texto,
+      });
+    } catch (erro) {
+      ultimoErro = erro;
+      if (tentativa < 2) await new Promise((r) => setTimeout(r, 1000));
+    }
+  }
+  throw ultimoErro;
+}
+
+module.exports = { listarGrupos, criarGrupo, chamarEvolution, enviarTexto };

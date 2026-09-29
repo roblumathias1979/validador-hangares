@@ -16,3 +16,7 @@ logs/*.log
 # Cresce e muda a cada uso; diferente de config/hangares.json, não faz
 # sentido versionar.
 data/
+
+# Coletor do aeroporto: o .ini tem o token; o log é da máquina de lá.
+coletor-aeroporto/coletor.ini
+coletor-aeroporto/coletor.log*

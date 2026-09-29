@@ -28,13 +28,24 @@ const RAIZ = path.join(__dirname, '..');
 const GRUPO = '120363431499963963@g.us'; // AIBM 2
 const PESSOA = '5511999999999@s.whatsapp.net';
 
-// O caso real: número sequencial, data impressa de verdade.
+// O caso real: número sequencial que NÃO codifica a data.
 const TICKET = '011111000259';
-const IMPRESSO = '2026-09-18T17:42:51-03:00';
+
+// A data impressa é relativa a AGORA, não a 18/09/2026. A primeira versão
+// deste teste fixou o dia real do caso e passou a falhar sozinha quando o
+// calendário virou: onze dias depois, o ticket estava fora do prazo de 2h e o
+// fluxo recusava antes de chegar na conferência que se quer medir. Teste que
+// depende da data de hoje não testa a regra, testa o relógio.
+const IMPRESSO = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+const ENTRADA_NO_SITE = (() => {
+  const d = new Date(IMPRESSO);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+})();
 
 require('./cenario').montar({ hangares: { 'aibm-2': {} } });
 
-let respostaDaConsulta = { status: 'consulta_ok', jaValidado: false, entrada: '18/09/2026 17:42:51' };
+let respostaDaConsulta = { status: 'consulta_ok', jaValidado: false, entrada: ENTRADA_NO_SITE };
 let chamouConsulta = 0;
 let placaValidada = null;
 
@@ -113,22 +124,23 @@ async function main() {
 
   console.log('\nSite conhece, mas com OUTRA entrada — número de outra pessoa');
   zerarHistorico();
-  respostaDaConsulta = { status: 'consulta_ok', jaValidado: false, entrada: '15/09/2026 08:10:00' };
+  respostaDaConsulta = { status: 'consulta_ok', jaValidado: false, entrada: '15/01/2026 08:10:00' };
   const trocado = await processar(foto(), {});
   conferir('recusa', trocado.status === 'ocr_numero_suspeito', `veio "${trocado.status}"`);
-  conferir('o detalhe mostra a entrada do site', /15\/09\/2026 08:10:00/.test(trocado.mensagem || ''), trocado.mensagem);
+  conferir('o detalhe mostra a entrada do site', /15\/01\/2026 08:10:00/.test(trocado.mensagem || ''), trocado.mensagem);
 
   console.log('\nDiferença de segundos não é divergência');
   zerarHistorico();
-  respostaDaConsulta = { status: 'consulta_ok', jaValidado: false, entrada: '18/09/2026 17:43:40' };
+  // 49 segundos de diferença: dentro da tolerância de 2 minutos.
+  respostaDaConsulta = { status: 'consulta_ok', jaValidado: false, entrada: ENTRADA_NO_SITE.replace(/:(\d{2})$/, (_, ss) => ':' + String((Number(ss) + 49) % 60).padStart(2, '0')) };
   const perto = await processar(foto(), {});
   conferir('valida', perto.status === 'validado', `veio "${perto.status}"`);
 
   console.log('\nQuando número e data CONFEREM, não paga consulta extra');
   zerarHistorico();
   chamouConsulta = 0;
-  respostaDoOcr = { status: 'ocr_ok', ticket: '011809174251', dataEmissaoIso: IMPRESSO, conferencia: { ok: true } };
-  respostaDaConsulta = { status: 'consulta_ok', jaValidado: false, entrada: '18/09/2026 17:42:51' };
+  respostaDoOcr = { status: 'ocr_ok', ticket: '019999000001', dataEmissaoIso: IMPRESSO, conferencia: { ok: true } };
+  respostaDaConsulta = { status: 'consulta_ok', jaValidado: false, entrada: ENTRADA_NO_SITE };
   const direto = await processar(foto(), {});
   conferir('valida', direto.status === 'validado', `veio "${direto.status}"`);
   conferir('mesma quantidade de consultas de sempre', chamouConsulta === 1, `${chamouConsulta} consulta(s)`);

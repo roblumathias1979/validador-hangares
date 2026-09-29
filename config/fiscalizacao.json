@@ -1,0 +1,12 @@
+{
+  "_leia": "Regras da fiscalização de rua (câmera no celular). A rua é concessão da 1Park: só é regular o veículo ligado a um pátio mensalista que esteja dentro da lotação. Os nomes dos pátios são os do TECHPARKING (GET /api/v1/patio), comparados sem acento, sem diferença de maiúscula e sem espaço sobrando.",
+  "patiosMensalistas": [
+    "HANGAR SOLOJET",
+    "SOLOJET MOTOS",
+    "SOLOJET SHARES",
+    "ALLJET",
+    "CIMED \\ ALLJET"
+  ],
+  "placasGenericas": ["AAA0000"],
+  "snapshotVelhoMinutos": 5
+}
