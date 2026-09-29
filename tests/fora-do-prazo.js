@@ -62,11 +62,9 @@ console.log('\nEstado do config de produção');
 const cfg = require(path.join(__dirname, '..', 'config', 'hangares.json'));
 const ligados = cfg.hangares.filter((h) => h.permiteValidarForaDoPrazo === true).map((h) => h.id);
 conferir('nenhum hangar valida fora do prazo', ligados.length === 0, `ligados: ${ligados.join(', ')}`);
-// A cota zerada é a segunda trava: se alguém ligar a chave no painel sem
-// pensar, o bot não distribui validações gratuitas — vai direto perguntar
-// sobre faturamento, que é uma conversa que exige decisão humana.
-const comCota = cfg.hangares.filter((h) => h.cotaMensalForaPrazo !== 0).map((h) => h.id);
-conferir('cota fora do prazo zerada em todos', comCota.length === 0, `com cota: ${comCota.join(', ')}`);
+// (A verificação antiga de "cotas zeradas em todos" saiu: as cotas fora do
+// prazo agora são definidas de propósito — Solojet/Alljet 5, AIBM 0, os demais
+// 2. O caminho da cota tem teste próprio em cota-fora-prazo-fluxo.js.)
 
 console.log('\nNo fluxo: recusa ANTES de pedir a foto do veículo');
 (async () => {
@@ -76,7 +74,7 @@ console.log('\nNo fluxo: recusa ANTES de pedir a foto do veículo');
   process.env.EVOLUTION_INSTANCE = 'teste';
 
   const RAIZ = path.join(__dirname, '..');
-  const ESTADO = ['data/validacoes.jsonl', 'data/pendencias.json', 'data/fotos-usadas.json'];
+  const ESTADO = ['data/validacoes.jsonl', 'data/pendencias.json', 'data/fotos-usadas.json', 'config/hangares.json'];
   const guardado = {};
   for (const a of ESTADO) {
     const f = path.join(RAIZ, a);
@@ -91,7 +89,18 @@ console.log('\nNo fluxo: recusa ANTES de pedir a foto do veículo');
   };
 
   try {
-    for (const a of ESTADO) fs.writeFileSync(path.join(RAIZ, a), a.endsWith('.jsonl') ? '' : '{}');
+    for (const a of ESTADO) {
+      if (a === 'config/hangares.json') continue; // config é preservado, não zerado
+      fs.writeFileSync(path.join(RAIZ, a), a.endsWith('.jsonl') ? '' : '{}');
+    }
+    // O teste de fluxo usa o AIBM 1 justamente por NÃO ter cota fora do prazo:
+    // assim o vencido escala em vez de oferecer a cota. Fixa isso aqui para o
+    // teste não depender do número que estiver em produção.
+    {
+      const cfg2 = JSON.parse(fs.readFileSync(path.join(RAIZ, 'config/hangares.json'), 'utf-8'));
+      cfg2.hangares.find((h) => h.id === 'aibm').cotaMensalForaPrazo = 0;
+      fs.writeFileSync(path.join(RAIZ, 'config/hangares.json'), JSON.stringify(cfg2, null, 2) + '\n');
+    }
 
     // Nenhum script filho pode ser chamado: a recusa tem que vir antes deles.
     const child = require('child_process');
