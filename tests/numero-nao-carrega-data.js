@@ -37,11 +37,14 @@ const TICKET = '011111000259';
 // fluxo recusava antes de chegar na conferência que se quer medir. Teste que
 // depende da data de hoje não testa a regra, testa o relógio.
 const IMPRESSO = new Date(Date.now() - 10 * 60 * 1000).toISOString();
-const ENTRADA_NO_SITE = (() => {
-  const d = new Date(IMPRESSO);
-  const p = (n) => String(n).padStart(2, '0');
-  return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
-})();
+// Em horário de SÃO PAULO, que é o que o ValidPark mostra — e não no fuso do
+// processo. A primeira versão usava getHours(), que passava no Mac (BRT) e
+// falhava no servidor (UTC): três horas de diferença viravam divergência, e o
+// teste acusava um erro que só existia nele.
+const ENTRADA_NO_SITE = new Date(IMPRESSO).toLocaleString('pt-BR', {
+  timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', year: 'numeric',
+  hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+}).replace(',', '');
 
 require('./cenario').montar({ hangares: { 'aibm-2': {} } });
 
