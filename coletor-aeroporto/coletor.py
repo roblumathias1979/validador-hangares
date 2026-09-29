@@ -7,7 +7,7 @@ do TECHPARKING: ela fica na rede interna (172.16.10.252:7002), e a máquina não
 LÊ a API local e ENVIA para validador.1park.com.br. Nada precisa ser aberto
 na rede do aeroporto.
 
-Só leitura no TECHPARKING: chama três rotas GET e nada mais. A API aceita
+Só leitura no TECHPARKING: chama apenas rotas GET de pátio. A API aceita
 escrita sem login (PUT /validador/ticket etc.), e é justamente por isso que
 este script não chama nenhuma outra rota.
 
@@ -114,11 +114,48 @@ def filtrar(lista, campos):
     return saida
 
 
+# A rota por pátio usa nomes em minúscula; o snapshot mantém o formato da rota
+# geral, para o servidor e o bot não precisarem conhecer os dois.
+DE_PARA_POR_PATIO = {
+    "cartao": "CARTAO", "usuario": "USUARIO", "data_ent": "DATA_ENT",
+    "tolerancia": "TOLERANCIA", "placa": "PLACA", "pista": "PISTA", "id_patio": "IDPATIO",
+}
+
+
+def ler_json(url):
+    with urllib.request.urlopen(url, timeout=30) as r:
+        texto = r.read().decode("utf-8").strip()
+    # Pátio sem ticket pode responder corpo vazio (visto em /patio/avulso/2).
+    # Isso é "nenhum ticket", não falha; erro de rede ou HTTP continua
+    # derrubando o ciclo inteiro, como deve.
+    if not texto:
+        return []
+    dados = json.loads(texto)
+    # A rota por pátio devolve o JSON embrulhado numa string (JSON dentro de
+    # JSON). Visto em 29/09/2026.
+    return json.loads(dados) if isinstance(dados, str) else dados
+
+
 def ler_techparking(base):
-    dados = {}
-    for nome, rota in ROTAS.items():
-        with urllib.request.urlopen(base + rota, timeout=30) as r:
-            dados[nome] = filtrar(json.loads(r.read().decode("utf-8")), CAMPOS[nome])
+    dados = {nome: filtrar(ler_json(base + rota), CAMPOS[nome]) for nome, rota in ROTAS.items()}
+
+    # A rota geral de tickets CORTA EM 100, sem parâmetro que mude isso: em
+    # 29/09/2026 ela devolvia 100 e, somando pátio por pátio, eram 371. O corte
+    # deixava de fora justamente os validados há mais dias, e a lotação dos
+    # mensalistas saía bem menor que a real. A rota por pátio não tem o corte.
+    #
+    # A geral continua sendo lida porque é a única que traz os rotativos ainda
+    # sem validação, que não pertencem a pátio nenhum.
+    por_cartao = {}
+    for p in dados["patios"]:
+        for t in ler_json(f"{base}/patio/avulso/{p['IDPATIO']}") or []:
+            if isinstance(t, dict) and t.get("cartao"):
+                item = {novo: t.get(velho) for velho, novo in DE_PARA_POR_PATIO.items()}
+                item.update({k.upper(): v for k, v in t.items() if k.upper().startswith("PLACA_")})
+                por_cartao[t["cartao"]] = item
+    for t in dados["avulsos"]:
+        por_cartao.setdefault(t.get("CARTAO"), t)
+    dados["avulsos"] = list(por_cartao.values())
     return dados
 
 
@@ -136,7 +173,7 @@ def enviar(cfg, dados):
 
 
 def ciclo(cfg, log):
-    # Tudo ou nada: se uma das três rotas falhar, não envia. Um snapshot só com
+    # Tudo ou nada: se qualquer leitura falhar, não envia. Um snapshot só com
     # os tickets e sem os credenciados faria o pátio parecer mais vazio do que
     # está, e a câmera daria "regular" para quem excedeu.
     try:

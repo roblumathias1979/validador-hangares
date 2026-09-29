@@ -8,5 +8,7 @@
     "CIMED \\ ALLJET"
   ],
   "placasGenericas": ["AAA0000"],
-  "snapshotVelhoMinutos": 5
+  "snapshotVelhoMinutos": 5,
+  "_ticketFantasmaDias": "Ticket com tolerância vencida há mais que isto não conta na lotação: o TECHPARKING não registra a saída de todo veículo, e em 29/09/2026 havia tickets de 2025 ainda \"no pátio\".",
+  "ticketFantasmaDias": 7
 }

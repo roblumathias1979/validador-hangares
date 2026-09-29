@@ -91,7 +91,16 @@ function montarIndice(snapshot, regras) {
   const genericas = new Set((regras.placasGenericas || []).map(normalizarPlaca).filter(Boolean));
   const vinculos = new Map();
   const lotacao = new Map();
-  const estatisticas = { tickets: 0, ticketsComPlaca: 0, ticketsPlacaGenerica: 0, ticketsPlacaInvalida: 0, credenciados: 0, credenciadosComPlaca: 0 };
+  const estatisticas = { tickets: 0, ticketsFantasma: 0, ticketsComPlaca: 0, ticketsPlacaGenerica: 0, ticketsPlacaInvalida: 0, credenciados: 0, credenciadosComPlaca: 0 };
+  const patioPorId = new Map((snapshot.patios || []).map((p) => [String(p.IDPATIO), String(p.PATIO || '').trim()]));
+
+  // TICKET FANTASMA: o TECHPARKING não registra a saída de todo veículo (data_sai
+  // vem vazio em todos). Em 29/09/2026, dos 371 tickets "no pátio", 137 tinham
+  // entrado antes de setembro, e um em set/2025. Contados, eles fariam o pátio
+  // parecer excedido sem estar. Tolerância vencida há mais de N dias sai da
+  // lotação; o vínculo com a placa fica, e a câmera diz "ticket vencido".
+  const referencia = lerData(snapshot.recebidoEm) || new Date();
+  const corteFantasma = new Date(referencia.getTime() - (regras.ticketFantasmaDias ?? 7) * 86400000);
 
   const adicionar = (placa, vinculo) => {
     const chave = chavePlaca(placa);
@@ -123,7 +132,12 @@ function montarIndice(snapshot, regras) {
     const usuario = String(a.USUARIO || '').trim();
     // "AVULSO" é o ticket ainda sem validação: não pertence a pátio nenhum.
     const validado = usuario !== '' && chavePatio(usuario) !== 'AVULSO';
-    if (validado) ocupar(usuario);
+    // O código do pátio, quando vem (rota por pátio), vence o nome: o nome do
+    // hangar que validou nem sempre é escrito igual ao do pátio.
+    const patio = validado ? (patioPorId.get(String(a.IDPATIO)) || usuario) : null;
+    const tolerancia = lerData(a.TOLERANCIA);
+    if (tolerancia && tolerancia < corteFantasma) estatisticas.ticketsFantasma += 1;
+    else if (patio) ocupar(patio);
 
     const texto = String(a.PLACA || '').trim();
     if (!texto) continue;
@@ -134,7 +148,7 @@ function montarIndice(snapshot, regras) {
     adicionar(placa, {
       tipo: 'ticket',
       fonte: a.PLACA_LPR ? 'lpr' : 'digitada',
-      patio: validado ? usuario : null,
+      patio,
       cartao: a.CARTAO || null,
       entrada: a.DATA_ENT || null,
       tolerancia: a.TOLERANCIA || null,

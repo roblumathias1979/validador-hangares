@@ -19,11 +19,12 @@ Por que desse jeito:
   usa 4G. O único caminho que não exige abrir porta na rede do aeroporto é a
   máquina de lá enviar para fora.
 - **Só leitura no TECHPARKING.** A API dele aceita escrita sem login (validar
-  ticket, criar credenciado). O coletor chama três rotas GET e nenhuma outra.
+  ticket, criar credenciado). O coletor só chama rotas GET de pátio (a lista
+  geral e a de cada pátio, porque a geral corta em 100 tickets).
 - **Só os campos que a fiscalização usa saem do aeroporto** (ver `CAMPOS` no
   script). Qualquer campo que comece com `PLACA` também passa, para o LPR da
   cancela entrar sem mudar o coletor.
-- **Tudo ou nada:** se uma das três rotas falhar, o coletor não envia. Um
+- **Tudo ou nada:** se qualquer leitura falhar, o coletor não envia. Um
   snapshot sem os credenciados faria o pátio parecer mais vazio do que está.
 
 ## Instalação

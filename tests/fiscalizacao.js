@@ -110,6 +110,23 @@ conferir('usa o campo PLACA', f.avaliar('CAD2B22', comCadastro, REGRAS, AGORA).v
 conferir('ignora a do nome quando há cadastro', f.avaliar('QQQ1111', comCadastro, REGRAS, AGORA).situacao === 'sem_vinculo');
 conferir('fonte lpr', f.avaliar('LPR3C33', comCadastro, REGRAS, AGORA).vinculos[0]?.fonte === 'lpr');
 
+console.log('\nTicket fantasma não ocupa vaga');
+const comFantasma = f.montarIndice(snapshot({ credenciados: [] }), REGRAS);
+const antes = f.lotacaoDe(comFantasma, 'HANGAR SOLOJET').ocupadas;
+const s2 = snapshot({ credenciados: [] });
+s2.avulsos.push({ CARTAO: '010825000000', USUARIO: 'HANGAR SOLOJET', DATA_ENT: '2025-09-25T15:18:49', TOLERANCIA: '2025-10-15T15:18:49', PLACA: 'FAN1A11' });
+const idx2 = f.montarIndice(s2, REGRAS);
+conferir('não conta na lotação', f.lotacaoDe(idx2, 'HANGAR SOLOJET').ocupadas === antes, `${f.lotacaoDe(idx2, 'HANGAR SOLOJET').ocupadas} vs ${antes}`);
+conferir('aparece na estatística', idx2.estatisticas.ticketsFantasma === 1);
+conferir('a placa ainda responde "vencido"', f.avaliar('FAN1A11', idx2, REGRAS, AGORA).motivo === 'ticket_vencido');
+
+console.log('\nCódigo do pátio vence o nome de quem validou');
+const s3 = snapshot();
+s3.avulsos.push({ CARTAO: '012909000001', USUARIO: 'SOLOJET', IDPATIO: 30, DATA_ENT: '2026-09-28T14:00:00', TOLERANCIA: '2026-10-18T14:00:00', PLACA: 'IDP1234' });
+const porId = f.avaliar('IDP1234', f.montarIndice(s3, REGRAS), REGRAS, AGORA);
+conferir('"SOLOJET" com IDPATIO 30 é o HANGAR SOLOJET', porId.patio === 'HANGAR SOLOJET', `veio ${porId.patio}`);
+conferir('e ocupa vaga lá (4 de 4 → 5 de 4)', porId.situacao === 'excedido' && porId.lotacao.ocupadas === 5, `veio ${porId.situacao}`);
+
 console.log('\nDados velhos');
 conferir('1 minuto não é velho', bor.dados.velho === false);
 conferir('10 minutos é velho', f.avaliar('BOR6666', indice, REGRAS, new Date('2026-09-28T18:10:00Z')).dados.velho === true);
