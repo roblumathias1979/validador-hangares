@@ -9,6 +9,11 @@ n8n/data/
 logs/*.log
 .DS_Store
 *.pem
+# Exceção: raízes PÚBLICAS da Let's Encrypt, que o coletor precisa baixar do
+# GitHub para rodar na máquina do aeroporto. A regra acima existe para chaves
+# privadas; este arquivo não é segredo — é o que qualquer navegador já confia.
+# Sem a exceção ele some do commit em silêncio, e o download dá 404 (29/09/2026).
+!coletor-aeroporto/ca-validador.pem
 *.key
 
 # Estado operacional/transacional (cota mensal usada, faturamentos emitidos,
