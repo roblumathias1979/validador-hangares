@@ -88,12 +88,12 @@ async function main() {
   conferir('a fila sabe o hangar e o motivo', naFila[0].hangarId === 'solojet' && naFila[0].motivo === 'cota');
   conferir('a resposta avisa que valida depois', /aviso aqui/.test(sim.mensagemWhatsapp));
 
-  console.log('\nHangar sem cota: escala, não valida');
+  console.log('\nHangar sem cota: oferece faturamento, não valida ainda');
   ticketAtual = '012809081706';
   const semCota = await processar(foto(GRUPO_AIBM), {});
-  conferir('não oferece cota', semCota.status === 'fora_do_prazo', `veio "${semCota.status}"`);
-  conferir('aciona a administração', semCota.notificarAdmin === true);
-  conferir('nada na fila', fila.listar().filter(v => v.hangarId === 'aibm').length === 0);
+  conferir('não oferece cota', semCota.status !== 'fora_do_prazo_requer_decisao', `veio "${semCota.status}"`);
+  conferir('oferece faturar', semCota.status === 'fora_do_prazo_requer_autorizacao_faturamento', `veio "${semCota.status}"`);
+  conferir('nada na fila de validação', fila.listar().filter(v => v.hangarId === 'aibm').length === 0);
 
   console.log('\nTicket já validado ganha de vencido');
   ticketAtual = '012809091027';
