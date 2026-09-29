@@ -49,39 +49,41 @@ sudo systemctl restart painel-validador
 
 ### 2. Na máquina do aeroporto (pelo AnyDesk)
 
-1. Crie a pasta `C:\1park\coletor` e copie para ela o `coletor.py` e o
-   `coletor.ini.exemplo` (pela transferência de arquivos do AnyDesk).
-2. Renomeie `coletor.ini.exemplo` para `coletor.ini` e cole o token em
-   `[destino] token =`.
-3. Teste uma vez, no Prompt de Comando:
+**Como está instalado (conferido em 29/09/2026):**
+
+| | |
+|---|---|
+| Pasta | `C:\Sia\coletor-aeroporto` (`coletor.py`, `coletor.ini`, `ca-validador.pem`) |
+| Serviço do Windows | `coletor-aeroporto` |
+| Python | `C:\Users\user\AppData\Local\Programs\Python\Python311\python.exe` |
+
+O coletor só usa a biblioteca padrão, então qualquer Python 3 serve.
+
+**Para atualizar o `coletor.py`:**
+
+1. Copie o arquivo novo do Mac para a máquina do aeroporto pelo AnyDesk.
+   Cai em `C:\Users\user\Downloads`.
+2. Num **Prompt de Comando como administrador**:
 
    ```
-   "C:\Sia\TECHPARKING\techparking_backend\venv\Scripts\python.exe" C:\1park\coletor\coletor.py --uma-vez
+   copy /Y "C:\Users\user\Downloads\coletor.py" C:\Sia\coletor-aeroporto\coletor.py
+   net stop coletor-aeroporto && net start coletor-aeroporto
    ```
 
-   Deve aparecer `enviado: N pátios, N tickets, N credenciados`.
+   Sem reiniciar, o serviço continua rodando a versão antiga que está na
+   memória.
 
-   O Python usado é o do próprio TECHPARKING: o coletor só usa a biblioteca
-   padrão, então não precisa instalar nada. Se a Technext um dia trocar esse
-   Python, basta instalar um do python.org e apontar o serviço para ele.
+**Para testar à mão, sem o serviço:**
 
-4. Instale como serviço, num **Prompt de Comando como administrador**. O NSSM
-   já existe na máquina (é ele que roda o TECHPARKING), mas está na pasta
-   Downloads, então copie antes para um lugar fixo:
+```
+"C:\Users\user\AppData\Local\Programs\Python\Python311\python.exe" C:\Sia\coletor-aeroporto\coletor.py --uma-vez
+```
 
-   ```
-   mkdir C:\1park\nssm
-   copy "C:\Users\user\Downloads\nssm-2.24 (2)\nssm-2.24\win64\nssm.exe" C:\1park\nssm\
-   C:\1park\nssm\nssm.exe install coletor-fiscalizacao "C:\Sia\TECHPARKING\techparking_backend\venv\Scripts\python.exe" C:\1park\coletor\coletor.py
-   C:\1park\nssm\nssm.exe set coletor-fiscalizacao AppDirectory C:\1park\coletor
-   C:\1park\nssm\nssm.exe start coletor-fiscalizacao
-   ```
-
-   O serviço sobe sozinho quando a máquina reinicia.
+Deve aparecer `enviado: N pátios, N tickets, N credenciados`.
 
 ## Conferindo se está rodando
 
-- Na máquina do aeroporto: `C:\1park\coletor\coletor.log` mostra cada envio.
+- Na máquina do aeroporto: `C:\Sia\coletor-aeroporto\coletor.log` mostra cada envio.
 - No painel: `GET /api/fiscalizacao/estado` mostra há quantos minutos chegou o
   último snapshot. Se passar de `snapshotVelhoMinutos` (em
   `config/fiscalizacao.json`), a câmera avisa que os dados estão velhos.
