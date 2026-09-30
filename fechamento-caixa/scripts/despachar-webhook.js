@@ -25,8 +25,16 @@
 const path = require('path');
 const { execFileSync } = require('child_process');
 
+require('dotenv').config({ path: path.join(__dirname, '..', '.env'), override: true });
+
 const PROCESSAR_FECHAMENTO = path.join(__dirname, 'processar-fechamento.js');
+const CONSULTAR_CAIXA = path.join(__dirname, 'consultar-caixa.js');
 const PROCESSAR_MENSAGEM_HANGARES = path.join(__dirname, '..', '..', 'scripts', 'processar-mensagem.js');
+
+// Palavras que sinalizam pergunta sobre caixa/dinheiro no privado (ver
+// ehConsultaDeCaixaAdmin) — gatilho barato (regex local), sem gastar
+// chamada de API só para decidir o roteamento.
+const PALAVRAS_CAIXA = /dinheiro|caixa|cofre|faturad|faturou|envelope|saldo/;
 
 function ehGrupoDeFechamento(payloadBase64) {
   let evento;
@@ -49,6 +57,49 @@ function ehGrupoDeFechamento(payloadBase64) {
   }
 }
 
+/**
+ * Mensagem PRIVADA (não grupo) do número cadastrado em ADMIN_WHATSAPP_ID
+ * (.env), perguntando sobre caixa/dinheiro de uma unidade ou cofre
+ * conhecido (pedido do usuário, 30/09/2026 — ver scripts/consultar-caixa.js).
+ * O MESMO número de admin também manda comandos para o validador de
+ * hangares no privado — por isso só desvia quando a mensagem tem cara de
+ * pergunta sobre caixa (palavra-chave + nome de unidade/cofre cadastrado);
+ * qualquer outra coisa desse número continua indo para o validador de
+ * hangares, como sempre foi.
+ */
+function ehConsultaDeCaixaAdmin(payloadBase64) {
+  let evento;
+  try {
+    evento = JSON.parse(Buffer.from(payloadBase64, 'base64').toString('utf-8'));
+  } catch (e) {
+    return false;
+  }
+
+  const key = (evento.data || {}).key || {};
+  const remoteJid = key.remoteJid || null;
+  if (key.fromMe === true || !remoteJid || remoteJid.endsWith('@g.us')) return false;
+
+  const adminId = (process.env.ADMIN_WHATSAPP_ID || '').trim();
+  if (!adminId || remoteJid !== adminId) return false;
+
+  const msg = (evento.data || {}).message || {};
+  const texto = msg.conversation || (msg.extendedTextMessage && msg.extendedTextMessage.text) || '';
+
+  try {
+    const { carregarConfig, normalizar } = require('./lib/unidades');
+    const config = carregarConfig();
+    const alvo = normalizar(texto);
+    if (!PALAVRAS_CAIXA.test(alvo)) return false;
+
+    const nomesConhecidos = config.unidades.flatMap((u) => [u.nome, ...(u.apelidos || [])]).map(normalizar).filter(Boolean);
+    const cofresConhecidos = [...new Set(config.unidades.map((u) => u.cofre).filter(Boolean))].map(normalizar);
+    return [...nomesConhecidos, ...cofresConhecidos].some((n) => alvo.includes(n))
+      || /todas as unidades|em geral|no total/.test(alvo);
+  } catch (e) {
+    return false;
+  }
+}
+
 function main() {
   const [payloadBase64, ...resto] = process.argv.slice(2);
   if (!payloadBase64) {
@@ -60,7 +111,11 @@ function main() {
     return;
   }
 
-  const arquivo = ehGrupoDeFechamento(payloadBase64) ? PROCESSAR_FECHAMENTO : PROCESSAR_MENSAGEM_HANGARES;
+  const arquivo = ehGrupoDeFechamento(payloadBase64)
+    ? PROCESSAR_FECHAMENTO
+    : ehConsultaDeCaixaAdmin(payloadBase64)
+    ? CONSULTAR_CAIXA
+    : PROCESSAR_MENSAGEM_HANGARES;
 
   try {
     const saida = execFileSync('node', [arquivo, payloadBase64, ...resto], { encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 });
@@ -84,4 +139,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { ehGrupoDeFechamento };
+module.exports = { ehGrupoDeFechamento, ehConsultaDeCaixaAdmin };

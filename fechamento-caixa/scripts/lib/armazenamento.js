@@ -161,10 +161,59 @@ function totalDinheiroPorUnidade(unidadesConfig = []) {
   return resultado.sort((a, b) => (a.unidadeNome || '').localeCompare(b.unidadeNome || '', 'pt-BR'));
 }
 
+// "AAAA-MM-DD" 00:00 em São Paulo (UTC-3 fixo, sem horário de verão desde
+// 2019 — mesmo raciocínio de auditar-dia-anterior.js) = 03:00 UTC do MESMO
+// dia; 23:59:59.999 em São Paulo = 02:59:59.999 UTC do dia SEGUINTE.
+function inicioDiaSaoPauloEmUTC(dataISO) {
+  return `${dataISO}T03:00:00.000Z`;
+}
+function fimDiaSaoPauloEmUTC(dataISO) {
+  const d = new Date(`${dataISO}T00:00:00.000Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  d.setUTCHours(2, 59, 59, 999);
+  return d.toISOString();
+}
+
+/**
+ * Dinheiro RECEBIDO num período (pedido do usuário, 30/09/2026: consulta no
+ * privado tipo "quanto faturou de dinheiro X de período Y a Z" — ver
+ * scripts/consultar-caixa.js). Diferente de totalDinheiroPorUnidade: aqui
+ * NÃO tem checkpoint — é só a soma do que foi recebido em dinheiro em cada
+ * fechamento (foto) ou complemento (texto) DENTRO do período, então serve
+ * tanto para "ontem" quanto "mês passado".
+ *
+ * Limitação conhecida: se um mesmo dia tiver FOTO (recebidoDinheiro) E TEXTO
+ * (valorRecebido) para a mesma unidade, os dois entram na soma — ainda não
+ * dá para saber se o texto era só complemento do Envelope ou repetia o
+ * valor já recebido na foto (ver scripts/lib/texto-fechamento.js).
+ */
+function dinheiroRecebidoNoPeriodo({ unidadeIds, desde, ate }) {
+  const inicio = desde ? inicioDiaSaoPauloEmUTC(desde) : null;
+  const fim = ate ? fimDiaSaoPauloEmUTC(ate) : null;
+  const dentroDoPeriodo = (criadoEm) => (!inicio || criadoEm >= inicio) && (!fim || criadoEm <= fim);
+
+  const porUnidade = new Map(unidadeIds.map((id) => [id, 0]));
+
+  for (const f of listarFechamentos()) {
+    if ((f.relatorio || {}).situacao === 'parcial') continue;
+    if (!porUnidade.has(f.unidadeId) || !dentroDoPeriodo(f.criadoEm)) continue;
+    const dinheiro = (f.relatorio || {}).recebidoDinheiro ?? (f.relatorio || {}).dinheiroCaixa;
+    if (typeof dinheiro === 'number') porUnidade.set(f.unidadeId, round2(porUnidade.get(f.unidadeId) + dinheiro));
+  }
+
+  for (const c of listarComplementos()) {
+    if (!porUnidade.has(c.unidadeId) || !dentroDoPeriodo(c.criadoEm)) continue;
+    if (typeof c.valorRecebido === 'number') porUnidade.set(c.unidadeId, round2(porUnidade.get(c.unidadeId) + c.valorRecebido));
+  }
+
+  const total = round2([...porUnidade.values()].reduce((a, b) => a + b, 0));
+  return { porUnidade: Object.fromEntries(porUnidade), total };
+}
+
 module.exports = {
   gravarFechamento, listarFechamentos,
   gravarComplemento, listarComplementos,
   gravarAuditoria, listarAuditorias,
-  totalDinheiroPorUnidade,
+  totalDinheiroPorUnidade, dinheiroRecebidoNoPeriodo,
   DATA_PATH, DATA_PATH_COMPLEMENTOS, DATA_PATH_AUDITORIAS,
 };
