@@ -25,7 +25,7 @@ const { lerFechamento } = require('./lib/ocr-fechamento');
 const { lerComplementoTexto } = require('./lib/texto-fechamento');
 const { carregarConfig, identificarUnidade, buscarUnidadePorGrupo } = require('./lib/unidades');
 const { conferirFechamentoInterno, conferirMaquininha } = require('./lib/conferencia');
-const { gravarFechamento, gravarComplemento, totalDinheiroPorUnidade } = require('./lib/armazenamento');
+const { gravarFechamento, gravarComplemento, totalDinheiroPorUnidade, fechamentoJaExiste } = require('./lib/armazenamento');
 const {
   abrirPendencia, buscarPendencia, atualizarPendencia, encerrarPendencia,
   salvarComprovante, interpretarSimNao,
@@ -135,6 +135,20 @@ async function processar(payloadBase64) {
   }
 
   const unidade = identificacao.unidade;
+
+  // Caso real (30/09/2026): a mesma foto da Vila Mariana (nº 1327) foi
+  // mandada 3 vezes em 4 minutos e virou 3 registros idênticos, inflando o
+  // total em 3x. Um fechamento (não-parcial) com o mesmo número já
+  // registrado para a unidade é tratado como repetição — nem grava de novo.
+  if (fechamentoJaExiste(unidade.id, ocr.relatorio.numero)) {
+    return {
+      status: 'fechamento_duplicado',
+      grupoId: msg.grupoId,
+      mensagemWhatsapp: `⚠️ O fechamento nº ${ocr.relatorio.numero} de *${unidade.nome}* já tinha sido registrado antes — não contabilizei de novo. Se for de outro período ou foi engano, me avisa.`,
+      notificarAdmin: false,
+    };
+  }
+
   const interna = conferirFechamentoInterno(ocr.relatorio);
   const maquininha = conferirMaquininha(ocr.relatorio, ocr.documentoAnexo);
 
@@ -189,6 +203,15 @@ async function processar(payloadBase64) {
     } else {
       partes.push(`   • ${nome}: não informado no relatório`);
     }
+  }
+
+  // Operadoras de tag (Sem Parar, Veloe, ConectCar...) discriminadas —
+  // pedido do usuário (30/09/2026): deixaram de cair junto com "outra".
+  // Só aparecem quando a unidade realmente tem alguma (lista aberta, ao
+  // contrário de dinheiro/cartão/Pix); ainda sem comprovante próprio pra
+  // conferir (nenhum anexo hoje traz esse dado por operadora).
+  for (const item of maquininha.porOperadoraTag || []) {
+    partes.push(`   • ${item.nome}: ${formatarReais(item.valor)} (sem comprovante anexado para conferir)`);
   }
 
   // Só cita o TOTAL quando ele mesmo estourou a tolerância — caso real que

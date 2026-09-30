@@ -19,7 +19,7 @@
  */
 
 const path = require('path');
-const { conferirFechamentoInterno, conferirMaquininha, classificarForma } = require(path.join(__dirname, '..', 'scripts', 'lib', 'conferencia'));
+const { conferirFechamentoInterno, conferirMaquininha, classificarForma, classificarOperadoraTag } = require(path.join(__dirname, '..', 'scripts', 'lib', 'conferencia'));
 
 let falhas = 0;
 const conferir = (nome, ok, detalhe) => {
@@ -34,9 +34,17 @@ console.log('classificarForma reconhece os rótulos vistos nas fotos reais');
   conferir('MASTER Credito -> cartao', classificarForma('MASTER Credito') === 'cartao');
   conferir('VISA Credito -> cartao', classificarForma('VISA Credito') === 'cartao');
   conferir('DINHEIRO -> dinheiro', classificarForma('DINHEIRO') === 'dinheiro');
-  conferir('SEMPARAR -> outra (não é cartão nem dinheiro)', classificarForma('SEMPARAR') === 'outra');
+  conferir('SEMPARAR -> tag (operadora de pedágio/estacionamento, não "outra")', classificarForma('SEMPARAR') === 'tag');
   conferir('A Faturar -> outra', classificarForma('A Faturar') === 'outra');
   conferir('QR CODE/Pix -> pix', classificarForma('QR CODE - Pix') === 'pix');
+}
+
+console.log('\nclassificarOperadoraTag discrimina qual operadora é (Sem Parar, Veloe, ConectCar)');
+{
+  conferir('SEMPARAR -> sem_parar', (classificarOperadoraTag('SEMPARAR') || {}).id === 'sem_parar');
+  conferir('Veloe -> veloe', (classificarOperadoraTag('Veloe') || {}).id === 'veloe');
+  conferir('ConectCar -> conectcar', (classificarOperadoraTag('ConectCar') || {}).id === 'conectcar');
+  conferir('MAQ. CARTAO -> não é operadora de tag', classificarOperadoraTag('MAQ. CARTAO') === null);
 }
 
 console.log('\nHotel Nacional Inn Poços de Caldas (fechamento nº 358)');
@@ -93,6 +101,11 @@ console.log('\nHotel Ibis Styles (fechamento nº 216) — uma linha da tabela il
 
   const maq = conferirMaquininha(relatorio, documentoAnexo);
   conferir('depósito sem valor escrito -> sem_referencia, não bloqueia', maq.status === 'sem_referencia', maq.motivo);
+  conferir(
+    'SEMPARAR (90) discriminado em porOperadoraTag, não escondido em "outra"',
+    maq.porOperadoraTag.length === 1 && maq.porOperadoraTag[0].operadora === 'sem_parar' && maq.porOperadoraTag[0].valor === 90,
+    JSON.stringify(maq.porOperadoraTag)
+  );
 }
 
 console.log('\nArgentina Mall (fechamento nº 4, PARCIAL — caixa ainda aberto)');

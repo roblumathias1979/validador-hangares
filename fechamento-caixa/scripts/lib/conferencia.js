@@ -44,16 +44,61 @@ function normalizar(texto) {
   return String(texto || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 }
 
+// Operadoras de tag de pedágio/estacionamento — pedido do usuário
+// (30/09/2026): deixaram de cair genericamente em "outra" e passam a ser
+// discriminadas por operadora (ver computarOperadorasTag/conferirMaquininha).
+// Rótulo visto de verdade até agora: SEMPARAR. Veloe e ConectCar cadastradas
+// preventivamente pelo nome oficial de cada operadora — ainda sem confirmar
+// contra uma foto real (mesmo cuidado de nunca inventar dado: se o rótulo
+// real vier diferente do esperado, cai em "outra" normalmente, não quebra).
+const OPERADORAS_TAG = [
+  { id: 'sem_parar', nome: 'Sem Parar', regex: /sem\s*parar/ },
+  { id: 'veloe', nome: 'Veloe', regex: /veloe/ },
+  { id: 'conectcar', nome: 'ConectCar', regex: /conect\s*car/ },
+];
+
+function classificarOperadoraTag(forma) {
+  const f = normalizar(forma);
+  return OPERADORAS_TAG.find((o) => o.regex.test(f)) || null;
+}
+
 // Rótulos vistos até agora: MAQ. CARTAO, MASTER Credito, MASTER Debito, VISA
 // Credito, Outros Cartões (-> cartao); DINHEIRO (-> dinheiro); PIX/QR CODE
-// (-> pix, não visto ainda no #1 Park mas existe na maquininha); SEMPARAR,
-// A Faturar, convênios (-> outra, nem cartão nem dinheiro nem pix).
+// (-> pix, não visto ainda no #1 Park mas existe na maquininha); SEMPARAR e
+// demais operadoras de tag (-> tag, discriminada por operadora); A Faturar,
+// convênios (-> outra, nem cartão nem dinheiro nem pix nem tag).
 function classificarForma(forma) {
   const f = normalizar(forma);
   if (/dinheiro/.test(f)) return 'dinheiro';
   if (/\bpix\b|qr\s*code/.test(f)) return 'pix';
+  if (classificarOperadoraTag(forma)) return 'tag';
   if (/cart|visa|master|maestro|\belo\b|amex|hiper/.test(f)) return 'cartao';
   return 'outra';
+}
+
+/**
+ * Agrupa as linhas de tag por OPERADORA (Sem Parar, Veloe, ConectCar...),
+ * somando quando a mesma operadora aparece em mais de uma linha. Só inclui
+ * operadoras que realmente apareceram no relatório — ao contrário de
+ * dinheiro/cartão/Pix (sempre mostrados), tag é uma lista aberta e varia de
+ * unidade para unidade.
+ *
+ * Ao contrário do cartão/Pix (que exigem a tabela INTEIRA legível antes de
+ * confiar na soma, porque senão caem no campo-resumo), aqui não tem
+ * campo-resumo por operadora pra cair de volta — então funciona mesmo com
+ * outra linha ilegível no meio (ex: "VISA Credito: null"), desde que a
+ * própria linha da operadora esteja legível.
+ */
+function computarOperadorasTag(formas) {
+  const somaPorId = new Map();
+  for (const f of formas) {
+    const operadora = classificarOperadoraTag(f.forma);
+    if (!operadora || typeof f.valor !== 'number') continue;
+    somaPorId.set(operadora.id, round2((somaPorId.get(operadora.id) || 0) + f.valor));
+  }
+  return OPERADORAS_TAG
+    .filter((o) => somaPorId.has(o.id))
+    .map((o) => ({ operadora: o.id, nome: o.nome, valor: somaPorId.get(o.id) }));
 }
 
 function somarClassificados(formas, classe) {
@@ -177,6 +222,12 @@ function conferirMaquininha(relatorio, documentoAnexo, { toleranciaPercentual = 
   // igual nos dois ramos (maquininha ou depósito), então calculado uma vez.
   const dinheiroRelatorio = r.recebidoDinheiro ?? r.dinheiroCaixa ?? null;
 
+  // Discriminado por operadora (Sem Parar, Veloe, ConectCar...) em todos os
+  // ramos — nenhum comprovante hoje traz esse dado pra comparar (só a
+  // maquininha de cartão/Pix), então cada operadora sempre vem
+  // 'sem_comprovante' na mensagem final, mas já separada de "outra".
+  const porOperadoraTag = computarOperadorasTag(formas);
+
   if (anexo.tipo === 'deposito_bancario') {
     const valorDeposito = (anexo.deposito || {}).valor;
     const item = montarItem('dinheiro', dinheiroRelatorio, typeof valorDeposito === 'number' ? valorDeposito : null, toleranciaPercentual);
@@ -187,6 +238,7 @@ function conferirMaquininha(relatorio, documentoAnexo, { toleranciaPercentual = 
       totalDivergente: item.direcao === 'sobra' || item.direcao === 'falta',
       dinheiroRelatorio, valorDeposito: typeof valorDeposito === 'number' ? valorDeposito : null, diferenca: item.diferenca,
       porFormaDePagamento: [item],
+      porOperadoraTag,
     };
   }
 
@@ -205,6 +257,7 @@ function conferirMaquininha(relatorio, documentoAnexo, { toleranciaPercentual = 
         montarItem('cartao', cartaoRelatorio, null, toleranciaPercentual),
         montarItem('pix', pixRelatorio, null, toleranciaPercentual),
       ],
+      porOperadoraTag,
     };
   }
 
@@ -258,6 +311,7 @@ function conferirMaquininha(relatorio, documentoAnexo, { toleranciaPercentual = 
     totalGeralMaquininha: typeof m.totalGeral === 'number' ? m.totalGeral : null,
     diferenca: itemTotal ? itemTotal.diferenca : null,
     porFormaDePagamento,
+    porOperadoraTag,
   };
 }
 
@@ -265,6 +319,8 @@ module.exports = {
   conferirFechamentoInterno,
   conferirMaquininha,
   classificarForma,
+  classificarOperadoraTag,
+  OPERADORAS_TAG,
   TOLERANCIA_CENTAVOS,
   TOLERANCIA_MAQUININHA_PADRAO,
 };

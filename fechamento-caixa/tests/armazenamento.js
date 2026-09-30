@@ -17,7 +17,7 @@ const path = require('path');
 
 const {
   DATA_PATH, DATA_PATH_COMPLEMENTOS,
-  gravarFechamento, gravarComplemento, totalDinheiroPorUnidade,
+  gravarFechamento, gravarComplemento, totalDinheiroPorUnidade, fechamentoJaExiste,
 } = require(path.join(__dirname, '..', 'scripts', 'lib', 'armazenamento'));
 
 function backup(caminho) {
@@ -124,6 +124,17 @@ try {
     const sul = todas.find((u) => u.unidadeId === 'sul');
     conferir('sul não herda nada do norte', sul.totalRecebido === 500 && sul.ultimoCheckpoint === null, JSON.stringify(sul));
   }
+
+  console.log('\nfechamentoJaExiste detecta repetição pelo número do relatório (caso real: Vila Mariana nº 1327, mandada 3x)');
+  gravarFechamento(fechamento({ unidadeId: 'vila-mariana', unidadeNome: 'Vila Mariana', relatorio: { situacao: 'fechado', numero: '1327', recebidoDinheiro: 35 } }));
+  conferir('mesmo número, mesma unidade -> já existe', fechamentoJaExiste('vila-mariana', '1327') === true);
+  conferir('número diferente -> não existe', fechamentoJaExiste('vila-mariana', '1328') === false);
+  conferir('mesmo número, unidade DIFERENTE -> não existe (não vaza entre unidades)', fechamentoJaExiste('norte', '1327') === false);
+  conferir('sem número informado -> nunca bloqueia (não dá para comparar)', fechamentoJaExiste('vila-mariana', null) === false);
+
+  console.log('\nfechamentoJaExiste ignora PARCIAL: o número do parcial não bloqueia o fechado de verdade nem vice-versa');
+  gravarFechamento(fechamento({ unidadeId: 'leste', unidadeNome: 'Estacionamento Leste', relatorio: { situacao: 'parcial', numero: '900', recebidoDinheiro: 10 } }));
+  conferir('parcial sozinho não conta como "já existe"', fechamentoJaExiste('leste', '900') === false);
 
   console.log(`\n${falhas ? `${falhas} falha(s)` : 'tudo certo'}`);
 } finally {

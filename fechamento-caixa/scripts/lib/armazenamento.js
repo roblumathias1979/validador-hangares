@@ -42,6 +42,25 @@ function listarFechamentos({ unidadeId, desde, ate, apenasInconsistentes } = {})
     .reverse(); // mais recente primeiro, é o que interessa a quem confere
 }
 
+/**
+ * Detecta se um fechamento (nº impresso no relatório) JÁ foi registrado
+ * para aquela unidade — caso real (30/09/2026): a mesma foto da Vila
+ * Mariana (nº 1327) foi mandada 3 vezes em 4 minutos e virou 3 registros
+ * idênticos, inflando o total de dinheiro/faturamento em 3x.
+ *
+ * Só considera fechamentos NÃO-parciais como "já registrado": um PARCIAL
+ * com o mesmo número é o caixa ainda aberto, não uma repetição (ele nem
+ * entra nas somas de armazenamento.js/consulta-caixa.js, que já filtram
+ * `situacao !== 'parcial'`).
+ */
+function fechamentoJaExiste(unidadeId, numero) {
+  const alvo = String(numero || '').trim();
+  if (!alvo) return false;
+  return listarFechamentos({ unidadeId }).some(
+    (f) => (f.relatorio || {}).situacao !== 'parcial' && String((f.relatorio || {}).numero || '').trim() === alvo
+  );
+}
+
 function gravarComplemento(registro) {
   fs.mkdirSync(path.dirname(DATA_PATH_COMPLEMENTOS), { recursive: true });
   fs.appendFileSync(DATA_PATH_COMPLEMENTOS, `${JSON.stringify(registro)}\n`);
@@ -211,7 +230,7 @@ function dinheiroRecebidoNoPeriodo({ unidadeIds, desde, ate }) {
 }
 
 module.exports = {
-  gravarFechamento, listarFechamentos,
+  gravarFechamento, listarFechamentos, fechamentoJaExiste,
   gravarComplemento, listarComplementos,
   gravarAuditoria, listarAuditorias,
   totalDinheiroPorUnidade, dinheiroRecebidoNoPeriodo,
