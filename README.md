@@ -182,17 +182,23 @@ do editor do n8n):
 
 ```bash
 # consultar (opção 1/2 do menu) — ticket já validado, tolerância expirada:
-curl -X POST http://3.136.166.82:5678/webhook/validador-tickets-hangares-sbjd/webhookwhatsapp/ticket-hangar \
+curl -X POST http://3.136.166.82:5678/webhook/ticket-hangar \
   -H "Content-Type: application/json" \
   -d '{"hangarId": "solojet", "opcao": 1, "ticket": "011811132237"}'
 # → {"mensagem":"⚠️ Ticket 011811132237 foi validado, mas a validade já expirou..."}
 
 # validar (opção 3) — ticket inexistente, sem efeito colateral:
-curl -X POST http://3.136.166.82:5678/webhook/validador-tickets-hangares-sbjd/webhookwhatsapp/ticket-hangar \
+curl -X POST http://3.136.166.82:5678/webhook/ticket-hangar \
   -H "Content-Type: application/json" \
   -d '{"hangarId": "solojet", "opcao": 3, "ticket": "000000000000", "placa": "AAA0000"}'
 # → {"mensagem":"⚠️ Ticket 000000000000 não encontrado — verifique o número..."}
 ```
+
+**⚠️ Nota (30/09/2026, porta 5678 hoje bloqueada no security group — ver
+`infra/Caddyfile`):** os curls acima só funcionam de dentro da rede do
+servidor ou por túnel SSH (`ssh -L 5678:127.0.0.1:5678 ubuntu@3.136.166.82`,
+depois `curl http://localhost:5678/webhook/ticket-hangar`), não mais direto
+da internet como quando este trecho foi escrito.
 
 **✅ Caminho de sucesso real também confirmado** (08/09/2026, ticket real
 `010809201717`, placa genérica `AAA0000`, +2h de tolerância via slider) —
@@ -222,11 +228,18 @@ vários problemas que só apareceram testando de ponta a ponta:
    interface: `n8n update:workflow --id=<id> --active=true` (isso só marca a
    flag; **precisa reiniciar o serviço** depois pra ele de fato registrar o
    webhook no restart).
-3. **O caminho da URL do webhook não é só o `path` configurado** — o n8n
-   monta a URL como `/webhook/{idDoWorkflow}/{nomeDoNoEmMinusculas}/{path}`.
-   Por isso demos nome simples ao nó Webhook (`WebhookWhatsApp`, sem espaços
-   nem parênteses) — nomes com espaço/caracteres especiais viram `%20` etc.
-   na URL e podem não bater com o que o n8n espera internamente.
+3. **A URL de produção do webhook é só `/webhook/{path}`** — o que está
+   escrito no campo "Path" do nó Webhook, sem prefixo nenhum (nem id do
+   workflow, nem nome do nó). ⚠️ **Correção (30/09/2026):** esta seção dizia
+   antes que a URL incluía `{idDoWorkflow}/{nomeDoNoEmMinusculas}/` — isso
+   está ERRADO e já causou um 404 real na primeira tentativa de testar o
+   webhook depois de uma mudança no workflow (ver `fechamento-caixa/README.md`,
+   seção "Webhook compartilhado"); o log do próprio n8n
+   (`journalctl -u n8n`, procurar por `currentlyRegistered`) é a fonte
+   confiável quando um webhook responde 404 e o caminho parece certo. O nome
+   simples do nó Webhook (`WebhookWhatsApp`, sem espaços) continua sendo boa
+   prática por outros motivos, só não influencia mais a URL de produção nesta
+   versão do n8n.
 4. **Os nós "Execute Command" tinham o caminho do Mac local** (`/Users/...`)
    em vez do caminho real no servidor (`/home/ubuntu/validador-hangares/...`)
    — ficou assim de quando montamos o workflow testando localmente, e nunca

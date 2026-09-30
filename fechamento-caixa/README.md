@@ -188,12 +188,33 @@ node scripts/processar-fechamento.js "$(node -e "console.log(Buffer.from(JSON.st
 }).toString('base64')))")"
 ```
 
-## Estado atual (25/09/2026)
+## Estado atual (30/09/2026)
 
 As 8 unidades já têm `grupoWhatsappId` preenchido em `config/unidades.json`
 (confirmado contra a Evolution API real, via `scripts/listar-grupos.js`):
 Rua Paraíba, Hotel Nacional Inn, Argentina Mall, Hotel Ibis Styles, Hotel
 Dan/Euro, 1Carwash, 1Park Ubatuba, Vila Mariana.
+
+**O roteamento em produção já foi trocado e testado de ponta a ponta**
+(30/09/2026): o nó "Processar Mensagem" do workflow "Validador de Tickets -
+Hangares SBJD" chama `despachar-webhook.js`, e os dois caminhos foram
+confirmados via webhook real (não só no editor do n8n):
+- mensagem do grupo do Argentina Mall → roteada para
+  `processar-fechamento.js` (confirmado pelo `motivo` no output do nó,
+  específico do fechamento de caixa);
+- mensagem de um grupo de hangar (Solojet) → continua indo para
+  `processar-mensagem.js`, sem qualquer mudança de comportamento.
+
+**Pegadinha real encontrada nesse processo**, para não repetir: depois de
+editar e salvar o nó pela UI, o webhook respondia 404 "not registered"
+mesmo com o workflow marcado Active. A causa não foi o n8n não ter
+reativado — foi um engano na URL usada para testar: a URL de produção é só
+`/webhook/{path}` (aqui, `/webhook/ticket-hangar`), **sem** o id do workflow
+no meio, diferente do que a seção "Bugs reais encontrados" do README
+principal documentava (já corrigido lá). Quando um webhook responder 404
+com o workflow ativo, `sudo journalctl -u n8n | grep currentlyRegistered`
+mostra o caminho REAL registrado — mais confiável que reconstruir a URL de
+memória.
 
 ## Antes de ir para produção
 
@@ -207,16 +228,6 @@ Dan/Euro, 1Carwash, 1Park Ubatuba, Vila Mariana.
 3. Ajustar a tolerância de `conferirMaquininha` (`TOLERANCIA_MAQUININHA_PADRAO`
    em `scripts/lib/conferencia.js`, hoje 5%) depois de ver alguns dias reais
    de diferença "normal" entre o período do #1 Park e o da maquininha.
-4. **No workflow "Validador de Tickets - Hangares SBJD" (produção, 16
-   hangares), trocar o comando do nó "Processar Mensagem" (Execute Command)**
-   de
-   `node ".../validador-hangares/scripts/processar-mensagem.js" "{{ $json.payloadB64 }}" --enviar`
-   para
-   `node ".../validador-hangares/fechamento-caixa/scripts/despachar-webhook.js" "{{ $json.payloadB64 }}" --enviar`.
-   É a única mudança necessária — nenhum outro nó muda. Ver "Webhook
-   compartilhado" acima para o porquê. Baixe uma cópia do workflow (botão
-   "Download" no n8n) antes de editar, para poder reverter rápido se algo
-   sair diferente do esperado.
-5. Decidir a integração com API de Stone/PagBank só depois de confirmar
+4. Decidir a integração com API de Stone/PagBank só depois de confirmar
    qual produto de API cada uma oferece e ter credenciais de teste — ver
    seção acima.
