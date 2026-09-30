@@ -1,0 +1,12 @@
+[Unit]
+Description=Audita o fechamento de caixa do dia anterior contra a API do PagBank
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/validador-hangares/fechamento-caixa
+ExecStart=/usr/bin/node /home/ubuntu/validador-hangares/fechamento-caixa/scripts/auditar-dia-anterior.js --enviar
+# Uma chamada de API por unidade com pagseguroEstabelecimento preenchido —
+# rápido mesmo com todas as 8 unidades; o teto é folga, não expectativa real.
+TimeoutStartSec=5min

@@ -16,6 +16,7 @@ const path = require('path');
 
 const DATA_PATH = path.join(__dirname, '..', '..', 'data', 'fechamentos.jsonl');
 const DATA_PATH_COMPLEMENTOS = path.join(__dirname, '..', '..', 'data', 'complementos.jsonl');
+const DATA_PATH_AUDITORIAS = path.join(__dirname, '..', '..', 'data', 'auditorias.jsonl');
 
 function gravarFechamento(registro) {
   fs.mkdirSync(path.dirname(DATA_PATH), { recursive: true });
@@ -50,6 +51,25 @@ function gravarComplemento(registro) {
 function listarComplementos({ unidadeId } = {}) {
   if (!fs.existsSync(DATA_PATH_COMPLEMENTOS)) return [];
   return fs.readFileSync(DATA_PATH_COMPLEMENTOS, 'utf-8')
+    .split('\n')
+    .filter(Boolean)
+    .map((linha) => {
+      try { return JSON.parse(linha); } catch (e) { return null; }
+    })
+    .filter(Boolean)
+    .filter((r) => !unidadeId || r.unidadeId === unidadeId)
+    .reverse();
+}
+
+function gravarAuditoria(registro) {
+  fs.mkdirSync(path.dirname(DATA_PATH_AUDITORIAS), { recursive: true });
+  fs.appendFileSync(DATA_PATH_AUDITORIAS, `${JSON.stringify(registro)}\n`);
+  return registro;
+}
+
+function listarAuditorias({ unidadeId } = {}) {
+  if (!fs.existsSync(DATA_PATH_AUDITORIAS)) return [];
+  return fs.readFileSync(DATA_PATH_AUDITORIAS, 'utf-8')
     .split('\n')
     .filter(Boolean)
     .map((linha) => {
@@ -135,6 +155,7 @@ function totalDinheiroPorUnidade() {
 module.exports = {
   gravarFechamento, listarFechamentos,
   gravarComplemento, listarComplementos,
+  gravarAuditoria, listarAuditorias,
   totalDinheiroPorUnidade,
-  DATA_PATH, DATA_PATH_COMPLEMENTOS,
+  DATA_PATH, DATA_PATH_COMPLEMENTOS, DATA_PATH_AUDITORIAS,
 };

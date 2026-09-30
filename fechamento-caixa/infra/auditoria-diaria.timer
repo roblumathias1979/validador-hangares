@@ -1,0 +1,15 @@
+[Unit]
+Description=Roda a auditoria do fechamento de caixa uma vez por dia, de manhã
+
+[Timer]
+# 9h em São Paulo (UTC-3 fixo) = 12h UTC. O extrato EDI do PagBank só fica
+# pronto em D+1 (ver scripts/lib/pagseguro-edi.js) — rodar de manhã, não de
+# madrugada, dá folga para o dado do dia anterior estar mesmo completo (a
+# API sinaliza isso no cabeçalho VALIDADO, mas não vale a pena apostar numa
+# corrida logo depois da meia-noite).
+OnCalendar=*-*-* 12:00:00
+Persistent=true
+AccuracySec=5min
+
+[Install]
+WantedBy=timers.target

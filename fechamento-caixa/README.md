@@ -92,30 +92,55 @@ mudança necessária no workflow de produção é trocar o comando do nó
   comprovante sem valor legível). Decidir se uma divergência é normal ou não
   fica para quem olha o painel.
 
-## Pendência real: integração com API de maquininha/banco
+## Auditoria via API do PagBank (dia seguinte)
 
-O usuário pediu, além da conferência por foto, buscar as vendas diretamente
-na **API da operadora de cartão** (Stone e PagSeguro/PagBank, hoje) em vez de
-confiar só no que está impresso no comprovante fotografado. Isso é uma fonte
-mais forte (a foto pode estar ilegível, cortada, ou simplesmente não ser
-anexada), mas **eu não tenho como escrever essa integração de verdade sem**:
+Pedido do usuário (30/09/2026): além da conferência por foto na hora (que já
+existe — `conferirMaquininha`, contra o comprovante fotografado), fazer uma
+**auditoria de verdade no dia seguinte**, buscando as vendas direto na API
+do PagBank em vez de confiar só no papel.
 
-1. Confirmação de qual produto de API cada uma oferece (Stone e PagBank têm
-   mais de uma API — conciliação, recebíveis, extrato de vendas — com
-   formatos diferentes);
-2. Credenciais reais (client id/secret ou token) de pelo menos uma unidade,
-   para testar contra a API de verdade — não vou adivinhar endpoint/formato
-   de resposta e fingir que está pronto;
-3. O identificador do lojista/recebedor de cada unidade na respectiva
-   operadora, para saber de qual unidade são as vendas retornadas.
+**Pesquisei a documentação oficial antes de escrever código** (nunca
+adivinhar endpoint — ver `scripts/lib/pagseguro-edi.js` para as fontes).
+Existe o produto certo: **API de Conciliação / Extrato EDI**. Confirmado:
 
-**Nunca cole essas credenciais no chat** — coloque direto no `.env` do
-servidor (ou peça para eu ler de lá). Quando isso existir, o ponto de
-extensão já está reservado: hoje `conferirMaquininha` usa só o que veio na
-foto; o próximo passo é uma função irmã que busca o extrato pela API e chama
-a mesma comparação, sem mexer na conferência por foto (as duas podem
-conviver — foto é conferência imediata, API é conferência mais forte quando
-disponível).
+- Endpoint: `https://edi.api.pagbank.com.br/movement/v3.00/{tipo}/{AAAA-MM-DD}`
+  (`tipo` = `transactional` para vendas), com paginação.
+- **Não é autoatendimento**: precisa abrir um chamado de ativação do EDI
+  junto ao PagBank (formulário próprio, SLA de 2 dias úteis) para receber
+  `USER` (número do estabelecimento) e `TOKEN`.
+- **Dado só fica pronto em D+1** — por isso a auditoria roda no *dia
+  seguinte* (`scripts/auditar-dia-anterior.js`, via
+  `infra/auditoria-diaria.timer` às 9h de São Paulo), nunca no mesmo dia. A
+  conferência na hora continua sendo só a por foto.
+
+**Duas lacunas reais que a documentação pública não cobre ainda** (30/09/2026):
+1. O formato exato do header de autenticação — implementado como Basic Auth
+   (`USER:TOKEN`) por suposição; **precisa ser confirmado** contra o
+   material técnico que o PagBank manda junto com o token real.
+2. A tabela completa de códigos de `meio_pagamento` — o apêndice oficial do
+   PagBank está "em breve". Só o código `8` (crédito) apareceu confirmado
+   num exemplo real da documentação; qualquer outro código fica
+   `nao_classificado` de propósito, em vez de adivinhar (mesmo princípio de
+   `conferencia.js`: nunca inventar número).
+
+**Para ativar de verdade:**
+1. Pedir a ativação do EDI ao PagBank (conta PagSeguro da empresa).
+2. Preencher `PAGSEGURO_EDI_USER`/`PAGSEGURO_EDI_TOKEN` no `.env` do
+   servidor quando o token chegar — **nunca colar a chave aqui no chat**.
+3. Preencher `pagseguroEstabelecimento` de cada unidade em
+   `config/unidades.json` (o número do estabelecimento PagBank daquela
+   maquininha).
+4. Rodar `node scripts/auditar-dia-anterior.js --data=AAAA-MM-DD` manualmente
+   uma vez para validar o header de autenticação contra a API real antes de
+   confiar no timer automático.
+5. Instalar `infra/auditoria-diaria.service`/`.timer` (mesmo processo do
+   `infra/varrer-patios.timer` do validador de hangares: copiar para
+   `/etc/systemd/system/`, `daemon-reload`, `enable --now`).
+
+Stone ficou de fora por enquanto (o usuário confirmou usar as duas — Stone e
+PagSeguro — mas a pesquisa e a implementação desta rodada focaram em
+PagSeguro/PagBank, que foi o pedido concreto). Mesmo princípio se aplica:
+pesquisar a documentação real da Stone antes de integrar, não adivinhar.
 
 ## Estrutura
 
