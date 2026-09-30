@@ -6,16 +6,19 @@
  *
  * ehConsultaDeCaixaAdmin lê process.env.ADMIN_WHATSAPP_ID e
  * config/unidades.json de verdade (não mocka nada) — fixa o admin de teste
- * ANTES de importar o módulo, porque despachar-webhook.js carrega o .env
- * (com override:true) no topo do arquivo.
+ * DEPOIS de importar o módulo: despachar-webhook.js carrega o .env (com
+ * override:true) no require, e num servidor com .env de verdade isso
+ * sobrescreveria um valor de teste setado antes. A própria função lê
+ * process.env em cada chamada (não guarda o valor no import), então setar
+ * depois funciona em qualquer máquina, com ou sem .env real.
  */
 
 const path = require('path');
 
+const { ehGrupoDeFechamento, ehConsultaDeCaixaAdmin } = require(path.join(__dirname, '..', 'scripts', 'despachar-webhook'));
+
 const ADMIN_TESTE = '5511999990000@s.whatsapp.net';
 process.env.ADMIN_WHATSAPP_ID = ADMIN_TESTE;
-
-const { ehGrupoDeFechamento, ehConsultaDeCaixaAdmin } = require(path.join(__dirname, '..', 'scripts', 'despachar-webhook'));
 
 function codificar(evento) {
   return Buffer.from(JSON.stringify(evento)).toString('base64');
