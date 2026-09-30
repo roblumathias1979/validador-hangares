@@ -95,21 +95,29 @@ function round2(v) {
  * depósitos bancários); antes disso, confiamos no que a unidade informou.
  * Sem nenhum checkpoint ainda, o ponto de partida é zero — a soma passa a
  * ser só uma estimativa (pode não bater com vales/compras que não vemos).
+ *
+ * `unidadesConfig` (opcional, lista de config/unidades.json): garante que
+ * TODA unidade cadastrada apareça no resultado, mesmo sem nenhum fechamento
+ * ainda (zerada), e carrega o `cofre` de cada uma — usado pelo painel para
+ * oferecer seleção por grupo de unidades que compartilham um cofre físico.
  */
-function totalDinheiroPorUnidade() {
+function totalDinheiroPorUnidade(unidadesConfig = []) {
   const fechamentos = listarFechamentos().filter((f) => (f.relatorio || {}).situacao !== 'parcial');
   const complementos = listarComplementos();
 
-  const unidades = new Map(); // unidadeId -> { unidadeId, unidadeNome }
+  const unidades = new Map(); // unidadeId -> { unidadeId, unidadeNome, cofre }
+  for (const u of unidadesConfig) {
+    unidades.set(u.id, { unidadeId: u.id, unidadeNome: u.nome, cofre: u.cofre || null });
+  }
   for (const f of fechamentos) {
-    if (!unidades.has(f.unidadeId)) unidades.set(f.unidadeId, { unidadeId: f.unidadeId, unidadeNome: f.unidadeNome });
+    if (!unidades.has(f.unidadeId)) unidades.set(f.unidadeId, { unidadeId: f.unidadeId, unidadeNome: f.unidadeNome, cofre: null });
   }
   for (const c of complementos) {
-    if (!unidades.has(c.unidadeId)) unidades.set(c.unidadeId, { unidadeId: c.unidadeId, unidadeNome: c.unidadeNome });
+    if (!unidades.has(c.unidadeId)) unidades.set(c.unidadeId, { unidadeId: c.unidadeId, unidadeNome: c.unidadeNome, cofre: null });
   }
 
   const resultado = [];
-  for (const { unidadeId, unidadeNome } of unidades.values()) {
+  for (const { unidadeId, unidadeNome, cofre } of unidades.values()) {
     const fechamentosDaUnidade = fechamentos.filter((f) => f.unidadeId === unidadeId);
     const complementosDaUnidade = complementos
       .filter((c) => c.unidadeId === unidadeId && typeof c.envelope === 'number')
@@ -141,6 +149,7 @@ function totalDinheiroPorUnidade() {
     resultado.push({
       unidadeId,
       unidadeNome,
+      cofre,
       quantidadeFechamentos,
       totalRecebido,
       totalDepositado,

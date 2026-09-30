@@ -73,10 +73,13 @@
 
   <div id="aba-dinheiro">
     <p class="sub">Dinheiro se acumula entre fechamentos — não é depositado todo dia, e o mesmo "Envelope" físico também serve para vales e compra de insumos. Quando a unidade informa o saldo real do Envelope por texto, isso vira o ponto de partida ("checkpoint") do cálculo abaixo; sem isso, é só uma soma do que este sistema recebeu.</p>
+    <div class="filtros" id="selecao-cofres"></div>
     <table>
       <thead>
         <tr>
+          <th><input type="checkbox" id="chk-todas" checked onchange="marcarTodas(this.checked)"></th>
           <th>Unidade</th>
+          <th>Cofre</th>
           <th>Fechamentos desde o checkpoint</th>
           <th>Recebido desde o checkpoint</th>
           <th>Depositado desde o checkpoint</th>
@@ -87,9 +90,9 @@
       <tbody id="corpo-dinheiro"></tbody>
       <tfoot id="rodape-dinheiro" style="display:none"></tfoot>
     </table>
-    <div id="vazio-dinheiro" style="display:none; color:#666; padding:2rem; text-align:center;">Nenhum fechamento registrado ainda.</div>
+    <div id="vazio-dinheiro" style="display:none; color:#666; padding:2rem; text-align:center;">Nenhuma unidade cadastrada ainda.</div>
     <p style="margin-top:1rem">
-      <button onclick="calcularTotalGeral()">Somar todas as unidades</button>
+      <button onclick="calcularTotalSelecionadas()">Somar unidades selecionadas</button>
     </p>
   </div>
 
@@ -190,6 +193,7 @@ async function carregarControleDinheiro() {
   const corpo = document.getElementById('corpo-dinheiro');
   const vazio = document.getElementById('vazio-dinheiro');
   const rodape = document.getElementById('rodape-dinheiro');
+  const selecaoCofres = document.getElementById('selecao-cofres');
   corpo.innerHTML = '';
   rodape.style.display = 'none';
   vazio.style.display = dados.porUnidade.length ? 'none' : 'block';
@@ -200,7 +204,9 @@ async function carregarControleDinheiro() {
       ? `${reais(u.ultimoCheckpoint.envelope)} em ${new Date(u.ultimoCheckpoint.data).toLocaleString('pt-BR')}`
       : '— (nenhum informado ainda, soma é desde o início)';
     tr.innerHTML = `
+      <td><input type="checkbox" class="chk-unidade" data-cofre="${u.cofre || ''}" value="${u.unidadeId}" checked onchange="atualizarCheckTodas()"></td>
       <td>${u.unidadeNome || u.unidadeId}</td>
+      <td>${u.cofre || '—'}</td>
       <td>${u.quantidadeFechamentos}</td>
       <td>${reais(u.totalRecebido)}</td>
       <td>${reais(u.totalDepositado)}</td>
@@ -209,16 +215,48 @@ async function carregarControleDinheiro() {
     `;
     corpo.appendChild(tr);
   }
+
+  // Botões de atalho, um por cofre compartilhado por mais de uma unidade —
+  // agrupamento é só uma conveniência de seleção (ver config/unidades.json).
+  const cofres = [...new Set(dados.porUnidade.map((u) => u.cofre).filter(Boolean))];
+  selecaoCofres.innerHTML = cofres.length
+    ? cofres.map((c) => `<button onclick="selecionarCofre('${c.replace(/'/g, "\\'")}')">Só cofre: ${c}</button>`).join('')
+      + '<button onclick="marcarTodas(true)">Selecionar todas</button>'
+    : '';
 }
 
-function calcularTotalGeral() {
+function marcarTodas(marcar) {
+  document.querySelectorAll('.chk-unidade').forEach((c) => { c.checked = marcar; });
+}
+
+function atualizarCheckTodas() {
+  const caixas = [...document.querySelectorAll('.chk-unidade')];
+  document.getElementById('chk-todas').checked = caixas.length > 0 && caixas.every((c) => c.checked);
+}
+
+function selecionarCofre(cofre) {
+  document.querySelectorAll('.chk-unidade').forEach((c) => { c.checked = c.dataset.cofre === cofre; });
+  atualizarCheckTodas();
+}
+
+function calcularTotalSelecionadas() {
   if (!ultimoControleDinheiro) return;
-  const t = ultimoControleDinheiro.totalGeral;
+  const idsSelecionados = new Set(
+    [...document.querySelectorAll('.chk-unidade')].filter((c) => c.checked).map((c) => c.value)
+  );
+  const selecionadas = ultimoControleDinheiro.porUnidade.filter((u) => idsSelecionados.has(u.unidadeId));
+  const t = selecionadas.reduce((acc, u) => ({
+    totalRecebido: acc.totalRecebido + u.totalRecebido,
+    totalDepositado: acc.totalDepositado + u.totalDepositado,
+    saldoEmCaixa: acc.saldoEmCaixa + u.saldoEmCaixa,
+  }), { totalRecebido: 0, totalDepositado: 0, saldoEmCaixa: 0 });
+
   const rodape = document.getElementById('rodape-dinheiro');
   rodape.style.display = '';
   rodape.innerHTML = `
     <tr>
-      <td>Total geral (${ultimoControleDinheiro.porUnidade.length} unidade(s))</td>
+      <td></td>
+      <td colspan="2">Total selecionado (${selecionadas.length} unidade(s))</td>
       <td></td>
       <td>${reais(t.totalRecebido)}</td>
       <td>${reais(t.totalDepositado)}</td>

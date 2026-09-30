@@ -3,34 +3,39 @@
   "_observacao_cnpj": "NÃO cadastre por CNPJ — o usuário confirmou (25/09/2026) que existem máquinas de cartão em UNIDADES DIFERENTES compartilhando o mesmo CNPJ.",
   "_observacao_avisos": "NÃO existe grupo de administração central (decisão do usuário, 25/09/2026): todo aviso de inconsistência (⚠️) vai dentro da própria resposta, no MESMO grupo de onde a foto chegou — cada unidade só vê o que é dela. `notificarAdmin` no resultado de processar-fechamento.js não dispara uma segunda mensagem; serve só para o painel destacar/filtrar.",
   "_pendente": "grupoWhatsappId preenchido via scripts/listar-grupos.js para as 8 unidades (25/09/2026). Falta pagseguroEstabelecimento (número do estabelecimento PagBank de cada unidade) para a auditoria do dia seguinte funcionar — ver fechamento-caixa/README.md, seção 'Auditoria via API do PagBank'.",
+  "_observacao_cofre": "cofre (opcional, 30/09/2026): unidades que compartilham um cofre físico onde o dinheiro é depositado — Rua Paraíba, Hotel Nacional Inn, Argentina Mall, Hotel Ibis Styles e Hotel Dan/Euro ficam em Poços de Caldas e usam o mesmo cofre. Só serve para agrupar a seleção na aba 'Controle de Dinheiro' do painel — não afeta identificação nem conferência. Unidade sem cofre compartilhado fica sem este campo.",
   "unidades": [
     {
       "id": "rua-paraiba",
       "nome": "Rua Paraíba",
       "apelidos": ["rua paraiba", "paraiba"],
       "grupoWhatsappId": "120363431368192781@g.us",
-      "pagseguroEstabelecimento": ""
+      "pagseguroEstabelecimento": "",
+      "cofre": "Poços de Caldas"
     },
     {
       "id": "hotel-nacional-inn",
       "nome": "Hotel Nacional Inn",
       "apelidos": ["nacional inn", "nacional"],
       "grupoWhatsappId": "120363430341217645@g.us",
-      "pagseguroEstabelecimento": ""
+      "pagseguroEstabelecimento": "",
+      "cofre": "Poços de Caldas"
     },
     {
       "id": "argentina-mall",
       "nome": "Argentina Mall",
       "apelidos": ["argentina mall", "argentina"],
       "grupoWhatsappId": "120363431719138382@g.us",
-      "pagseguroEstabelecimento": ""
+      "pagseguroEstabelecimento": "",
+      "cofre": "Poços de Caldas"
     },
     {
       "id": "hotel-ibis-styles",
       "nome": "Hotel Ibis Styles",
       "apelidos": ["ibis styles", "ibis"],
       "grupoWhatsappId": "120363430267620231@g.us",
-      "pagseguroEstabelecimento": ""
+      "pagseguroEstabelecimento": "",
+      "cofre": "Poços de Caldas"
     },
     {
       "id": "hotel-dan-euro",
@@ -38,7 +43,8 @@
       "_observacao": "Nome composto passado pelo usuário como 'Hotel Dan/Euro' — mesma unidade conhecida pelos dois nomes.",
       "apelidos": ["hotel dan", "hotel euro", "dan euro", "dan/euro"],
       "grupoWhatsappId": "120363430848900325@g.us",
-      "pagseguroEstabelecimento": ""
+      "pagseguroEstabelecimento": "",
+      "cofre": "Poços de Caldas"
     },
     {
       "id": "1carwash",

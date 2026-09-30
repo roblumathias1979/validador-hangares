@@ -21,6 +21,7 @@ require('dotenv').config({ path: path.join(RAIZ, '.env'), override: true });
 
 const { listarFechamentos, totalDinheiroPorUnidade } = require('../scripts/lib/armazenamento');
 const { gerarCsv } = require('../scripts/exportar-planilha');
+const { carregarConfig } = require('../scripts/lib/unidades');
 
 const PORTA = Number(process.env.PAINEL_CAIXA_PORTA) || 8082;
 const SENHA = process.env.PAINEL_CAIXA_SENHA || '';
@@ -70,7 +71,7 @@ const servidor = http.createServer((req, res) => {
     }
 
     if (req.method === 'GET' && url.pathname === '/api/controle-dinheiro') {
-      const porUnidade = totalDinheiroPorUnidade();
+      const porUnidade = totalDinheiroPorUnidade(carregarConfig().unidades);
       const totalGeral = {
         totalRecebido: porUnidade.reduce((acc, u) => acc + u.totalRecebido, 0),
         totalDepositado: porUnidade.reduce((acc, u) => acc + u.totalDepositado, 0),
