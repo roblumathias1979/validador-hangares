@@ -19,17 +19,25 @@ const path = require('path');
 
 require('dotenv').config({ path: path.join(__dirname, '..', '.env'), override: true });
 
-const { interpretarEvento } = require('./lib/whatsapp-fechamento');
+const { interpretarEvento, PARECE_TER_VALOR_EM_REAIS } = require('./lib/whatsapp-fechamento');
 const { baixarImagemBase64, enviarTexto } = require('./lib/evolution');
 const { lerFechamento } = require('./lib/ocr-fechamento');
 const { lerComplementoTexto } = require('./lib/texto-fechamento');
-const { carregarConfig, identificarUnidade } = require('./lib/unidades');
+const { carregarConfig, identificarUnidade, buscarUnidadePorGrupo } = require('./lib/unidades');
 const { conferirFechamentoInterno, conferirMaquininha } = require('./lib/conferencia');
 const { gravarFechamento, gravarComplemento, totalDinheiroPorUnidade } = require('./lib/armazenamento');
+const {
+  abrirPendencia, buscarPendencia, atualizarPendencia, encerrarPendencia,
+  salvarComprovante, interpretarSimNao,
+} = require('./lib/retiradas');
 
 function formatarReais(v) {
   return typeof v === 'number' ? `R$ ${v.toFixed(2).replace('.', ',')}` : '—';
 }
+
+// Diferença mínima para considerar "retirada" e abrir a pergunta — abaixo
+// disso é só arredondamento de centavos, não vale interromper a conversa.
+const TOLERANCIA_RETIRADA = 1;
 
 async function processar(payloadBase64) {
   let evento;
@@ -46,8 +54,34 @@ async function processar(payloadBase64) {
 
   const config = carregarConfig();
 
+  // O grupo já diz a unidade (autoritativo) — precisamos saber isso ANTES
+  // de decidir se a mensagem é uma NOVA foto/texto ou a resposta a uma
+  // pergunta pendente daquela unidade (motivo/comprovante de retirada).
+  let unidadeDoGrupo;
+  try {
+    unidadeDoGrupo = buscarUnidadePorGrupo(config, msg.grupoId);
+  } catch (erro) {
+    return {
+      status: 'unidade_nao_identificada',
+      grupoId: msg.grupoId,
+      mensagem: erro.message,
+      mensagemWhatsapp: '⚠️ Este grupo ainda não está cadastrado para nenhuma unidade. Nossa equipe foi avisada.',
+      notificarAdmin: true,
+    };
+  }
+
+  const pendencia = buscarPendencia(unidadeDoGrupo.id);
+  if (pendencia) {
+    return processarRespostaPendencia(msg, unidadeDoGrupo, pendencia);
+  }
+
   if (msg.tipo === 'texto') {
-    return processarTexto(msg, config);
+    if (!PARECE_TER_VALOR_EM_REAIS.test(msg.texto)) {
+      // Sem pendência aberta e sem cara de valor em reais: conversa comum
+      // do grupo — ignorado em silêncio, sem gastar chamada de API.
+      return { status: 'ignorado', motivo: 'texto sem valor em reais reconhecível e sem pergunta pendente', notificarAdmin: false };
+    }
+    return processarTexto(msg, unidadeDoGrupo);
   }
 
   let imagem;
@@ -194,22 +228,9 @@ async function processar(payloadBase64) {
  * Mensagem de TEXTO puro complementando valores escritos à mão (ex:
  * "Envelope R$214,00") — ver scripts/lib/texto-fechamento.js. Não baixa
  * foto nem faz OCR: é uma chamada de texto só, bem mais barata e rápida.
+ * `unidade` já vem resolvida pelo grupo (ver processar()).
  */
-async function processarTexto(msg, config) {
-  let identificacao;
-  try {
-    identificacao = identificarUnidade(config, { grupoId: msg.grupoId });
-  } catch (erro) {
-    return {
-      status: 'unidade_nao_identificada',
-      grupoId: msg.grupoId,
-      mensagem: erro.message,
-      mensagemWhatsapp: '⚠️ Este grupo ainda não está cadastrado para nenhuma unidade. Nossa equipe foi avisada.',
-      notificarAdmin: true,
-    };
-  }
-  const unidade = identificacao.unidade;
-
+async function processarTexto(msg, unidade) {
   let lido;
   try {
     lido = await lerComplementoTexto(msg.texto);
@@ -250,11 +271,24 @@ async function processarTexto(msg, config) {
   const partes = [`📝 Valores registrados para *${unidade.nome}*:`];
   if (lido.valorRecebido !== null) partes.push(`   • Valor recebido: ${formatarReais(lido.valorRecebido)}`);
   if (lido.fundoDeCaixa !== null) partes.push(`   • Fundo de caixa: ${formatarReais(lido.fundoDeCaixa)}`);
+
+  let abriuPendenciaRetirada = false;
   if (lido.envelope !== null) {
     partes.push(`   • Envelope: ${formatarReais(lido.envelope)} (novo saldo de controle desta unidade)`);
     const diferenca = Number((lido.envelope - saldoAnterior).toFixed(2));
-    if (Math.abs(diferenca) > 0.01) {
-      partes.push(`   • (${diferenca > 0 ? 'R$' : '-R$'}${Math.abs(diferenca).toFixed(2).replace('.', ',')} de diferença em relação ao esperado só pela soma anterior — normal se explicado por vale ou compra de insumo)`);
+
+    if (diferenca < -TOLERANCIA_RETIRADA) {
+      // Envelope veio MENOR do que a soma esperava — dinheiro saiu do caixa
+      // além de qualquer depósito já registrado. Pedido do usuário
+      // (30/09/2026): perguntar motivo e comprovante, não só anotar.
+      abrirPendencia(unidade.id, {
+        valorRetirada: Math.abs(diferenca), complementoId: registro.id,
+        unidadeNome: unidade.nome, grupoId: msg.grupoId,
+      });
+      abriuPendenciaRetirada = true;
+      partes.push(`   • 💸 Isso indica uma retirada de ${formatarReais(Math.abs(diferenca))} do caixa desde o último controle. Qual foi o motivo (vale, insumo, outro)?`);
+    } else if (Math.abs(diferenca) > 0.01) {
+      partes.push(`   • (${diferenca > 0 ? '+' : '-'}${formatarReais(Math.abs(diferenca))} de diferença em relação ao esperado só pela soma anterior)`);
     }
   }
 
@@ -263,6 +297,109 @@ async function processarTexto(msg, config) {
     grupoId: msg.grupoId,
     registro,
     mensagemWhatsapp: partes.join('\n'),
+    notificarAdmin: false,
+    aguardandoMotivoRetirada: abriuPendenciaRetirada,
+  };
+}
+
+/**
+ * Responde a uma pergunta pendente de retirada (ver scripts/lib/retiradas.js):
+ * motivo -> tem comprovante? (sim/não ou foto direto) -> foto, se disse sim.
+ */
+async function processarRespostaPendencia(msg, unidade, pendencia) {
+  if (pendencia.estado === 'aguardando_motivo') {
+    if (msg.tipo !== 'texto') {
+      return {
+        status: 'pendencia_motivo_invalido',
+        grupoId: msg.grupoId,
+        mensagemWhatsapp: '⚠️ Antes da foto, preciso saber o motivo da retirada. Pode escrever?',
+        notificarAdmin: false,
+      };
+    }
+    atualizarPendencia(unidade.id, { estado: 'aguardando_comprovante', motivo: msg.texto });
+    return {
+      status: 'pendencia_motivo_registrado',
+      grupoId: msg.grupoId,
+      mensagemWhatsapp: `Motivo registrado: "${msg.texto}". Tem comprovante (nota/recibo)? Responda *sim* ou *não* — se tiver, já pode mandar a foto direto.`,
+      notificarAdmin: false,
+    };
+  }
+
+  if (pendencia.estado === 'aguardando_comprovante') {
+    if (msg.tipo === 'imagem') {
+      return finalizarRetiradaComComprovante(msg, unidade, pendencia);
+    }
+    const resposta = msg.tipo === 'texto' ? interpretarSimNao(msg.texto) : null;
+    if (resposta === 'nao') {
+      const registro = encerrarPendencia(unidade.id, { comprovante: null });
+      return {
+        status: 'retirada_registrada',
+        grupoId: msg.grupoId,
+        registro,
+        mensagemWhatsapp: `✅ Retirada de ${formatarReais(pendencia.valorRetirada)} registrada — motivo: "${pendencia.motivo}", sem comprovante.`,
+        notificarAdmin: false,
+      };
+    }
+    if (resposta === 'sim') {
+      atualizarPendencia(unidade.id, { estado: 'aguardando_foto' });
+      return {
+        status: 'pendencia_aguardando_foto',
+        grupoId: msg.grupoId,
+        mensagemWhatsapp: '📎 Pode mandar a foto do comprovante.',
+        notificarAdmin: false,
+      };
+    }
+    return {
+      status: 'pendencia_resposta_nao_entendida',
+      grupoId: msg.grupoId,
+      mensagemWhatsapp: '⚠️ Não entendi — tem comprovante dessa retirada? Responda *sim* ou *não*.',
+      notificarAdmin: false,
+    };
+  }
+
+  if (pendencia.estado === 'aguardando_foto') {
+    if (msg.tipo !== 'imagem') {
+      return {
+        status: 'pendencia_foto_invalida',
+        grupoId: msg.grupoId,
+        mensagemWhatsapp: '⚠️ Preciso da FOTO do comprovante — pode mandar?',
+        notificarAdmin: false,
+      };
+    }
+    return finalizarRetiradaComComprovante(msg, unidade, pendencia);
+  }
+
+  // Estado desconhecido não deveria acontecer — encerra por segurança em vez
+  // de travar essa unidade numa pergunta que ninguém mais entende.
+  encerrarPendencia(unidade.id, { observacao: 'estado desconhecido, encerrada por segurança' });
+  return {
+    status: 'erro',
+    grupoId: msg.grupoId,
+    mensagemWhatsapp: '⚠️ Algo deu errado com essa pergunta pendente. Nossa equipe foi avisada.',
+    notificarAdmin: true,
+  };
+}
+
+async function finalizarRetiradaComComprovante(msg, unidade, pendencia) {
+  let imagem;
+  try {
+    imagem = await baixarImagemBase64(msg.messageId);
+  } catch (erro) {
+    return {
+      status: 'erro_download',
+      grupoId: msg.grupoId,
+      mensagem: erro.message,
+      mensagemWhatsapp: '⚠️ Não consegui baixar essa foto do comprovante. Pode reenviar?',
+      notificarAdmin: true,
+    };
+  }
+  const caminho = salvarComprovante(unidade.id, imagem);
+  const registro = encerrarPendencia(unidade.id, { comprovante: caminho });
+  return {
+    status: 'retirada_registrada',
+    grupoId: msg.grupoId,
+    registro,
+    mensagemWhatsapp: `✅ Retirada de ${formatarReais(pendencia.valorRetirada)} registrada — motivo: "${pendencia.motivo}", comprovante anexado.`,
     notificarAdmin: false,
   };
 }
