@@ -22,9 +22,10 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env'), override: t
 const { interpretarEvento } = require('./lib/whatsapp-fechamento');
 const { baixarImagemBase64, enviarTexto } = require('./lib/evolution');
 const { lerFechamento } = require('./lib/ocr-fechamento');
+const { lerComplementoTexto } = require('./lib/texto-fechamento');
 const { carregarConfig, identificarUnidade } = require('./lib/unidades');
 const { conferirFechamentoInterno, conferirMaquininha } = require('./lib/conferencia');
-const { gravarFechamento } = require('./lib/armazenamento');
+const { gravarFechamento, gravarComplemento, totalDinheiroPorUnidade } = require('./lib/armazenamento');
 
 function formatarReais(v) {
   return typeof v === 'number' ? `R$ ${v.toFixed(2).replace('.', ',')}` : '—';
@@ -44,6 +45,10 @@ async function processar(payloadBase64) {
   }
 
   const config = carregarConfig();
+
+  if (msg.tipo === 'texto') {
+    return processarTexto(msg, config);
+  }
 
   let imagem;
   try {
@@ -182,6 +187,83 @@ async function processar(payloadBase64) {
     registro,
     mensagemWhatsapp: partes.join('\n'),
     notificarAdmin,
+  };
+}
+
+/**
+ * Mensagem de TEXTO puro complementando valores escritos à mão (ex:
+ * "Envelope R$214,00") — ver scripts/lib/texto-fechamento.js. Não baixa
+ * foto nem faz OCR: é uma chamada de texto só, bem mais barata e rápida.
+ */
+async function processarTexto(msg, config) {
+  let identificacao;
+  try {
+    identificacao = identificarUnidade(config, { grupoId: msg.grupoId });
+  } catch (erro) {
+    return {
+      status: 'unidade_nao_identificada',
+      grupoId: msg.grupoId,
+      mensagem: erro.message,
+      mensagemWhatsapp: '⚠️ Este grupo ainda não está cadastrado para nenhuma unidade. Nossa equipe foi avisada.',
+      notificarAdmin: true,
+    };
+  }
+  const unidade = identificacao.unidade;
+
+  let lido;
+  try {
+    lido = await lerComplementoTexto(msg.texto);
+  } catch (erro) {
+    return {
+      status: 'erro_texto',
+      mensagem: erro.message,
+      grupoId: msg.grupoId,
+      mensagemWhatsapp: '⚠️ Não conseguimos processar essa mensagem agora. Nossa equipe foi avisada.',
+      notificarAdmin: true,
+    };
+  }
+
+  if (lido.status !== 'ok') {
+    return { ...lido, grupoId: msg.grupoId };
+  }
+
+  // Saldo ANTES deste complemento — só para dar contexto na resposta (não
+  // é um erro se divergir do Envelope informado: vale e compra de insumo
+  // explicam a diferença, e é justamente por isso que o texto vira o novo
+  // checkpoint em vez de a gente insistir na própria soma).
+  const antes = totalDinheiroPorUnidade().find((u) => u.unidadeId === unidade.id);
+  const saldoAnterior = antes ? antes.saldoEmCaixa : 0;
+
+  const registro = {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    unidadeId: unidade.id,
+    unidadeNome: unidade.nome,
+    valorRecebido: lido.valorRecebido,
+    fundoDeCaixa: lido.fundoDeCaixa,
+    envelope: lido.envelope,
+    outrosValores: lido.outrosValores,
+    origem: { grupoId: msg.grupoId, remetente: msg.remetente, remetenteTelefone: msg.remetenteTelefone, texto: msg.texto },
+    criadoEm: new Date().toISOString(),
+  };
+  gravarComplemento(registro);
+
+  const partes = [`📝 Valores registrados para *${unidade.nome}*:`];
+  if (lido.valorRecebido !== null) partes.push(`   • Valor recebido: ${formatarReais(lido.valorRecebido)}`);
+  if (lido.fundoDeCaixa !== null) partes.push(`   • Fundo de caixa: ${formatarReais(lido.fundoDeCaixa)}`);
+  if (lido.envelope !== null) {
+    partes.push(`   • Envelope: ${formatarReais(lido.envelope)} (novo saldo de controle desta unidade)`);
+    const diferenca = Number((lido.envelope - saldoAnterior).toFixed(2));
+    if (Math.abs(diferenca) > 0.01) {
+      partes.push(`   • (${diferenca > 0 ? 'R$' : '-R$'}${Math.abs(diferenca).toFixed(2).replace('.', ',')} de diferença em relação ao esperado só pela soma anterior — normal se explicado por vale ou compra de insumo)`);
+    }
+  }
+
+  return {
+    status: 'complemento_registrado',
+    grupoId: msg.grupoId,
+    registro,
+    mensagemWhatsapp: partes.join('\n'),
+    notificarAdmin: false,
   };
 }
 

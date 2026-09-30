@@ -28,12 +28,23 @@
   .badge.a_conferir { background: #fed7aa; color: #9a3412; }
   .badge.sem_referencia { background: #e5e7eb; color: #374151; }
   #vazio { color: #666; padding: 2rem; text-align: center; }
+  .abas { display: flex; gap: .5rem; margin-bottom: 1rem; }
+  .abas button { background: #e5e7eb; color: #333; }
+  .abas button.ativa { background: #2563eb; color: #fff; }
+  #aba-dinheiro { display: none; }
+  tfoot td { font-weight: 700; background: #eef1f6; }
 </style>
 </head>
 <body>
   <h1>Fechamento de Caixa</h1>
   <p class="sub">Fechamentos recebidos por WhatsApp — conferência interna do relatório e comparação com o comprovante anexado (maquininha/depósito). Clique numa linha para ver os detalhes.</p>
 
+  <div class="abas">
+    <button id="btn-aba-fechamentos" class="ativa" onclick="mostrarAba('fechamentos')">Fechamentos</button>
+    <button id="btn-aba-dinheiro" onclick="mostrarAba('dinheiro')">Controle de Dinheiro</button>
+  </div>
+
+  <div id="aba-fechamentos">
   <div class="filtros">
     <input id="unidade" placeholder="id da unidade (ex: norte)">
     <input id="desde" type="date">
@@ -58,6 +69,29 @@
     <tbody id="corpo"></tbody>
   </table>
   <div id="vazio" style="display:none">Nenhum fechamento encontrado.</div>
+  </div>
+
+  <div id="aba-dinheiro">
+    <p class="sub">Dinheiro se acumula entre fechamentos — não é depositado todo dia, e o mesmo "Envelope" físico também serve para vales e compra de insumos. Quando a unidade informa o saldo real do Envelope por texto, isso vira o ponto de partida ("checkpoint") do cálculo abaixo; sem isso, é só uma soma do que este sistema recebeu.</p>
+    <table>
+      <thead>
+        <tr>
+          <th>Unidade</th>
+          <th>Fechamentos desde o checkpoint</th>
+          <th>Recebido desde o checkpoint</th>
+          <th>Depositado desde o checkpoint</th>
+          <th>Saldo em caixa esperado</th>
+          <th>Último checkpoint (Envelope informado)</th>
+        </tr>
+      </thead>
+      <tbody id="corpo-dinheiro"></tbody>
+      <tfoot id="rodape-dinheiro" style="display:none"></tfoot>
+    </table>
+    <div id="vazio-dinheiro" style="display:none; color:#666; padding:2rem; text-align:center;">Nenhum fechamento registrado ainda.</div>
+    <p style="margin-top:1rem">
+      <button onclick="calcularTotalGeral()">Somar todas as unidades</button>
+    </p>
+  </div>
 
 <script>
 function reais(v) { return typeof v === 'number' ? 'R$ ' + v.toFixed(2).replace('.', ',') : '—'; }
@@ -136,6 +170,62 @@ async function carregar() {
 
 function exportar() {
   window.location = '/api/planilha?' + querystring();
+}
+
+function mostrarAba(nome) {
+  document.getElementById('aba-fechamentos').style.display = nome === 'fechamentos' ? 'block' : 'none';
+  document.getElementById('aba-dinheiro').style.display = nome === 'dinheiro' ? 'block' : 'none';
+  document.getElementById('btn-aba-fechamentos').classList.toggle('ativa', nome === 'fechamentos');
+  document.getElementById('btn-aba-dinheiro').classList.toggle('ativa', nome === 'dinheiro');
+  if (nome === 'dinheiro') carregarControleDinheiro();
+}
+
+let ultimoControleDinheiro = null;
+
+async function carregarControleDinheiro() {
+  const r = await fetch('/api/controle-dinheiro');
+  const dados = await r.json();
+  ultimoControleDinheiro = dados;
+
+  const corpo = document.getElementById('corpo-dinheiro');
+  const vazio = document.getElementById('vazio-dinheiro');
+  const rodape = document.getElementById('rodape-dinheiro');
+  corpo.innerHTML = '';
+  rodape.style.display = 'none';
+  vazio.style.display = dados.porUnidade.length ? 'none' : 'block';
+
+  for (const u of dados.porUnidade) {
+    const tr = document.createElement('tr');
+    const checkpoint = u.ultimoCheckpoint
+      ? `${reais(u.ultimoCheckpoint.envelope)} em ${new Date(u.ultimoCheckpoint.data).toLocaleString('pt-BR')}`
+      : '— (nenhum informado ainda, soma é desde o início)';
+    tr.innerHTML = `
+      <td>${u.unidadeNome || u.unidadeId}</td>
+      <td>${u.quantidadeFechamentos}</td>
+      <td>${reais(u.totalRecebido)}</td>
+      <td>${reais(u.totalDepositado)}</td>
+      <td>${reais(u.saldoEmCaixa)}</td>
+      <td>${checkpoint}</td>
+    `;
+    corpo.appendChild(tr);
+  }
+}
+
+function calcularTotalGeral() {
+  if (!ultimoControleDinheiro) return;
+  const t = ultimoControleDinheiro.totalGeral;
+  const rodape = document.getElementById('rodape-dinheiro');
+  rodape.style.display = '';
+  rodape.innerHTML = `
+    <tr>
+      <td>Total geral (${ultimoControleDinheiro.porUnidade.length} unidade(s))</td>
+      <td></td>
+      <td>${reais(t.totalRecebido)}</td>
+      <td>${reais(t.totalDepositado)}</td>
+      <td>${reais(t.saldoEmCaixa)}</td>
+      <td></td>
+    </tr>
+  `;
 }
 
 carregar();
