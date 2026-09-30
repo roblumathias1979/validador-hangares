@@ -130,7 +130,7 @@ console.log('\nCaso sintético: tudo bate por forma de pagamento -> dentro do es
 {
   const relatorio = {
     situacao: 'fechado',
-    valorFaturado: 1300,
+    valorFaturado: 1300, recebidoDinheiro: 100,
     formasDePagamento: [
       { forma: 'MAQ. CARTAO', valor: 1000 },
       { forma: 'PIX', valor: 200 },
@@ -140,7 +140,13 @@ console.log('\nCaso sintético: tudo bate por forma de pagamento -> dentro do es
   const documentoAnexo = { tipo: 'maquininha', maquininha: { totalGeral: 1200, debitoTotal: 600, creditoTotal: 400, pixTotal: 200 } };
   const maq = conferirMaquininha(relatorio, documentoAnexo);
   conferir('status dentro do esperado', maq.status === 'dentro_do_esperado', JSON.stringify(maq));
-  conferir('nenhum item divergente', maq.porFormaDePagamento.every((i) => i.direcao === 'ok'), JSON.stringify(maq.porFormaDePagamento));
+  conferir(
+    'nenhum item SOBRA/FALTA (dinheiro fica sem_comprovante, de propósito — maquininha não processa dinheiro)',
+    maq.porFormaDePagamento.every((i) => i.direcao !== 'sobra' && i.direcao !== 'falta'),
+    JSON.stringify(maq.porFormaDePagamento)
+  );
+  const dinheiro = maq.porFormaDePagamento.find((i) => i.forma === 'dinheiro');
+  conferir('dinheiro sempre presente no status final, mesmo sem comprovante para ele', dinheiro.direcao === 'sem_comprovante', JSON.stringify(dinheiro));
 }
 
 console.log('\nCaso sintético: erro real de matemática é apontado (não é um dos exemplos reais)');
@@ -160,6 +166,11 @@ console.log('\nSem documento anexado nenhum -> maquininha sem_referencia, nunca 
 {
   const maq = conferirMaquininha({ valorFaturado: 100, recebidoDinheiro: 10 }, { tipo: 'nenhum' });
   conferir('sem_referencia', maq.status === 'sem_referencia', maq.status);
+  conferir(
+    'ainda assim lista dinheiro/cartão/pix (todos sem_comprovante), para a mensagem final não sumir com a seção',
+    maq.porFormaDePagamento.length === 3 && maq.porFormaDePagamento.every((i) => i.direcao === 'sem_comprovante' || i.direcao === 'sem_dado'),
+    JSON.stringify(maq.porFormaDePagamento)
+  );
 }
 
 console.log(`\n${falhas ? `${falhas} falha(s)` : 'tudo certo'}`);

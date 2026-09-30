@@ -132,27 +132,36 @@ async function processar(payloadBase64) {
     partes.push(`⚠️ A matemática do próprio relatório não fecha — diferença de ${formatarReais(Math.abs(c.diferenca))}. Equipe avisada.`);
   }
 
-  if (maquininha.status === 'a_conferir') {
-    partes.push('⚠️ Divergência a conferir entre o relatório e o comprovante anexado:');
-
-    // Só cita o TOTAL quando ele mesmo estourou a tolerância — caso real que
-    // validou isto: total dentro da tolerância por COINCIDÊNCIA (cartão
-    // sobrando e Pix faltando se cancelando no agregado), e a mensagem não
-    // pode dizer "o total diverge" quando ele estava normal.
-    if (maquininha.totalDivergente) {
-      partes.push(`   • total não-dinheiro: ${formatarReais(maquininha.naoDinheiroRelatorio)} × comprovante ${formatarReais(maquininha.totalGeralMaquininha ?? maquininha.valorDeposito)} `
-        + `(diferença de ${formatarReais(Math.abs(maquininha.diferenca))})`);
-    }
-
-    // Aponta ONDE está a diferença por forma de pagamento — é o que revela
-    // divergências que o total sozinho esconde (ver nota acima).
-    for (const item of maquininha.porFormaDePagamento) {
-      if (item.direcao === 'ok') continue;
+  // Status final por forma de pagamento — SEMPRE aparece (pedido do
+  // usuário, 30/09/2026), não só quando há algo fora da tolerância. Cada
+  // forma diz se bate, sobra, falta, ou não tem comprovante pra conferir.
+  const ROTULO_FORMA = { dinheiro: 'Dinheiro', cartao: 'Cartão', pix: 'Pix' };
+  partes.push('📊 Status do caixa:');
+  for (const item of maquininha.porFormaDePagamento) {
+    const nome = ROTULO_FORMA[item.forma] || item.forma;
+    if (item.direcao === 'sobra' || item.direcao === 'falta') {
       const rotulo = item.direcao === 'sobra' ? 'sobrando' : 'faltando';
-      partes.push(`   • ${item.forma}: ${rotulo} ${formatarReais(Math.abs(item.diferenca))} `
+      partes.push(`   • ${nome}: ⚠️ ${rotulo} ${formatarReais(Math.abs(item.diferenca))} `
         + `(relatório ${formatarReais(item.valorRelatorio)} × comprovante ${formatarReais(item.valorComprovante)})`);
+    } else if (item.direcao === 'ok') {
+      partes.push(`   • ${nome}: ✅ bate (${formatarReais(item.valorRelatorio)})`);
+    } else if (item.direcao === 'sem_comprovante') {
+      partes.push(`   • ${nome}: ${formatarReais(item.valorRelatorio)} (sem comprovante anexado para conferir)`);
+    } else {
+      partes.push(`   • ${nome}: não informado no relatório`);
     }
+  }
 
+  // Só cita o TOTAL quando ele mesmo estourou a tolerância — caso real que
+  // validou isto: total dentro da tolerância por COINCIDÊNCIA (cartão
+  // sobrando e Pix faltando se cancelando no agregado), e a mensagem não
+  // pode dizer "o total diverge" quando ele estava normal.
+  if (maquininha.totalDivergente) {
+    partes.push(`   • Total não-dinheiro: ${formatarReais(maquininha.naoDinheiroRelatorio)} × comprovante ${formatarReais(maquininha.totalGeralMaquininha ?? maquininha.valorDeposito)} `
+      + `(diferença de ${formatarReais(Math.abs(maquininha.diferenca))})`);
+  }
+
+  if (maquininha.status === 'a_conferir') {
     partes.push('Pode não ser erro (períodos diferentes, convênio faturado à parte), mas vale uma conferência.');
   }
 

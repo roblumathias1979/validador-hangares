@@ -67,8 +67,27 @@ function somarClassificados(formas, classe) {
  * diferença: 'sobra' quando o relatório informa MAIS do que o comprovante
  * (ex: cartão declarado maior que o processado pela maquininha), 'falta'
  * quando informa MENOS, 'ok' quando a diferença está dentro da tolerância.
+ *
+ * Também aceita faltar um dos dois lados — pedido do usuário (30/09/2026):
+ * o "status final" da mensagem sempre lista dinheiro/cartão/Pix, mesmo
+ * quando não há como comparar (ex: dinheiro contra um resumo de maquininha,
+ * que não processa dinheiro nenhum). `direcao` vira 'sem_dado' (relatório
+ * não informou) ou 'sem_comprovante' (relatório informou, mas não há nada
+ * para comparar) em vez de forçar sobra/falta sem base.
  */
 function montarItem(forma, valorRelatorio, valorComprovante, toleranciaPercentual) {
+  if (typeof valorRelatorio !== 'number') {
+    return {
+      forma,
+      valorRelatorio: null,
+      valorComprovante: typeof valorComprovante === 'number' ? valorComprovante : null,
+      diferenca: null,
+      direcao: 'sem_dado',
+    };
+  }
+  if (typeof valorComprovante !== 'number') {
+    return { forma, valorRelatorio, valorComprovante: null, diferenca: null, direcao: 'sem_comprovante' };
+  }
   const diferenca = round2(valorRelatorio - valorComprovante);
   const base = Math.max(Math.abs(valorRelatorio), Math.abs(valorComprovante), 1);
   const dentroDaTolerancia = Math.abs(diferenca) / base <= toleranciaPercentual;
@@ -141,50 +160,61 @@ function conferirFechamentoInterno(relatorio) {
  * — ver nota no topo do arquivo sobre desalinhamento de período — só
  * `dentro_do_esperado` / `a_conferir` / `sem_referencia`.
  *
- * `porFormaDePagamento` sempre traz um item por forma comparável (cartão e
- * pix, quando a maquininha os informa), cada um com `direcao`
- * ('sobra'/'falta'/'ok') — é o detalhe que aponta ONDE está a diferença,
- * mesmo quando o total sozinho pareceria normal.
+ * `porFormaDePagamento` SEMPRE traz um item de dinheiro, cartão e Pix
+ * (pedido do usuário, 30/09/2026) — não só quando dá para comparar. Quando
+ * não há como (ex: dinheiro contra um resumo de maquininha, que não
+ * processa dinheiro), o item vem com `direcao: 'sem_comprovante'` em vez de
+ * ficar de fora — a mensagem final sempre mostra as três formas, dizendo
+ * "bate", "sobra", "falta" ou "sem comprovante para conferir" em cada uma.
  */
 function conferirMaquininha(relatorio, documentoAnexo, { toleranciaPercentual = TOLERANCIA_MAQUININHA_PADRAO } = {}) {
   const anexo = documentoAnexo || {};
   const r = relatorio || {};
+  const formas = Array.isArray(r.formasDePagamento) ? r.formasDePagamento : [];
+  const formasLegiveis = formas.length > 0 && formas.every((f) => typeof f.valor === 'number');
+
+  // Valor de dinheiro do relatório, pelo campo mais específico disponível —
+  // igual nos dois ramos (maquininha ou depósito), então calculado uma vez.
+  const dinheiroRelatorio = r.recebidoDinheiro ?? r.dinheiroCaixa ?? null;
 
   if (anexo.tipo === 'deposito_bancario') {
-    const valor = (anexo.deposito || {}).valor;
-    if (typeof valor !== 'number') {
-      return { status: 'sem_referencia', motivo: 'envelope de depósito anexado, mas sem valor escrito/legível para comparar.', porFormaDePagamento: [] };
-    }
-    // Comparação de depósito de DINHEIRO é contra o dinheiro do relatório,
-    // não contra o total geral (que inclui cartão/outra forma).
-    const dinheiroRelatorio = r.recebidoDinheiro ?? r.dinheiroCaixa;
-    if (typeof dinheiroRelatorio !== 'number') {
-      return { status: 'sem_referencia', motivo: 'relatório não informa o valor em dinheiro para comparar com o depósito.', porFormaDePagamento: [] };
-    }
-    const item = montarItem('dinheiro', dinheiroRelatorio, valor, toleranciaPercentual);
+    const valorDeposito = (anexo.deposito || {}).valor;
+    const item = montarItem('dinheiro', dinheiroRelatorio, typeof valorDeposito === 'number' ? valorDeposito : null, toleranciaPercentual);
+    const status = item.direcao === 'sobra' || item.direcao === 'falta' ? 'a_conferir'
+      : item.direcao === 'ok' ? 'dentro_do_esperado' : 'sem_referencia';
     return {
-      status: item.direcao === 'ok' ? 'dentro_do_esperado' : 'a_conferir',
-      totalDivergente: item.direcao !== 'ok',
-      dinheiroRelatorio, valorDeposito: valor, diferenca: item.diferenca,
+      status,
+      totalDivergente: item.direcao === 'sobra' || item.direcao === 'falta',
+      dinheiroRelatorio, valorDeposito: typeof valorDeposito === 'number' ? valorDeposito : null, diferenca: item.diferenca,
       porFormaDePagamento: [item],
     };
   }
 
   if (anexo.tipo !== 'maquininha') {
-    return { status: 'sem_referencia', motivo: 'nenhum comprovante (maquininha ou depósito) anexado nesta foto.', porFormaDePagamento: [] };
+    // Sem comprovante nenhum anexado: ainda assim lista dinheiro/cartão/Pix
+    // do relatório, só que todos 'sem_comprovante' — é o que permite a
+    // mensagem final mostrar "dinheiro: R$X (sem comprovante para conferir)"
+    // em vez de omitir a seção inteira.
+    const cartaoRelatorio = formasLegiveis ? (somarClassificados(formas, 'cartao') || 0) : (r.recebidoCartao ?? null);
+    const pixRelatorio = formasLegiveis ? somarClassificados(formas, 'pix') : null;
+    return {
+      status: 'sem_referencia',
+      motivo: 'nenhum comprovante (maquininha ou depósito) anexado nesta foto.',
+      porFormaDePagamento: [
+        montarItem('dinheiro', dinheiroRelatorio, null, toleranciaPercentual),
+        montarItem('cartao', cartaoRelatorio, null, toleranciaPercentual),
+        montarItem('pix', pixRelatorio, null, toleranciaPercentual),
+      ],
+    };
   }
 
   const m = anexo.maquininha || {};
-  if (typeof m.totalGeral !== 'number') {
-    return { status: 'sem_referencia', motivo: 'resumo da maquininha anexado, mas sem "Total Geral" legível.', porFormaDePagamento: [] };
-  }
-
-  const formas = Array.isArray(r.formasDePagamento) ? r.formasDePagamento : [];
-  const formasLegiveis = formas.length > 0 && formas.every((f) => typeof f.valor === 'number');
 
   // Total NÃO-DINHEIRO do relatório (cartão + outra forma + pix somados),
   // preferindo a soma da tabela de formas (mais granular) e caindo nos
-  // campos-resumo só quando ela não veio legível por inteiro.
+  // campos-resumo só quando ela não veio legível por inteiro. Só usado para
+  // o total agregado (compatibilidade/diagnóstico) — o "status final" da
+  // mensagem usa os itens por forma abaixo, não este total.
   let naoDinheiroRelatorio = null;
   if (formasLegiveis) {
     const dinheiro = somarClassificados(formas, 'dinheiro') || 0;
@@ -194,33 +224,30 @@ function conferirMaquininha(relatorio, documentoAnexo, { toleranciaPercentual = 
     naoDinheiroRelatorio = round2(r.valorFaturado - r.recebidoDinheiro);
   }
 
-  // Quebra por forma, só possível com a tabela legível por inteiro — sem
-  // isso não dá para separar quanto é cartão e quanto é "outra forma"
-  // (convênio) dentro do total.
-  const porFormaDePagamento = [];
-  if (formasLegiveis) {
-    if (typeof m.debitoTotal === 'number' && typeof m.creditoTotal === 'number') {
-      const cartaoRelatorio = somarClassificados(formas, 'cartao') || 0;
-      porFormaDePagamento.push(montarItem('cartao', cartaoRelatorio, round2(m.debitoTotal + m.creditoTotal), toleranciaPercentual));
-    }
-    if (typeof m.pixTotal === 'number') {
-      // Ausência de linha de Pix no relatório NÃO é "sem dado" — é "zero
-      // declarado", e comparar contra zero é o que revela o valor faltando.
-      const pixRelatorio = somarClassificados(formas, 'pix') || 0;
-      porFormaDePagamento.push(montarItem('pix', pixRelatorio, m.pixTotal, toleranciaPercentual));
-    }
-  }
+  // Cartão e Pix do relatório: soma da tabela quando legível por inteiro,
+  // senão cai no campo-resumo (só existe para cartão; Pix não tem campo
+  // resumo próprio no #1 Park).
+  const cartaoRelatorio = formasLegiveis ? (somarClassificados(formas, 'cartao') || 0) : (r.recebidoCartao ?? null);
+  const pixRelatorio = formasLegiveis ? (somarClassificados(formas, 'pix') || 0) : null;
+  const cartaoMaquininha = (typeof m.debitoTotal === 'number' && typeof m.creditoTotal === 'number')
+    ? round2(m.debitoTotal + m.creditoTotal) : null;
 
-  if (naoDinheiroRelatorio === null && porFormaDePagamento.length === 0) {
-    return { status: 'sem_referencia', motivo: 'faltam valores do relatório para comparar com a maquininha.', porFormaDePagamento: [] };
-  }
+  const porFormaDePagamento = [
+    // Maquininha não processa dinheiro — sempre 'sem_comprovante' (ou
+    // 'sem_dado' se nem o relatório informou), nunca comparado.
+    montarItem('dinheiro', dinheiroRelatorio, null, toleranciaPercentual),
+    montarItem('cartao', cartaoRelatorio, cartaoMaquininha, toleranciaPercentual),
+    montarItem('pix', pixRelatorio, typeof m.pixTotal === 'number' ? m.pixTotal : null, toleranciaPercentual),
+  ];
 
-  const itemTotal = naoDinheiroRelatorio !== null ? montarItem('total_nao_dinheiro', naoDinheiroRelatorio, m.totalGeral, toleranciaPercentual) : null;
-  const totalDivergente = Boolean(itemTotal && itemTotal.direcao !== 'ok');
-  const algumaDivergente = totalDivergente || porFormaDePagamento.some((i) => i.direcao !== 'ok');
+  const itemTotal = (naoDinheiroRelatorio !== null && typeof m.totalGeral === 'number')
+    ? montarItem('total_nao_dinheiro', naoDinheiroRelatorio, m.totalGeral, toleranciaPercentual) : null;
+  const totalDivergente = Boolean(itemTotal && (itemTotal.direcao === 'sobra' || itemTotal.direcao === 'falta'));
+  const algumaDivergente = totalDivergente || porFormaDePagamento.some((i) => i.direcao === 'sobra' || i.direcao === 'falta');
+  const algumaComparavel = (itemTotal && itemTotal.direcao === 'ok') || porFormaDePagamento.some((i) => i.direcao === 'ok');
 
   return {
-    status: algumaDivergente ? 'a_conferir' : 'dentro_do_esperado',
+    status: algumaDivergente ? 'a_conferir' : algumaComparavel ? 'dentro_do_esperado' : 'sem_referencia',
     // Diz se foi o TOTAL que estourou a tolerância, ou só alguma forma
     // isolada (caso real: total dentro da tolerância por coincidência,
     // cartão sobrando e Pix faltando se cancelando no agregado) — sem isso
@@ -228,7 +255,7 @@ function conferirMaquininha(relatorio, documentoAnexo, { toleranciaPercentual = 
     // verdade ele estava normal.
     totalDivergente,
     naoDinheiroRelatorio,
-    totalGeralMaquininha: m.totalGeral,
+    totalGeralMaquininha: typeof m.totalGeral === 'number' ? m.totalGeral : null,
     diferenca: itemTotal ? itemTotal.diferenca : null,
     porFormaDePagamento,
   };
