@@ -107,8 +107,15 @@ function chamarClaude({ mediaType, dados }) {
     const corpo = JSON.stringify({
       model: MODELO,
       // Dois relatórios (unidade + anexo) numa resposta só pode ficar longo,
-      // principalmente com formasDePagamento e camposNaoReconhecidos.
-      max_tokens: 1800,
+      // principalmente com formasDePagamento e camposNaoReconhecidos. 1800
+      // não bastou de verdade: CONFIRMADO em produção (30/09/2026, Hotel
+      // Nacional Inn) que a resposta vinha CORRETA mas cortada no meio de
+      // "Tabelas de Preço" (seção sem campo próprio no schema, então o
+      // modelo despeja linha por linha em camposNaoReconhecidos) — o JSON
+      // ficava bom até ali e quebrava no parse por faltar fechar chaves.
+      // Mesmo bug já documentado em ocr-ticket.js (validador de hangares)
+      // com a conferência de local.
+      max_tokens: 4096,
       messages: [
         {
           role: 'user',
