@@ -6,15 +6,18 @@
  *
  * ehConsultaDeCaixaAdmin lê process.env.ADMIN_WHATSAPP_ID e
  * config/unidades.json de verdade (não mocka nada) — fixa o admin de teste
- * DEPOIS de importar o módulo: despachar-webhook.js carrega o .env (com
- * override:true) no require, e num servidor com .env de verdade isso
- * sobrescreveria um valor de teste setado antes. A própria função lê
- * process.env em cada chamada (não guarda o valor no import), então setar
- * depois funciona em qualquer máquina, com ou sem .env real.
+ * só DEPOIS de esquentar o require de scripts/lib/unidades.js. Esse módulo
+ * (usado por dentro das duas funções testadas) também carrega o .env com
+ * override:true no seu próprio require — num servidor com .env de verdade,
+ * a PRIMEIRA chamada a qualquer uma das duas funções dispararia esse
+ * require pela primeira vez e sobrescreveria nosso valor de teste pelo
+ * admin real. Exigindo o módulo aqui antes, o require já fica em cache e as
+ * chamadas de teste não disparam o dotenv de novo.
  */
 
 const path = require('path');
 
+require(path.join(__dirname, '..', 'scripts', 'lib', 'unidades'));
 const { ehGrupoDeFechamento, ehConsultaDeCaixaAdmin } = require(path.join(__dirname, '..', 'scripts', 'despachar-webhook'));
 
 const ADMIN_TESTE = '5511999990000@s.whatsapp.net';
