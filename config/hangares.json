@@ -7,9 +7,9 @@
   ],
   "_observacao_contingencia": "contingenciaValidPark: quando o ValidPark está fora do ar, LIGAR aqui (pelo painel) faz a validação normal (dentro do prazo) deixar de usar o site e passar a validar pelo coletor do aeroporto, no pátio do próprio hangar (TECHPARKING). É manual: alguém liga quando o ValidPark cai e DESLIGA quando ele volta. desde/por registram quando e quem ligou. 'autorizados' são números que podem ligar/desligar pelo WhatsApp SÓ a contingência (sem poder no financeiro); quem é admin (grupoAdministracao ou adminsWhatsapp) já pode por padrão.",
   "contingenciaValidPark": {
-    "ativo": true,
-    "desde": "2026-10-01T15:43:35.269Z",
-    "por": "Rodrigo Mathias",
+    "ativo": false,
+    "desde": null,
+    "por": null,
     "autorizados": []
   },
   "hangares": [
