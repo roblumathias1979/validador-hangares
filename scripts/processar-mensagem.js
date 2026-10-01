@@ -1869,9 +1869,64 @@ async function responderNoGrupoAdmin(msg, aoReceber) {
   return await responderAutorizacaoPrivada(msg);
 }
 
+// Grava a contingência (liga/desliga) e monta a resposta. Preserva
+// 'autorizados' (e o que mais houver no bloco) — só ativo/desde/por mudam.
+function aplicarContingencia(ligar, quem, grupoId) {
+  const config = carregarConfig();
+  const atual = config.contingenciaValidPark || {};
+  config.contingenciaValidPark = {
+    ...atual,
+    ativo: ligar,
+    desde: ligar ? new Date().toISOString() : null,
+    por: ligar ? quem : null,
+  };
+  try {
+    salvarEComitar(config, `Contingência ValidPark ${ligar ? 'LIGADA' : 'desligada'} por ${quem} (WhatsApp)`, 'Bot do WhatsApp');
+  } catch (erro) {
+    return {
+      status: 'erro', grupoId, mensagem: erro.message,
+      mensagemWhatsapp: '⚠️ Não consegui salvar a mudança da contingência. Nossa equipe foi avisada.',
+      notificarAdmin: true, responder: true, etapa: 'comando_contingencia',
+    };
+  }
+  return {
+    status: ligar ? 'contingencia_ligada' : 'contingencia_desligada', grupoId,
+    mensagem: `Contingência ${ligar ? 'LIGADA' : 'desligada'} por ${quem} via WhatsApp.`,
+    mensagemWhatsapp: ligar
+      ? '🔴 *Modo contingência ATIVADO* — validando direto pelo sistema do aeroporto.\n\nA validação dentro do prazo deixa de usar o ValidPark e passa a ser feita pelo coletor, no pátio de cada hangar. A confirmação chega em segundos.\n\n*Desligue assim que o ValidPark voltar* — mande "desligar contingência".'
+      : '✅ Contingência do ValidPark *desligada*.\n\nA validação volta a ser feita pelo ValidPark, na hora.',
+    notificarAdmin: false, responder: true, etapa: 'comando_contingencia',
+  };
+}
+
 async function responderAutorizacaoPrivada(msg) {
   const config = carregarConfig();
   const ehAdmin = ehFonteAdmin(config, msg.grupoId);
+
+  // Confirmação pendente de LIGAR a contingência: ativar é mudança de peso, e
+  // ligar sem querer validaria tudo fora do ValidPark. Então o "ligar" pergunta
+  // antes, e só o SIM aqui ativa de fato. (Desligar não pergunta — na volta do
+  // ValidPark quer-se rapidez.)
+  const pendCont = pendencias.buscar(msg.grupoId, msg.remetenteId);
+  if (pendCont && pendCont.tipo === 'confirmar_contingencia') {
+    if (msg.resposta === 'sim') {
+      pendencias.consumir(msg.grupoId, msg.remetenteId);
+      return aplicarContingencia(true, pendCont.quem || msg.remetente || msg.grupoId, msg.grupoId);
+    }
+    if (msg.resposta === 'nao') {
+      pendencias.consumir(msg.grupoId, msg.remetenteId);
+      return {
+        status: 'contingencia_cancelada', grupoId: msg.grupoId,
+        mensagemWhatsapp: 'Ok, segue no modo normal (ValidPark). Nada mudou.',
+        notificarAdmin: false, responder: true, etapa: 'comando_contingencia',
+      };
+    }
+    return {
+      status: 'contingencia_confirma_nao_entendido', grupoId: msg.grupoId,
+      mensagemWhatsapp: 'Quer mudar para o *modo contingência*? Responda *SIM* para ativar ou *NÃO* para deixar como está.',
+      notificarAdmin: false, responder: true, etapa: 'comando_contingencia',
+    };
+  }
 
   // Comando de contingência: ligar/desligar o contorno do ValidPark pelo
   // WhatsApp, para quando a queda pega longe do painel. Vem ANTES da porta do
@@ -1892,32 +1947,16 @@ async function responderAutorizacaoPrivada(msg) {
         notificarAdmin: false, responder: true, etapa: 'comando_contingencia',
       };
     }
-    const quemCont = msg.remetente || msg.grupoId;
-    // Espalha o atual para PRESERVAR 'autorizados' (e o que mais houver) — só
-    // ativo/desde/por mudam aqui.
-    config.contingenciaValidPark = {
-      ...atual,
-      ativo: comandoCont,
-      desde: comandoCont ? new Date().toISOString() : null,
-      por: comandoCont ? quemCont : null,
-    };
-    try {
-      salvarEComitar(config, `Contingência ValidPark ${comandoCont ? 'LIGADA' : 'desligada'} por ${quemCont} (WhatsApp)`, 'Bot do WhatsApp');
-    } catch (erro) {
+    // LIGAR pergunta antes; desligar é direto.
+    if (comandoCont === true) {
+      pendencias.registrar(msg.grupoId, msg.remetenteId, { tipo: 'confirmar_contingencia', quem: msg.remetente || msg.grupoId });
       return {
-        status: 'erro', grupoId: msg.grupoId, mensagem: erro.message,
-        mensagemWhatsapp: '⚠️ Não consegui salvar a mudança da contingência. Nossa equipe foi avisada.',
-        notificarAdmin: true, responder: true, etapa: 'comando_contingencia',
+        status: 'contingencia_confirmar', grupoId: msg.grupoId,
+        mensagemWhatsapp: '⚠️ Quer mudar para o *modo contingência*?\n\nA validação deixa de usar o ValidPark e passa a ser feita *direto pelo sistema do aeroporto*. Use quando o ValidPark estiver fora do ar.\n\nResponda *SIM* para ativar ou *NÃO* para cancelar.',
+        notificarAdmin: false, responder: true, etapa: 'comando_contingencia',
       };
     }
-    return {
-      status: comandoCont ? 'contingencia_ligada' : 'contingencia_desligada', grupoId: msg.grupoId,
-      mensagem: `Contingência ${comandoCont ? 'LIGADA' : 'desligada'} por ${quemCont} via WhatsApp.`,
-      mensagemWhatsapp: comandoCont
-        ? '🔴 Contingência do ValidPark *LIGADA*.\n\nA validação dentro do prazo passa a ser feita pelo sistema do aeroporto (coletor), no pátio de cada hangar. A confirmação ao cliente chega em segundos.\n\n*Desligue assim que o ValidPark voltar* — mande "desligar contingência".'
-        : '✅ Contingência do ValidPark *desligada*.\n\nA validação volta a ser feita pelo ValidPark, na hora.',
-      notificarAdmin: false, responder: true, etapa: 'comando_contingencia',
-    };
+    return aplicarContingencia(false, msg.remetente || msg.grupoId, msg.grupoId);
   }
 
   // Daqui para baixo é decisão de admin de verdade (faturamento, ticket

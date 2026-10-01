@@ -186,25 +186,34 @@ async function main() {
   conferir('não-admin é ignorado', estranho.responder === false && estranho.status === 'ignorado', `veio "${estranho.status}"`);
   conferir('e não ligou nada', ativoAgora() === false);
 
-  const ligou = await processar(textoAdmin('ligar contingência'), {});
-  conferir('admin liga', ligou.status === 'contingencia_ligada', `veio "${ligou.status}"`);
+  const pergunta = await processar(textoAdmin('ligar contingência'), {});
+  conferir('ligar PERGUNTA antes', pergunta.status === 'contingencia_confirmar' && /modo contingência/i.test(pergunta.mensagemWhatsapp), `veio "${pergunta.status}"`);
+  conferir('ainda não ligou (só perguntou)', ativoAgora() === false);
+  const ligou = await processar(textoAdmin('sim'), {});
+  conferir('SIM ativa', ligou.status === 'contingencia_ligada', `veio "${ligou.status}"`);
   conferir('config ligada', ativoAgora() === true);
-  conferir('confirma e pede para desligar depois', /LIGADA/.test(ligou.mensagemWhatsapp) && /desligar/i.test(ligou.mensagemWhatsapp));
+  conferir('avisa que ativou validando direto', /ATIVADO/.test(ligou.mensagemWhatsapp) && /aeroporto/i.test(ligou.mensagemWhatsapp));
 
   const dnovo = await processar(textoAdmin('ligar contingencia'), {});
-  conferir('ligar de novo avisa que já está', dnovo.status === 'contingencia_sem_mudanca', `veio "${dnovo.status}"`);
+  conferir('ligar de novo avisa que já está (sem perguntar)', dnovo.status === 'contingencia_sem_mudanca', `veio "${dnovo.status}"`);
 
   const desligou = await processar(textoAdmin('desligar contingência'), {});
-  conferir('admin desliga', desligou.status === 'contingencia_desligada', `veio "${desligou.status}"`);
+  conferir('desligar é direto (sem perguntar)', desligou.status === 'contingencia_desligada', `veio "${desligou.status}"`);
   conferir('config desligada', ativoAgora() === false);
 
+  console.log('\nLigar e responder NÃO: não ativa');
+  await processar(textoAdmin('ligar contingência'), {});
+  const recusa = await processar(textoAdmin('não'), {});
+  conferir('NÃO cancela', recusa.status === 'contingencia_cancelada' && ativoAgora() === false, `veio "${recusa.status}"`);
+
   const conversa = await processar(textoAdmin('o validpark caiu de novo, que saco'), {});
-  conferir('frase solta não é comando', conversa.status !== 'contingencia_ligada' && ativoAgora() === false, `veio "${conversa.status}"`);
+  conferir('frase solta não é comando', conversa.status !== 'contingencia_confirmar' && ativoAgora() === false, `veio "${conversa.status}"`);
 
   console.log('\nNúmero em adminsWhatsapp: admin COMPLETO (contingência + financeiro)');
   resetCont();
-  const extraLiga = await processar(textoPrivado(AUTORIZADO, 'ligar contingência'), {});
-  conferir('liga a contingência', extraLiga.status === 'contingencia_ligada', `veio "${extraLiga.status}"`);
+  await processar(textoPrivado(AUTORIZADO, 'ligar contingência'), {});
+  const extraLiga = await processar(textoPrivado(AUTORIZADO, 'sim'), {});
+  conferir('liga a contingência (após confirmar)', extraLiga.status === 'contingencia_ligada', `veio "${extraLiga.status}"`);
   resetCont();
   // Zera o que ficou pendente dos casos acima (ticket cheio bloqueado), para o
   // "sim" não cair num pedido real. "sim" sem nada pendente: se PASSOU da porta
@@ -216,8 +225,9 @@ async function main() {
 
   console.log('\nGrupo de administração: comanda pela conversa do grupo');
   resetCont();
-  const grpLiga = await processar(textoGrupo(ADMGRUPO, 'ligar contingência'), {});
-  conferir('grupo admin liga', grpLiga.status === 'contingencia_ligada', `veio "${grpLiga.status}"`);
+  await processar(textoGrupo(ADMGRUPO, 'ligar contingência'), {});
+  const grpLiga = await processar(textoGrupo(ADMGRUPO, 'sim'), {});
+  conferir('grupo admin liga (após confirmar)', grpLiga.status === 'contingencia_ligada', `veio "${grpLiga.status}"`);
   conferir('config ligada', ativoAgora() === true);
   const grpDesliga = await processar(textoGrupo(ADMGRUPO, 'desligar contingência'), {});
   conferir('grupo admin desliga', grpDesliga.status === 'contingencia_desligada', `veio "${grpDesliga.status}"`);
@@ -226,7 +236,7 @@ async function main() {
   const grpFin = await processar(textoGrupo(ADMGRUPO, 'sim'), {});
   conferir('grupo admin alcança o financeiro', grpFin.status === 'autorizacao_sem_alvo', `veio "${grpFin.status}"`);
   const grpOutro = await processar(textoGrupo(GRUPO, 'ligar contingência'), {});
-  conferir('grupo de hangar comum NÃO comanda', grpOutro.status !== 'contingencia_ligada', `veio "${grpOutro.status}"`);
+  conferir('grupo de hangar comum NÃO comanda', grpOutro.status !== 'contingencia_ligada' && grpOutro.status !== 'contingencia_confirmar', `veio "${grpOutro.status}"`);
 
   console.log('\nConsulta de pátio pelo grupo admin (nomeando o hangar)');
   ultimaConsulta = null;
@@ -285,8 +295,9 @@ async function main() {
   console.log('\nNúmero só em autorizados: contingência SIM, financeiro NÃO');
   const SO_CONT = '5511940000000@s.whatsapp.net';
   resetCont([SO_CONT]);
-  const soLiga = await processar(textoPrivado(SO_CONT, 'ligar contingência'), {});
-  conferir('liga a contingência', soLiga.status === 'contingencia_ligada', `veio "${soLiga.status}"`);
+  await processar(textoPrivado(SO_CONT, 'ligar contingência'), {});
+  const soLiga = await processar(textoPrivado(SO_CONT, 'sim'), {});
+  conferir('liga a contingência (após confirmar)', soLiga.status === 'contingencia_ligada', `veio "${soLiga.status}"`);
   const soFin = await processar(textoPrivado(SO_CONT, 'sim'), {});
   conferir('não alcança o financeiro', soFin.status === 'ignorado', `veio "${soFin.status}"`);
 
