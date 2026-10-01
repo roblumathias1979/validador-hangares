@@ -247,8 +247,13 @@ function montarEstado(usuario = null) {
     historico: resumo[h.id] || { total: 0, validados: 0, comCota: 0, ultimo: null },
   }));
 
+  // Contingência do ValidPark: global, não por hangar (o site cai para todos).
+  // Ligada, a validação dentro do prazo passa a validar pelo coletor.
+  const cont = config.contingenciaValidPark || {};
+
   return {
     hangares,
+    contingencia: { ativo: cont.ativo === true, desde: cont.desde || null, por: cont.por || null },
     resumo: {
       total: hangares.length,
       ativos: hangares.filter((h) => h.ativo).length,
@@ -785,6 +790,25 @@ const servidor = http.createServer(async (req, res) => {
 
       const r = salvarEComitar(config, `pátio "${nomeLimpo}" criado (${idLimpo})`);
       json(res, 200, { ok: true, id: idLimpo, usuarioEnvVar, senhaEnvVar, credenciais: temLogin, ...r });
+      return;
+    }
+
+    // Liga/desliga a contingência do ValidPark. É global (o site cai para
+    // todos os hangares), então fica fora de /api/hangar/. Registra quem e
+    // quando, para a auditoria saber de onde veio a decisão.
+    if (req.method === 'POST' && url.pathname === '/api/contingencia') {
+      const corpo = await lerCorpo(req);
+      const ativo = corpo.ativo === true || corpo.ativo === 'true';
+      const config = lerConfig();
+      const antes = (config.contingenciaValidPark || {}).ativo === true;
+      if (antes === ativo) { json(res, 200, { semMudanca: true, contingencia: config.contingenciaValidPark || { ativo } }); return; }
+      config.contingenciaValidPark = {
+        ativo,
+        desde: ativo ? new Date().toISOString() : null,
+        por: ativo ? (usuario.nome || null) : null,
+      };
+      const r = salvarEComitar(config, `Contingência ValidPark ${ativo ? 'LIGADA' : 'desligada'} por ${usuario.nome || '—'}`);
+      json(res, 200, { ok: true, contingencia: config.contingenciaValidPark, ...r, commitsPendentes: commitsPendentes() });
       return;
     }
 

@@ -1,5 +1,11 @@
 {
   "_comentario": "Copie este arquivo para hangares.json e preencha com os dados reais. Nunca coloque senhas aqui — apenas o NOME da variável de ambiente que guarda a senha (ver .env.example).",
+  "_observacao_contingencia": "contingenciaValidPark: quando o ValidPark está fora do ar, LIGAR aqui (pelo painel) faz a validação normal (dentro do prazo) deixar de usar o site e passar a validar pelo coletor do aeroporto, no pátio do próprio hangar (TECHPARKING). É manual: alguém liga quando o ValidPark cai e DESLIGA quando ele volta. desde/por registram quando e quem ligou.",
+  "contingenciaValidPark": {
+    "ativo": false,
+    "desde": null,
+    "por": null
+  },
   "hangares": [
     {
       "id": "solojet",

@@ -19,10 +19,15 @@
 
 const path = require('path');
 const { lerJson } = require('./trava-arquivo');
-const { chavePatio } = require('./fiscalizacao');
+const fiscalizacao = require('./fiscalizacao');
+const { chavePatio } = fiscalizacao;
 const { extrairPlaca } = require('./whatsapp');
 
 const ARQUIVO = path.join(__dirname, '..', '..', 'data', 'techparking-snapshot.json');
+// Mesmas regras que a fiscalização usa para montar o índice do snapshot
+// (placas genéricas, corte de ticket fantasma). Sem elas a ocupação contaria
+// tickets velhos que o TECHPARKING nunca deu baixa.
+const REGRAS_FISCALIZACAO = path.join(__dirname, '..', '..', 'config', 'fiscalizacao.json');
 
 // O coletor envia de minuto em minuto. 10 minutos absorve uma falha de rede
 // sem mentir sobre o presente.
@@ -73,4 +78,58 @@ function credenciadosDoPatio(bolsao) {
   return { ...foto, semVinculo: false, lista };
 }
 
-module.exports = { ler, credenciadosDoPatio, ARQUIVO, VALIDADE_MS };
+/**
+ * O pátio do TECHPARKING que corresponde ao `bolsaoTechparking` de um hangar.
+ *
+ * É o que a CONTINGÊNCIA precisa quando o ValidPark cai: para validar pelo
+ * coletor é obrigatório saber o ID numérico do pátio (o PUT exige), e o
+ * `bolsaoTechparking` só guarda o NOME. Esse nome casa com `PATIO` na lista
+ * `patios` do snapshot, que traz o `IDPATIO`.
+ *
+ * Devolve também a lotação — `vagas` (capacidade total) e `ocupadas` (contadas
+ * das listas, porque VAGAS_USADAS do TECHPARKING vem quebrado) — para que a
+ * contingência refaça a mesma guarda anti-fraude do "pátio sem vaga" que o
+ * ValidPark fazia. `temVaga` só é confiável com o snapshot FRESCO; por isso
+ * `fresca` vem junto e quem valida precisa checá-la antes de confiar no resto.
+ *
+ * Campos: { existe, fresca, id, label, vagas, ocupadas, temVaga, em, idadeMs }.
+ * `existe` distingue "não achei esse pátio na foto" de "não tenho foto".
+ */
+function patioDoBolsao(bolsao) {
+  const foto = lerJson(ARQUIVO, null);
+  const vazio = { existe: false, fresca: false, id: null, label: null, vagas: null, ocupadas: null, temVaga: null, em: null, idadeMs: null };
+  if (!foto || !foto.recebidoEm) return vazio;
+
+  const idadeMs = Date.now() - new Date(foto.recebidoEm).getTime();
+  const fresca = idadeMs <= VALIDADE_MS;
+  const alvo = chavePatio(bolsao || '');
+  const info = alvo ? (foto.patios || []).find((p) => chavePatio(p.PATIO) === alvo) : null;
+  if (!info) return { ...vazio, existe: true, fresca, em: foto.recebidoEm, idadeMs };
+
+  // A ocupação sai do mesmo cálculo da fiscalização (descarta ticket fantasma).
+  // Se faltar, cai para o que a própria linha do pátio diz.
+  let vagas = Number.isFinite(Number(info.VAGAS)) ? Number(info.VAGAS) : null;
+  let ocupadas = null;
+  try {
+    const indice = fiscalizacao.montarIndice(foto, lerJson(REGRAS_FISCALIZACAO, {}));
+    const lot = fiscalizacao.lotacaoDe(indice, info.PATIO);
+    if (lot) { vagas = lot.vagas; ocupadas = lot.ocupadas; }
+  } catch (e) { /* sem índice, segue só com a capacidade da linha */ }
+
+  const idNum = Number(info.IDPATIO);
+  return {
+    existe: true,
+    fresca,
+    id: Number.isFinite(idNum) ? idNum : info.IDPATIO,
+    label: String(info.PATIO).trim(),
+    vagas,
+    ocupadas,
+    // null quando não dá para afirmar (sem capacidade ou sem contagem): quem
+    // decide trata null como "não sei", nunca como "tem vaga".
+    temVaga: vagas === null || ocupadas === null ? null : ocupadas < vagas,
+    em: foto.recebidoEm,
+    idadeMs,
+  };
+}
+
+module.exports = { ler, credenciadosDoPatio, patioDoBolsao, ARQUIVO, VALIDADE_MS, REGRAS_FISCALIZACAO };

@@ -38,6 +38,16 @@
   .aviso.pendente { border-color:var(--alerta); }
   .aviso.ruim { border-color:var(--erro); color:var(--erro); }
   .aviso.ok { border-color:var(--ok); }
+  /* Contingência: discreta quando desligada, impossível de ignorar quando ligada. */
+  .contingencia { display:flex; align-items:flex-start; gap:12px; flex-wrap:wrap;
+                  padding:12px 14px; border-radius:8px; border:1px solid var(--borda); background:var(--cartao); }
+  .contingencia.ligada { border-color:var(--erro); background:rgba(180,35,24,.07); }
+  .contingencia .texto { flex:1; min-width:240px; }
+  .contingencia .titulo { font-weight:600; font-size:14px; margin-bottom:2px; }
+  .contingencia.ligada .titulo { color:var(--erro); }
+  .contingencia .detalhe { font-size:12px; color:var(--fraco); }
+  .contingencia button.ligar { background:var(--erro); border-color:var(--erro); }
+  .contingencia button.desligar { background:var(--ok); border-color:var(--ok); }
   .hangar { background:var(--cartao); border:1px solid var(--borda); border-radius:8px;
             margin-bottom:10px; overflow:hidden; }
   .cab { display:flex; align-items:center; gap:10px; padding:11px 14px; cursor:pointer; }
@@ -141,6 +151,7 @@
 
 <main>
   <div id="avisos"></div>
+  <div class="secao" id="sec-contingencia"></div>
   <div class="secao" id="sec-bloqueados">
     <h2>Tickets bloqueados</h2>
     <div class="sub">Tentativa de validação em pátio sem vagas. O ticket fica travado em <b>todos</b> os pátios até alguém autorizar — é o caminho que uma fraude usaria: tentar aqui, não caber, e pedir validação em outro hangar.</div>
@@ -284,6 +295,8 @@ function desenhar() {
       Elas valem em produção normalmente — o que falta é o envio para o repositório remoto.</div>`);
   }
   $('#avisos').innerHTML = avisos.join('');
+
+  desenharContingencia();
 
   $('#lista').innerHTML = estado.hangares.map(h => {
     const etqs = [
@@ -578,6 +591,48 @@ async function excluirHangar(id, botao) {
   } catch (e) {
     msg.className = 'msg erro'; msg.textContent = 'falha de rede: ' + e.message;
     botao.disabled = false;
+  }
+}
+
+function desenharContingencia() {
+  const c = estado.contingencia || { ativo:false };
+  const alvo = $('#sec-contingencia');
+  if (!alvo) return;
+  if (c.ativo) {
+    const desde = c.desde ? quando(c.desde) : '—';
+    alvo.innerHTML = `<div class="contingencia ligada">
+      <div class="texto">
+        <div class="titulo">🔴 Contingência LIGADA — validando pelo sistema do aeroporto</div>
+        <div class="detalhe">O ValidPark está sendo contornado: a validação dentro do prazo vai pelo coletor, no pátio de cada hangar.
+        A confirmação ao cliente chega em segundos, não na hora. <b>Desligue assim que o ValidPark voltar.</b><br>
+        Ligada desde ${desde}${c.por ? ` por ${c.por}` : ''}.</div>
+      </div>
+      <button class="desligar" onclick="alternarContingencia(false, this)">Desligar contingência</button>
+    </div>`;
+  } else {
+    alvo.innerHTML = `<div class="contingencia">
+      <div class="texto">
+        <div class="titulo">Contingência do ValidPark — desligada</div>
+        <div class="detalhe">Ligue só quando o ValidPark estiver fora do ar. A validação dentro do prazo passa a ser feita
+        pelo coletor do aeroporto (TECHPARKING), no pátio de cada hangar, enquanto o site não volta.</div>
+      </div>
+      <button class="ligar" onclick="alternarContingencia(true, this)">Ligar contingência</button>
+    </div>`;
+  }
+}
+
+async function alternarContingencia(ativo, botao) {
+  if (ativo && !confirm('Ligar a contingência? A validação dentro do prazo deixará de usar o ValidPark e passará pelo coletor do aeroporto. Use só quando o ValidPark estiver fora do ar.')) return;
+  botao.disabled = true;
+  try {
+    const r = await fetch('/api/contingencia', {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ativo }),
+    });
+    const d = await r.json();
+    if (!r.ok) { alert(d.erro || 'Não consegui mudar a contingência.'); botao.disabled = false; return; }
+    await carregar();
+  } catch (e) {
+    alert('Falha de rede: ' + e.message); botao.disabled = false;
   }
 }
 
