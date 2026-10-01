@@ -43,7 +43,7 @@ const CONFIG = path.join(RAIZ, 'config', 'hangares.json');
 (() => { const c = JSON.parse(fs.readFileSync(CONFIG, 'utf-8')); c.contingenciaValidPark = { ativo: true, desde: new Date().toISOString(), por: 'teste' }; fs.writeFileSync(CONFIG, `${JSON.stringify(c, null, 2)}\n`); })();
 
 // Estado que o cenário não zera: fila, bloqueados e o snapshot do pátio.
-const EXTRA = ['data/validacoes-pendentes.json', 'data/tickets-bloqueados.json', 'data/techparking-snapshot.json'];
+const EXTRA = ['data/validacoes-pendentes.json', 'data/tickets-bloqueados.json', 'data/techparking-snapshot.json', 'data/mensagens-vistas.json'];
 const guardado = {};
 for (const a of EXTRA) { const p = path.join(RAIZ, a); guardado[a] = fs.existsSync(p) ? fs.readFileSync(p, 'utf-8') : null; }
 process.on('exit', () => { for (const a of EXTRA) { const p = path.join(RAIZ, a); if (guardado[a] === null) { try { fs.unlinkSync(p); } catch (e) {} } else fs.writeFileSync(p, guardado[a]); } });
@@ -149,6 +149,18 @@ async function main() {
   conferir('validou no pátio do hangar (30), não no #1PARK', feita && feita.patioId === 30 && feita.patioLabel === 'HANGAR SOLOJET', JSON.stringify(feita));
   conferir('motivo contingência e prazo do hangar', feita && feita.motivo === 'contingencia' && feita.dias === 20);
   conferir('marcada como avisada (sem aviso duplicado)', feita && feita.avisado === true);
+
+  console.log('\nLigada, mensagem repetida (mesma id): processa uma vez só');
+  escreverSnapshot({ vagas: 90, ocupadas: 0 });
+  ticketAtual = 'C00000000099';
+  const msgRepetida = foto(GRUPO); // MESMA id nas duas entregas
+  const pc = simularColetor(true);
+  const rep1 = await processar(msgRepetida, {});
+  const rep2 = await processar(msgRepetida, {});
+  pc();
+  conferir('primeira valida', rep1.status === 'validado', `veio "${rep1.status}"`);
+  conferir('segunda (mesma id) é ignorada', rep2.responder === false && rep2.status === 'ignorado', `veio "${rep2.status}"`);
+  conferir('o ticket entrou na fila uma vez só', fila.listar().filter((v) => v.ticket === 'C00000000099').length === 1);
 
   console.log('\nLigada, coletor falha: responde o erro na hora');
   escreverSnapshot({ vagas: 90, ocupadas: 0 });

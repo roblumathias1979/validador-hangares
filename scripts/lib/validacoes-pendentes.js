@@ -33,6 +33,22 @@ const RETENCAO_MS = 7 * 24 * 3600 * 1000;
 function enfileirar(pedido) {
   return comTrava(ARQUIVO, () => {
     const todas = lerJson(ARQUIVO, {});
+
+    // DEDUP POR TICKET: valida duas vezes é o erro que o projeto combate. Dois
+    // webhooks da mesma foto (ou dois envios) chegam a enfileirar o MESMO
+    // ticket; na contingência, sem a conferência ao vivo do ValidPark, os dois
+    // passavam. Aqui, se já existe uma validação do mesmo ticket em andamento
+    // (pendente/processando) ou concluída com sucesso há pouco, devolve ELA em
+    // vez de criar outra — sob a mesma trava, então não há corrida. Uma que
+    // FALHOU não bloqueia: aí re-tentar é o certo.
+    const limiteRecente = Date.now() - REENTREGA_MS;
+    const existente = Object.values(todas).find((v) =>
+      String(v.ticket) === String(pedido.ticket)
+      && (v.estado === 'pendente' || v.estado === 'processando'
+        || (v.estado === 'feito' && v.resultado && v.resultado.ok
+            && v.concluidoEm && new Date(v.concluidoEm).getTime() > limiteRecente)));
+    if (existente) return { ...existente, jaExistia: true };
+
     const id = crypto.randomUUID();
     todas[id] = {
       id,

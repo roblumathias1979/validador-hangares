@@ -26,7 +26,7 @@ const PESSOA = '5511999999999@s.whatsapp.net';
 
 require('./cenario').montar({ hangares: { solojet: { cotaMensalValidacoes: null } } });
 
-const EXTRA = ['data/aviso-queda-validpark.json', 'data/tickets-bloqueados.json'];
+const EXTRA = ['data/aviso-queda-validpark.json', 'data/tickets-bloqueados.json', 'data/mensagens-vistas.json'];
 const guardado = {};
 for (const a of EXTRA) { const p = path.join(RAIZ, a); guardado[a] = fs.existsSync(p) ? fs.readFileSync(p, 'utf-8') : null; }
 process.on('exit', () => { for (const a of EXTRA) { const p = path.join(RAIZ, a); if (guardado[a] === null) { try { fs.unlinkSync(p); } catch (e) {} } else fs.writeFileSync(p, guardado[a]); } });
