@@ -31,7 +31,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env'), override: t
 
 const { carregarConfig, buscarHangarPorGrupo } = require('./lib/hangar');
 const { comTravaAsync } = require('./lib/trava-arquivo');
-const { interpretarMensagem, extrairPlaca, interpretarEscolhaPatio } = require('./lib/whatsapp');
+const { interpretarMensagem, extrairPlaca, interpretarEscolhaPatio, interpretarComandoContingencia } = require('./lib/whatsapp');
 // O cliente da Evolution vive em lib/evolution.js: o painel também precisa
 // mandar mensagem, e duas cópias do mesmo cliente divergiriam — inclusive no
 // `Connection: close`, que existe por um bug real de socket reaproveitado.
@@ -49,6 +49,7 @@ const { calcularValorPermanencia, formatarReais } = require('./lib/precos');
 const asaas = require('./lib/asaas');
 const { salvarEComitar } = require('./lib/salvar-config');
 const bloqueados = require('./lib/tickets-bloqueados');
+const snapshotTechparking = require('./lib/snapshot-techparking');
 const { dentroDoPrazo } = require('./validate-ticket');
 const { lerTicket, lerLocal } = require('./ocr-ticket');
 const { consultarPatio } = require('./consultar-patio');
@@ -79,9 +80,129 @@ function rodarScript(arquivo, args) {
   return JSON.parse(linhas[linhas.length - 1]);
 }
 
+// Contingência LIGADA? Lida do arquivo a cada validação (o bot roda por
+// mensagem, então não há cache a envelhecer): o painel liga/desliga e vale já.
+function contingenciaLigada() {
+  try {
+    return carregarConfig().contingenciaValidPark?.ativo === true;
+  } catch (e) {
+    // Sem config não há bot; o erro aparece em outro lugar. Aqui, não contingência.
+    return false;
+  }
+}
+
+/**
+ * Validação quando o ValidPark está fora do ar (contingência manual LIGADA).
+ *
+ * Em vez de abrir o site, enfileira para o coletor do aeroporto validar pelo
+ * TECHPARKING, no pátio DO PRÓPRIO HANGAR (não no #1PARK) — o id vem do
+ * snapshot, e assim a validação fica no nome certo, como seria no ValidPark.
+ *
+ * Mantém a guarda anti-fraude do pátio cheio: sem o ValidPark para contar as
+ * vagas, usa a lotação do snapshot. E só valida com o snapshot FRESCO — se o
+ * coletor também estiver mudo, não há como conferir vaga nem confiar no pátio,
+ * então recusa honestamente em vez de validar no escuro.
+ *
+ * É assíncrona: o cliente ouve "validando" e a confirmação chega quando o
+ * coletor reporta (o servidor avisa o grupo então, como na cota e no faturamento).
+ */
+function validarPorContingencia(hangar, msg, pedido) {
+  const patio = snapshotTechparking.patioDoBolsao(hangar.bolsaoTechparking);
+
+  // Sem foto fresca do pátio não dá para validar com segurança: nem o pátio
+  // (id) nem a lotação (vaga) são confiáveis. O ValidPark caiu E o coletor
+  // está mudo — é o pior caso, e validar no escuro é o que o projeto evita.
+  if (!patio.fresca) {
+    return {
+      status: 'contingencia_sem_dados', hangarId: hangar.id, grupoId: msg.grupoId, ticket: pedido.ticket,
+      mensagem: `Contingência LIGADA, mas sem snapshot fresco do pátio (${patio.existe ? `${Math.round((patio.idadeMs || 0) / 60000)}min` : 'nenhuma foto'}). Validação do ticket ${pedido.ticket} não pôde ser feita.`,
+      mensagemWhatsapp: `⚠️ Estou validando pelo sistema do aeroporto (o ValidPark está em manutenção), mas não consegui confirmar o pátio agora. Nossa equipe foi avisada e vai validar o ticket ${pedido.ticket} manualmente.`,
+      notificarAdmin: true, responder: true, etapa: 'contingencia',
+    };
+  }
+
+  // Pátio não mapeado na foto: sem id, o coletor cairia no #1PARK e a
+  // validação sairia no nome errado. Melhor parar e chamar gente.
+  if (!patio.existe || patio.id == null) {
+    return {
+      status: 'contingencia_patio_desconhecido', hangarId: hangar.id, grupoId: msg.grupoId, ticket: pedido.ticket,
+      mensagem: `Contingência LIGADA, mas o bolsão "${hangar.bolsaoTechparking || '(vazio)'}" não casou com nenhum pátio do snapshot. Ticket ${pedido.ticket} não validado.`,
+      mensagemWhatsapp: `⚠️ Estou validando pelo sistema do aeroporto, mas não localizei o pátio deste hangar. Nossa equipe foi avisada e vai validar o ticket ${pedido.ticket} manualmente.`,
+      notificarAdmin: true, responder: true, etapa: 'contingencia',
+    };
+  }
+
+  // Pátio cheio: mesma guarda do "sem_vagas" do ValidPark — trava e chama gente.
+  if (patio.temVaga === false) {
+    try {
+      bloqueados.bloquear(pedido.ticket, {
+        hangarId: hangar.id, hangarNome: hangar.hangar || hangar.id,
+        grupoId: msg.grupoId, remetente: msg.remetente,
+        vagasDisponiveis: patio.vagas != null && patio.ocupadas != null ? patio.vagas - patio.ocupadas : null,
+      });
+      const registro = bloqueados.estaBloqueado(pedido.ticket);
+      return {
+        status: 'sem_vagas', hangarId: hangar.id, grupoId: msg.grupoId, ticket: pedido.ticket,
+        mensagemWhatsapp: bloqueados.mensagemParaCliente(pedido.ticket),
+        mensagem: `Contingência: pátio ${patio.label} sem vaga (${patio.ocupadas}/${patio.vagas}). Ticket bloqueado.\n`
+          + bloqueados.trilha(registro, { quandoLegivel }),
+        notificarAdmin: true, responder: true, etapa: 'contingencia',
+      };
+    } catch (erro) {
+      return {
+        status: 'sem_vagas', hangarId: hangar.id, grupoId: msg.grupoId, ticket: pedido.ticket,
+        mensagemWhatsapp: `⚠️ O pátio aparece sem vaga agora. Nossa equipe foi avisada.`,
+        mensagem: `Contingência: pátio cheio, e o bloqueio falhou: ${erro.message}`,
+        notificarAdmin: true, responder: true, etapa: 'contingencia',
+      };
+    }
+  }
+
+  // Enfileira para o coletor, no pátio do hangar, com o prazo padrão dele.
+  try {
+    filaValidacoes.enfileirar({
+      ticket: pedido.ticket, grupoId: msg.grupoId, hangarId: hangar.id,
+      patioId: patio.id, patioLabel: patio.label,
+      dias: hangar.diasValidacaoPadrao ?? null,
+      placa: pedido.placa,
+      motivo: 'contingencia',
+      autorizadoPor: msg.remetente || null,
+    });
+  } catch (erro) {
+    return {
+      status: 'erro', hangarId: hangar.id, grupoId: msg.grupoId, ticket: pedido.ticket,
+      mensagem: `Contingência: falha ao enfileirar — ${erro.message}`,
+      mensagemWhatsapp: `⚠️ Não consegui registrar a validação do ticket ${pedido.ticket} agora. Nossa equipe foi avisada.`,
+      notificarAdmin: true, responder: true, etapa: 'contingencia',
+    };
+  }
+
+  let mensagem = `✅ Recebi o ticket ${pedido.ticket}. O ValidPark está em manutenção, então vou validar pelo sistema do aeroporto — aviso aqui assim que confirmar.`;
+  if (pedido.placaEhGenerica) {
+    mensagem += ` (vou usar a placa padrão ${pedido.placa}, porque não veio placa na foto — se precisar corrigir, fale com a administração.)`;
+  }
+  if (pedido.identificacao) mensagem += `\n\n🏷️ Identificado como: *${pedido.identificacao}*`;
+
+  return {
+    status: 'contingencia_enfileirada', hangarId: hangar.id, grupoId: msg.grupoId, ticket: pedido.ticket,
+    patioTechparking: patio.label,
+    mensagemWhatsapp: mensagem,
+    mensagem: `Contingência: ticket ${pedido.ticket} enfileirado para o coletor no pátio ${patio.label} (id ${patio.id}).`,
+    notificarAdmin: false, responder: true, etapa: 'contingencia',
+  };
+}
+
 // Roda validate-ticket.js e monta a resposta. `usarCota` vem true quando o
 // cliente respondeu SIM à pergunta sobre gastar uma validação fora do prazo.
 function validar(hangar, msg, pedido, usarCota, faturamento = {}) {
+  // CONTINGÊNCIA: ValidPark fora do ar. A validação normal (dentro do prazo)
+  // não vai ao site — vai pelo coletor, no pátio do próprio hangar. Cota
+  // (usarCota) e faturamento (faturamento.autorizar) têm seus próprios caminhos
+  // assíncronos e não passam por aqui, então ficam de fora da contingência.
+  if (!usarCota && !faturamento.autorizar && contingenciaLigada()) {
+    return validarPorContingencia(hangar, msg, pedido);
+  }
+
   const validacao = rodarScript('validate-ticket.js', [
     hangar.id, pedido.ticket, pedido.placa, pedido.dataEmissaoIso || '',
     '0', '0', usarCota ? 'true' : '',
@@ -1382,7 +1503,16 @@ async function conduzir(body, { aoReceber } = {}) {
   // Consulta primeiro, sempre. Além de ser barata e sem efeito colateral, ela
   // evita tentar validar um ticket que já foi usado — o que gastaria uma
   // abertura de navegador e, fora do prazo, uma validação da cota do hangar.
-  const consulta = rodarScript('consultar-ticket.js', [hangar.id, ocr.ticket]);
+  //
+  // Na CONTINGÊNCIA essa consulta ao vivo não roda: ela também é no ValidPark,
+  // que é justamente o que caiu. O já-validado que conhecemos (nosso histórico)
+  // já foi conferido acima; perde-se só a checagem contra uma validação feita
+  // direto no balcão. Reenfileirar um ticket já validado no coletor apenas
+  // re-estende a tolerância no mesmo pátio — não cobra de novo —, então o risco
+  // é aceitável durante uma queda. A validação segue para validarPorContingencia.
+  const consulta = contingenciaLigada()
+    ? { status: 'consulta_ok', jaValidado: false }
+    : rodarScript('consultar-ticket.js', [hangar.id, ocr.ticket]);
 
   const suspeito = suspeitaDeNumeroTrocado(hangar, msg, ocr, consulta);
   if (suspeito) return suspeito;
@@ -1442,6 +1572,45 @@ async function responderAutorizacaoPrivada(msg) {
   );
   if (!ehAdmin) {
     return { status: 'ignorado', motivo: 'privado de número que não é administração', grupoId: msg.grupoId, responder: false };
+  }
+
+  // Comando de contingência: ligar/desligar o contorno do ValidPark pelo
+  // WhatsApp, para quando a queda pega o admin longe do painel. Só a
+  // administração chega aqui (ehAdmin acima), então o comando é restrito por
+  // natureza. Vem antes do SIM/NÃO: é uma ordem, não uma decisão sobre pedido.
+  const comandoCont = interpretarComandoContingencia(msg.texto);
+  if (comandoCont !== null) {
+    const atual = config.contingenciaValidPark || {};
+    if ((atual.ativo === true) === comandoCont) {
+      return {
+        status: 'contingencia_sem_mudanca', grupoId: msg.grupoId,
+        mensagemWhatsapp: `A contingência do ValidPark já está *${comandoCont ? 'LIGADA' : 'desligada'}*.`,
+        notificarAdmin: false, responder: true, etapa: 'comando_contingencia',
+      };
+    }
+    const quemCont = msg.remetente || msg.grupoId;
+    config.contingenciaValidPark = {
+      ativo: comandoCont,
+      desde: comandoCont ? new Date().toISOString() : null,
+      por: comandoCont ? quemCont : null,
+    };
+    try {
+      salvarEComitar(config, `Contingência ValidPark ${comandoCont ? 'LIGADA' : 'desligada'} por ${quemCont} (WhatsApp)`, 'Bot do WhatsApp');
+    } catch (erro) {
+      return {
+        status: 'erro', grupoId: msg.grupoId, mensagem: erro.message,
+        mensagemWhatsapp: '⚠️ Não consegui salvar a mudança da contingência. Nossa equipe foi avisada.',
+        notificarAdmin: true, responder: true, etapa: 'comando_contingencia',
+      };
+    }
+    return {
+      status: comandoCont ? 'contingencia_ligada' : 'contingencia_desligada', grupoId: msg.grupoId,
+      mensagem: `Contingência ${comandoCont ? 'LIGADA' : 'desligada'} por ${quemCont} via WhatsApp.`,
+      mensagemWhatsapp: comandoCont
+        ? '🔴 Contingência do ValidPark *LIGADA*.\n\nA validação dentro do prazo passa a ser feita pelo sistema do aeroporto (coletor), no pátio de cada hangar. A confirmação ao cliente chega em segundos.\n\n*Desligue assim que o ValidPark voltar* — mande "desligar contingência".'
+        : '✅ Contingência do ValidPark *desligada*.\n\nA validação volta a ser feita pelo ValidPark, na hora.',
+      notificarAdmin: false, responder: true, etapa: 'comando_contingencia',
+    };
   }
 
   // O admin decide sobre DUAS coisas pelo privado: ticket bloqueado (pátio

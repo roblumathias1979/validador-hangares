@@ -135,6 +135,7 @@ function normalizar(texto) {
 const REGEX_LIGAR = /\b(ativar?|ative|ligar?|ligue|habilitar?|habilite)\b/i;
 const REGEX_DESLIGAR = /\b(desativar?|desative|desligar?|desligue|desabilitar?|desabilite|tirar?|tire|remover?|remova)\b/i;
 const REGEX_ASSUNTO_IDENT = /\b(identifica[çc][ãa]o|identificar)\b/i;
+const REGEX_ASSUNTO_CONTINGENCIA = /\b(conting[eê]ncia|valid\s?park)\b/i;
 
 /**
  * Devolve true, false ou null (não é comando).
@@ -146,6 +147,23 @@ function interpretarComandoIdentificacao(texto) {
   const t = (texto || '').trim();
   if (!t || t.length > 80) return null;
   if (!REGEX_ASSUNTO_IDENT.test(t)) return null;
+  if (REGEX_DESLIGAR.test(t)) return false;
+  if (REGEX_LIGAR.test(t)) return true;
+  return null;
+}
+
+/**
+ * Comando da administração para ligar/desligar a contingência do ValidPark.
+ * Devolve true (ligar), false (desligar) ou null (não é comando).
+ *
+ * Mesma cautela da identificação: só frase curta, para "o validpark caiu de
+ * novo" não ser lido como ordem. Precisa do verbo (ligar/desligar) E do
+ * assunto (contingência/validpark) juntos.
+ */
+function interpretarComandoContingencia(texto) {
+  const t = (texto || '').trim();
+  if (!t || t.length > 80) return null;
+  if (!REGEX_ASSUNTO_CONTINGENCIA.test(t)) return null;
   if (REGEX_DESLIGAR.test(t)) return false;
   if (REGEX_LIGAR.test(t)) return true;
   return null;
@@ -353,4 +371,4 @@ function interpretarMensagem(body) {
   };
 }
 
-module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus, interpretarPedidoPatio, interpretarEscolhaPatio, interpretarConsultaValidacao, interpretarComandoIdentificacao, normalizar };
+module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus, interpretarPedidoPatio, interpretarEscolhaPatio, interpretarConsultaValidacao, interpretarComandoIdentificacao, interpretarComandoContingencia, normalizar };
