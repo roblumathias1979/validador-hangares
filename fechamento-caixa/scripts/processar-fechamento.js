@@ -219,8 +219,14 @@ async function processar(payloadBase64) {
   // sobrando e Pix faltando se cancelando no agregado), e a mensagem não
   // pode dizer "o total diverge" quando ele estava normal.
   if (maquininha.totalDivergente) {
-    partes.push(`   • Total não-dinheiro: ${formatarReais(maquininha.naoDinheiroRelatorio)} × comprovante ${formatarReais(maquininha.totalGeralMaquininha ?? maquininha.valorDeposito)} `
-      + `(diferença de ${formatarReais(Math.abs(maquininha.diferenca))})`);
+    // Mesma classificação sobra/falta usada por forma de pagamento (pedido
+    // do usuário, 01/10/2026) — antes só dizia "diferença de RX", sem dizer
+    // se era pra mais ou pra menos. diferenca > 0 = relatório informou MAIS
+    // que o comprovante (sobra); < 0 = informou MENOS (falta) — mesma
+    // convenção de montarItem (scripts/lib/conferencia.js).
+    const rotuloTotal = maquininha.diferenca > 0 ? 'sobrando' : 'faltando';
+    partes.push(`   • Total não-dinheiro: ⚠️ ${rotuloTotal} ${formatarReais(Math.abs(maquininha.diferenca))} `
+      + `(relatório ${formatarReais(maquininha.naoDinheiroRelatorio)} × comprovante ${formatarReais(maquininha.totalGeralMaquininha ?? maquininha.valorDeposito)})`);
   }
 
   if (maquininha.status === 'a_conferir') {
