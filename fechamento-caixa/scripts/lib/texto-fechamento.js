@@ -26,7 +26,14 @@ require('dotenv').config({ path: path.join(__dirname, '..', '..', '.env'), overr
 
 const MODELO = 'claude-sonnet-5';
 
-const PROMPT_BASE = `Esta é uma mensagem de texto (sem foto) que uma unidade de estacionamento mandou complementando um fechamento de caixa, com valores escritos à mão pela própria pessoa. Os rótulos variam de unidade para unidade — já vistos: "Valor recebido" (dinheiro recebido no período), "Fundo de caixa" (troco fixo mantido no caixa para dar troco), "Envelope" (saldo físico do dinheiro acumulado na unidade — sobe com o dinheiro recebido, desce com vales e compra de insumos, até bater um valor e ir para depósito bancário).
+const PROMPT_BASE = `Esta é uma mensagem de texto (sem foto) que uma unidade de estacionamento mandou complementando um fechamento de caixa, com valores escritos à mão pela própria pessoa, de forma livre e informal (nem sempre com "R$" ou rótulo exato). Os rótulos variam de unidade para unidade — já vistos, com sinônimos comuns:
+- "Valor recebido" (dinheiro recebido no período).
+- "Fundo de caixa" (troco fixo mantido no caixa para dar troco).
+- "Envelope" — saldo FÍSICO do dinheiro acumulado na unidade (sobe com o dinheiro recebido, desce com vales e compra de insumos, até bater um valor e ir para depósito bancário). Sinônimos vistos de verdade: "dinheiro em caixa", "tem no caixa", "caixa" sozinho quando claramente fala do saldo atual em dinheiro — todos mapeiam para "envelope", não ficam de fora só por não usarem a palavra "Envelope".
+
+Uma retirada (vale, compra de insumo, qualquer saída de dinheiro do caixa) pode vir descrita em texto livre, tipo "retirada 20 para junior" ou "vale 50 pro cláudio" — isso SEMPRE conta como valor reconhecido: vai em "outrosValores" como uma linha de texto (ex: "Retirada de R$20,00 para junior"), nunca derruba a confiança pra "baixa" só por não ter um campo numérico próprio.
+
+Números sem "R$" ou sem casas decimais TAMBÉM contam (ex: "dinheiro em caixa 250" = envelope 250; "retirada 20" = retirada de R$20,00) — não exija o formato "R$X,XX" pra reconhecer um valor.
 
 Mensagem recebida:
 """
@@ -38,12 +45,12 @@ Responda APENAS com um JSON (sem markdown, sem texto antes ou depois) neste form
   "valorRecebido": <número em reais com ponto decimal, ou null se não mencionado>,
   "fundoDeCaixa": <número ou null>,
   "envelope": <número ou null>,
-  "outrosValores": ["<qualquer outro valor ou linha mencionado que não se encaixe acima, texto livre, um item por linha>"],
+  "outrosValores": ["<qualquer outro valor ou linha mencionado que não se encaixe acima — retiradas, vales, etc — texto livre, um item por linha>"],
   "confianca": "alta" | "baixa",
   "motivo": "<se confianca=baixa, explique por quê (texto ambíguo, nenhum valor reconhecível, etc); se alta, string vazia>"
 }
 
-Não invente números — um valor não mencionado na mensagem vira null. Mensagem que não tem NENHUM valor em reais reconhecível tem confianca "baixa".`;
+Não invente números — um valor não mencionado na mensagem vira null. "confianca" é "alta" sempre que PELO MENOS UM valor em reais foi identificado com razoável certeza (em qualquer um dos 4 campos acima, incluindo outrosValores) — só vira "baixa" quando a mensagem não tem NENHUM valor reconhecível, ou quando um valor existe mas é genuinamente ambíguo a ponto de poder ser mais de uma coisa diferente.`;
 
 function chamarClaude(texto) {
   return new Promise((resolve, reject) => {

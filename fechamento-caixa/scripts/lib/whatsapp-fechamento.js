@@ -73,11 +73,15 @@ function interpretarEvento(body) {
   return { ...base, ignorar: true, motivo: 'mensagem sem imagem nem texto' };
 }
 
-// "R$37,00", "R$ 200", "214,00", "37.50" — texto que parece trazer um valor
-// em dinheiro. Usado por processar-fechamento.js como gatilho barato (regex
-// local) antes de gastar uma chamada à Anthropic para interpretar um texto
-// como complemento de fechamento — só quando NÃO há pergunta pendente em
-// aberto (que aceita qualquer texto como resposta, veja retiradas.js).
-const PARECE_TER_VALOR_EM_REAIS = /r\$\s?\d|\d+[.,]\d{2}\b/i;
+// "R$37,00", "R$ 200", "214,00", "37.50" — formato explícito de dinheiro.
+// OU um número solto perto de uma palavra do domínio (dinheiro/caixa/
+// envelope/retirada/recebido/fundo/vale/depósito) — caso real (01/10/2026,
+// 1Carwash): "dinheiro em caixa 250, retirada 20 para junior" não tem "R$"
+// nem vírgula decimal nenhuma, e ficava INVISÍVEL pro sistema (mensagem
+// ignorada em silêncio, sem nem tentar interpretar). Usado por
+// processar-fechamento.js como gatilho barato (regex local) antes de gastar
+// uma chamada à Anthropic — só quando NÃO há pergunta pendente em aberto
+// (que aceita qualquer texto como resposta, veja retiradas.js).
+const PARECE_TER_VALOR_EM_REAIS = /r\$\s?\d|\d+[.,]\d{2}\b|(?=.*\d)(?=.*(?:dinheiro|caixa|envelope|retirada|recebid|fundo|vale|dep[oó]sito))/i;
 
 module.exports = { interpretarEvento, ehGrupo, PARECE_TER_VALOR_EM_REAIS };
