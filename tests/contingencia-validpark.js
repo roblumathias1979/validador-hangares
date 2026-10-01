@@ -100,6 +100,11 @@ consultar.consultarPatio = async (id, opcoes) => {
   return { status: 'patio_ok', disponiveis: 28, total: 90, mensagemWhatsapp: `📊 *${id}*\nVagas: 28 livres de 90` };
 };
 
+// Envio a grupos: stub (o real chama a Evolution). Antes do require, idem.
+const evolution = require(path.join(RAIZ, 'scripts', 'lib', 'evolution.js'));
+let enviados = [];
+evolution.enviarTexto = async (grupo, texto) => { enviados.push({ grupo, texto }); return { ok: true }; };
+
 const fila = require(path.join(RAIZ, 'scripts', 'lib', 'validacoes-pendentes.js'));
 const bloqueados = require(path.join(RAIZ, 'scripts', 'lib', 'tickets-bloqueados.js'));
 const { processar } = require(path.join(RAIZ, 'scripts', 'processar-mensagem.js'));
@@ -209,6 +214,41 @@ async function main() {
   ultimaConsulta = null;
   const consSem = await processar(textoGrupo(ADMGRUPO, 'como está o pátio?'), {});
   conferir('sem nome, pergunta qual pátio', consSem.status === 'admin_patio_sem_hangar' && ultimaConsulta === null, `veio "${consSem.status}"`);
+
+  console.log('\nDisparo de mensagem para grupos (pelo grupo admin)');
+  // Começa.
+  const bc1 = await processar(textoGrupo(ADMGRUPO, 'mandar mensagem para grupos'), {});
+  conferir('abre o disparo com a lista', bc1.status === 'broadcast_escolher_alvos' && /TODOS/i.test(bc1.mensagemWhatsapp), `veio "${bc1.status}"`);
+  conferir('lista é numerada', /\*1\*/.test(bc1.mensagemWhatsapp || ''));
+  // Escolhe TODOS.
+  const bc2 = await processar(textoGrupo(ADMGRUPO, 'todos'), {});
+  conferir('pede o texto', bc2.status === 'broadcast_pedir_texto', `veio "${bc2.status}"`);
+  // Manda o texto.
+  const MENSAGEM = 'Pátio fecha hoje às 22h para manutenção.';
+  const bc3 = await processar(textoGrupo(ADMGRUPO, MENSAGEM), {});
+  conferir('pede confirmação', bc3.status === 'broadcast_confirmar' && bc3.mensagemWhatsapp.includes(MENSAGEM), `veio "${bc3.status}"`);
+  conferir('nada enviado antes do SIM', enviados.length === 0);
+  // Confirma.
+  enviados = [];
+  const bc4 = await processar(textoGrupo(ADMGRUPO, 'sim'), {});
+  conferir('envia ao confirmar', bc4.status === 'broadcast_enviado' && bc4.broadcastEnviados > 0, `veio "${bc4.status}"`);
+  conferir('enviou a todos os grupos', enviados.length === bc4.broadcastEnviados && enviados.length > 1, `${enviados.length} envios`);
+  conferir('o grupo do Solojet recebeu o texto', enviados.some((e) => e.grupo === GRUPO && e.texto === MENSAGEM));
+  conferir('não vazou para o próprio grupo admin', enviados.every((e) => e.grupo !== ADMGRUPO));
+
+  console.log('\nDisparo: NÃO cancela, e dá para escolher por número');
+  enviados = [];
+  await processar(textoGrupo(ADMGRUPO, 'mandar mensagem para grupos'), {});
+  const sel = await processar(textoGrupo(ADMGRUPO, '1'), {});
+  conferir('seleção por número só um grupo', sel.status === 'broadcast_pedir_texto', `veio "${sel.status}"`);
+  await processar(textoGrupo(ADMGRUPO, 'teste'), {});
+  const nao = await processar(textoGrupo(ADMGRUPO, 'não'), {});
+  conferir('NÃO cancela sem enviar', nao.status === 'broadcast_cancelado' && enviados.length === 0, `veio "${nao.status}"`);
+
+  console.log('\nDisparo: CANCELAR a qualquer momento');
+  await processar(textoGrupo(ADMGRUPO, 'mandar mensagem para grupos'), {});
+  const canc = await processar(textoGrupo(ADMGRUPO, 'cancelar'), {});
+  conferir('cancela no meio', canc.status === 'broadcast_cancelado', `veio "${canc.status}"`);
 
   console.log('\nNúmero só em autorizados: contingência SIM, financeiro NÃO');
   const SO_CONT = '5511940000000@s.whatsapp.net';
