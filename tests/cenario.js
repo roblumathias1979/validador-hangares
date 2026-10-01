@@ -37,7 +37,29 @@ const PADRAO = {
  *   PADRAO são aplicados antes, então só é preciso citar o que foge do comum.
  * @param {boolean} zerarDados  esvazia histórico, pendências e fotos usadas.
  */
+// Trava de segurança: NÃO rodar contra um sistema ao vivo. Os testes gravam em
+// `config/hangares.json` e em `data/` REAIS. Com o coletor do aeroporto puxando
+// a fila a cada poucos segundos, uma validação de teste chega a ser executada de
+// verdade e o servidor avisa o grupo do cliente — aconteceu em 01/10/2026. Se há
+// um snapshot fresco, há um coletor ativo: este é um ambiente de produção, não
+// de teste. `FORCE_TEST=1` destrava para quem tem certeza do que faz.
+function pareSeAoVivo() {
+  if (process.env.FORCE_TEST === '1') return;
+  try {
+    const snap = JSON.parse(fs.readFileSync(path.join(RAIZ, 'data', 'techparking-snapshot.json'), 'utf-8'));
+    const idadeMin = (Date.now() - new Date(snap.recebidoEm).getTime()) / 60000;
+    if (idadeMin >= 0 && idadeMin < 3) {
+      console.error(`PULADO: coletor AO VIVO (snapshot de ${idadeMin.toFixed(1)} min). `
+        + 'Os testes gravam em config/ e data/ reais — rodar aqui mexeria na produção '
+        + '(o coletor executaria validações de teste). Rode no seu computador. '
+        + 'FORCE_TEST=1 destrava, por sua conta e risco.');
+      process.exit(0);
+    }
+  } catch (e) { /* sem snapshot legível: ambiente de teste, pode seguir */ }
+}
+
 function montar({ hangares = {}, zerarDados = true } = {}) {
+  pareSeAoVivo();
   const guardado = {};
   for (const arquivo of [CONFIG, ...DADOS]) {
     const p = path.join(RAIZ, arquivo);
