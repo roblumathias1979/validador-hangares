@@ -1,10 +1,15 @@
 {
   "_comentario": "Copie este arquivo para hangares.json e preencha com os dados reais. Nunca coloque senhas aqui — apenas o NOME da variável de ambiente que guarda a senha (ver .env.example).",
-  "_observacao_contingencia": "contingenciaValidPark: quando o ValidPark está fora do ar, LIGAR aqui (pelo painel) faz a validação normal (dentro do prazo) deixar de usar o site e passar a validar pelo coletor do aeroporto, no pátio do próprio hangar (TECHPARKING). É manual: alguém liga quando o ValidPark cai e DESLIGA quando ele volta. desde/por registram quando e quem ligou.",
+  "_observacao_admins": "adminsWhatsapp: números (JID …@s.whatsapp.net) que podem AGIR no privado do bot como administração — aprovar/recusar faturamento e ticket travado, e ligar/desligar a contingência. É além de quem está em grupoAdministracao de cada hangar (que também pode). grupoAdministracao continua sendo PARA ONDE os avisos vão; esta lista é só QUEM pode comandar.",
+  "adminsWhatsapp": [
+    "5511992773041@s.whatsapp.net"
+  ],
+  "_observacao_contingencia": "contingenciaValidPark: quando o ValidPark está fora do ar, LIGAR aqui (pelo painel) faz a validação normal (dentro do prazo) deixar de usar o site e passar a validar pelo coletor do aeroporto, no pátio do próprio hangar (TECHPARKING). É manual: alguém liga quando o ValidPark cai e DESLIGA quando ele volta. desde/por registram quando e quem ligou. 'autorizados' são números que podem ligar/desligar pelo WhatsApp SÓ a contingência (sem poder no financeiro); quem é admin (grupoAdministracao ou adminsWhatsapp) já pode por padrão.",
   "contingenciaValidPark": {
     "ativo": false,
     "desde": null,
-    "por": null
+    "por": null,
+    "autorizados": []
   },
   "hangares": [
     {

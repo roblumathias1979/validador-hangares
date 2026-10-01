@@ -27,6 +27,7 @@ const RAIZ = path.join(__dirname, '..');
 const GRUPO = '120363431859218622@g.us'; // Solojet (bolsão "HANGAR SOLOJET", pátio 30)
 const PESSOA = '5511999999999@s.whatsapp.net';
 const ADMIN = '5511913119423@s.whatsapp.net'; // grupoAdministracao
+const AUTORIZADO = '5511992773041@s.whatsapp.net'; // autorizado só p/ contingência
 
 require('./cenario').montar({ hangares: { solojet: { cotaMensalValidacoes: null, grupoAdministracao: ADMIN } } });
 
@@ -131,7 +132,8 @@ async function main() {
   conferir('não enfileirou às cegas', fila.listar().every((v) => v.ticket !== ticketAtual));
 
   console.log('\nComando pelo WhatsApp: admin liga e desliga no privado');
-  { const c = JSON.parse(fs.readFileSync(CONFIG, 'utf-8')); c.contingenciaValidPark = { ativo: false, desde: null, por: null }; fs.writeFileSync(CONFIG, `${JSON.stringify(c, null, 2)}\n`); }
+  const resetCont = (autorizados = []) => { const c = JSON.parse(fs.readFileSync(CONFIG, 'utf-8')); c.contingenciaValidPark = { ativo: false, desde: null, por: null, autorizados }; fs.writeFileSync(CONFIG, `${JSON.stringify(c, null, 2)}\n`); };
+  resetCont();
   const estranho = await processar(textoPrivado(PESSOA, 'ligar contingência'), {});
   conferir('não-admin é ignorado', estranho.responder === false && estranho.status === 'ignorado', `veio "${estranho.status}"`);
   conferir('e não ligou nada', ativoAgora() === false);
@@ -150,6 +152,27 @@ async function main() {
 
   const conversa = await processar(textoAdmin('o validpark caiu de novo, que saco'), {});
   conferir('frase solta não é comando', conversa.status !== 'contingencia_ligada' && ativoAgora() === false, `veio "${conversa.status}"`);
+
+  console.log('\nNúmero em adminsWhatsapp: admin COMPLETO (contingência + financeiro)');
+  resetCont();
+  const extraLiga = await processar(textoPrivado(AUTORIZADO, 'ligar contingência'), {});
+  conferir('liga a contingência', extraLiga.status === 'contingencia_ligada', `veio "${extraLiga.status}"`);
+  resetCont();
+  // Zera o que ficou pendente dos casos acima (ticket cheio bloqueado), para o
+  // "sim" não cair num pedido real. "sim" sem nada pendente: se PASSOU da porta
+  // de admin, responde "nada aguardando"; se fosse barrado, viria "ignorado".
+  fs.writeFileSync(path.join(RAIZ, 'data', 'tickets-bloqueados.json'), '{}');
+  fs.writeFileSync(path.join(RAIZ, 'data', 'validacoes-pendentes.json'), '{}');
+  const extraFin = await processar(textoPrivado(AUTORIZADO, 'sim'), {});
+  conferir('alcança o financeiro', extraFin.status === 'autorizacao_sem_alvo', `veio "${extraFin.status}"`);
+
+  console.log('\nNúmero só em autorizados: contingência SIM, financeiro NÃO');
+  const SO_CONT = '5511940000000@s.whatsapp.net';
+  resetCont([SO_CONT]);
+  const soLiga = await processar(textoPrivado(SO_CONT, 'ligar contingência'), {});
+  conferir('liga a contingência', soLiga.status === 'contingencia_ligada', `veio "${soLiga.status}"`);
+  const soFin = await processar(textoPrivado(SO_CONT, 'sim'), {});
+  conferir('não alcança o financeiro', soFin.status === 'ignorado', `veio "${soFin.status}"`);
 
   console.log('\nDesligada: volta a usar o ValidPark');
   const c = JSON.parse(fs.readFileSync(CONFIG, 'utf-8')); c.contingenciaValidPark.ativo = false; fs.writeFileSync(CONFIG, `${JSON.stringify(c, null, 2)}\n`);
