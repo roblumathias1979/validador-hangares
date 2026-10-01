@@ -108,14 +108,16 @@ function chamarClaude({ mediaType, dados }) {
       model: MODELO,
       // Dois relatórios (unidade + anexo) numa resposta só pode ficar longo,
       // principalmente com formasDePagamento e camposNaoReconhecidos. 1800
-      // não bastou de verdade: CONFIRMADO em produção (30/09/2026, Hotel
-      // Nacional Inn) que a resposta vinha CORRETA mas cortada no meio de
-      // "Tabelas de Preço" (seção sem campo próprio no schema, então o
-      // modelo despeja linha por linha em camposNaoReconhecidos) — o JSON
-      // ficava bom até ali e quebrava no parse por faltar fechar chaves.
-      // Mesmo bug já documentado em ocr-ticket.js (validador de hangares)
-      // com a conferência de local.
-      max_tokens: 4096,
+      // não bastou: CONFIRMADO em produção (30/09/2026, Hotel Nacional Inn)
+      // que a resposta vinha CORRETA mas cortada no meio de "Tabelas de
+      // Preço" — subiu pra 4096. TAMBÉM NÃO BASTOU: confirmado de novo em
+      // produção (01/10/2026, Argentina Mall) com um relatório cheio de
+      // linhas por bandeira de cartão (MAESTRO, VISA_ELECTRON, MASTERCARD,
+      // ELO...) — a resposta cortava nessa lista mesmo com 4096. A foto
+      // estava perfeitamente legível; o problema nunca foi a imagem, foi o
+      // teto de tokens da RESPOSTA. Mesmo bug já documentado em
+      // ocr-ticket.js (validador de hangares) com a conferência de local.
+      max_tokens: 8192,
       messages: [
         {
           role: 'user',
