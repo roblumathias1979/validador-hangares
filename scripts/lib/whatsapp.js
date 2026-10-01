@@ -153,6 +153,25 @@ function interpretarComandoIdentificacao(texto) {
 }
 
 /**
+ * Pergunta de diagnóstico do SISTEMA ("por que não está funcionando?", "status
+ * do validador", "diagnóstico", "o que houve"). Diferente da consulta de pátio
+ * (que é sobre vagas de um hangar). Devolve true/false.
+ */
+function interpretarPedidoDiagnostico(texto) {
+  const t = normalizar(texto || '');
+  if (!t || t.length > 120) return false;
+  if (/\bdiagnostic/.test(t)) return true;
+  if (/\b(status|situacao|como (esta|anda))\b/.test(t) && /\b(sistema|validador|bot|tudo|geral|servico|validacao)\b/.test(t)) return true;
+  if (/\bnao\b[^.?!]{0,30}\b(funciona|funcionando|valida|validando|responde|respondendo)\b/.test(t)) return true;
+  if (/\bpor que\b[^.?!]{0,30}\b(nao|parou|caiu|funciona)\b/.test(t)) return true;
+  if (/\bparou de (funcionar|validar|responder)\b/.test(t)) return true;
+  if (/\b(o que|oque)\b[^.?!]{0,20}\b(houve|aconteceu|acontecendo)\b/.test(t)) return true;
+  if (/\b(deu|ha|tem|qual o)\b[^.?!]{0,20}\bproblema\b/.test(t)) return true;
+  if (/\b(validador|sistema|o bot)\b[^.?!]{0,20}\b(caiu|fora|parado|travado|lento)\b/.test(t)) return true;
+  return false;
+}
+
+/**
  * Comando da administração para DISPARAR uma mensagem aos grupos ("mandar
  * mensagem para grupos", "avisar os grupos", "comunicado"). Devolve true/false.
  *
@@ -388,4 +407,4 @@ function interpretarMensagem(body) {
   };
 }
 
-module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus, interpretarPedidoPatio, interpretarEscolhaPatio, interpretarConsultaValidacao, interpretarComandoIdentificacao, interpretarComandoContingencia, interpretarComandoBroadcast, normalizar };
+module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus, interpretarPedidoPatio, interpretarEscolhaPatio, interpretarConsultaValidacao, interpretarComandoIdentificacao, interpretarComandoContingencia, interpretarComandoBroadcast, interpretarPedidoDiagnostico, normalizar };
