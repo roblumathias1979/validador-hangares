@@ -30,7 +30,7 @@ const { execFileSync } = require('child_process');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env'), override: true });
 
 const { carregarConfig, buscarHangarPorGrupo } = require('./lib/hangar');
-const { comTravaAsync, lerJson, salvarAtomico } = require('./lib/trava-arquivo');
+const { comTrava, comTravaAsync, lerJson, salvarAtomico } = require('./lib/trava-arquivo');
 const { destinosAdmin } = require('./lib/admins');
 const { interpretarMensagem, extrairPlaca, interpretarEscolhaPatio, interpretarComandoContingencia, interpretarComandoBroadcast, interpretarPedidoDiagnostico, normalizar } = require('./lib/whatsapp');
 // O cliente da Evolution vive em lib/evolution.js: o painel também precisa
@@ -119,6 +119,26 @@ async function avisarQuedaValidPark(motivo) {
     }
     salvarAtomico(AVISO_QUEDA_ARQUIVO, { ultimoEm: new Date().toISOString(), motivo });
   } catch (e) { /* o aviso é acessório: nunca pode derrubar a resposta ao cliente */ }
+}
+
+// Dedup de mensagem repetida: o WhatsApp/Evolution às vezes entrega o MESMO
+// evento duas vezes, e aí o bot processava a foto duas vezes — dois "recebi" e,
+// na contingência, duas validações. Marca a id da mensagem como vista (check-and-
+// set atômico) e, se já estava, manda ignorar. Janela curta: uma re-tentativa
+// legítima depois disso ainda passa.
+const MSG_VISTAS_ARQUIVO = path.join(__dirname, '..', 'data', 'mensagens-vistas.json');
+const MSG_VISTAS_MS = 2 * 60 * 1000;
+function mensagemJaVista(messageId) {
+  if (!messageId) return false;
+  return comTrava(MSG_VISTAS_ARQUIVO, () => {
+    const vistas = lerJson(MSG_VISTAS_ARQUIVO, {});
+    const agora = Date.now();
+    for (const [k, t] of Object.entries(vistas)) { if (agora - t > MSG_VISTAS_MS) delete vistas[k]; }
+    const repetida = Boolean(vistas[messageId]);
+    vistas[messageId] = agora;
+    salvarAtomico(MSG_VISTAS_ARQUIVO, vistas);
+    return repetida;
+  });
 }
 
 // Contingência LIGADA? Lida do arquivo a cada validação (o bot roda por
@@ -593,6 +613,13 @@ async function conduzir(body, { aoReceber } = {}) {
 
   if (msg.ignorar) {
     return { status: 'ignorado', motivo: msg.motivoIgnorar, grupoId: msg.grupoId, responder: false };
+  }
+
+  // Mensagem repetida (mesma id entregue duas vezes): ignora, para não processar
+  // a foto duas vezes. Vem dentro da serialização por pessoa (comSerializacao),
+  // então o check-and-set não corre risco de corrida com o webhook gêmeo.
+  if (mensagemJaVista(msg.messageId)) {
+    return { status: 'ignorado', motivo: 'mensagem repetida (mesma id)', grupoId: msg.grupoId, responder: false };
   }
 
   // Privado: só serve para a administração decidir sobre ticket bloqueado.
