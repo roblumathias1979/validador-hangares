@@ -153,6 +153,23 @@ function interpretarComandoIdentificacao(texto) {
 }
 
 /**
+ * Comando da administração para DISPARAR uma mensagem aos grupos ("mandar
+ * mensagem para grupos", "avisar os grupos", "comunicado"). Devolve true/false.
+ *
+ * Exige o assunto (mensagem/aviso/comunicado/broadcast) perto do verbo, ou
+ * "avisar/comunicar" + alvo (grupos/hangares) — para "mandar o ticket pro
+ * grupo" não abrir um disparo sem querer. Só frase curta.
+ */
+function interpretarComandoBroadcast(texto) {
+  const t = (texto || '').trim();
+  if (!t || t.length > 80) return false;
+  if (/\b(broadcast|comunicado)\b/i.test(t)) return true;
+  if (/\b(mandar|enviar|disparar|avisar|comunicar)\b[^?!.]{0,30}\b(mensagem|aviso|recado)\b/i.test(t)) return true;
+  if (/\b(avisar|comunicar)\b[^?!.]{0,20}\b(grupos?|hangares?|todos)\b/i.test(t)) return true;
+  return false;
+}
+
+/**
  * Comando da administração para ligar/desligar a contingência do ValidPark.
  * Devolve true (ligar), false (desligar) ou null (não é comando).
  *
@@ -371,4 +388,4 @@ function interpretarMensagem(body) {
   };
 }
 
-module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus, interpretarPedidoPatio, interpretarEscolhaPatio, interpretarConsultaValidacao, interpretarComandoIdentificacao, interpretarComandoContingencia, normalizar };
+module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus, interpretarPedidoPatio, interpretarEscolhaPatio, interpretarConsultaValidacao, interpretarComandoIdentificacao, interpretarComandoContingencia, interpretarComandoBroadcast, normalizar };

@@ -31,7 +31,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env'), override: t
 
 const { carregarConfig, buscarHangarPorGrupo } = require('./lib/hangar');
 const { comTravaAsync } = require('./lib/trava-arquivo');
-const { interpretarMensagem, extrairPlaca, interpretarEscolhaPatio, interpretarComandoContingencia, normalizar } = require('./lib/whatsapp');
+const { interpretarMensagem, extrairPlaca, interpretarEscolhaPatio, interpretarComandoContingencia, interpretarComandoBroadcast, normalizar } = require('./lib/whatsapp');
 // O cliente da Evolution vive em lib/evolution.js: o painel também precisa
 // mandar mensagem, e duas cópias do mesmo cliente divergiriam — inclusive no
 // `Connection: close`, que existe por um bug real de socket reaproveitado.
@@ -1622,15 +1622,175 @@ function assuntoPatioNoHub(texto) {
   return null;
 }
 
+// Hangares que recebem mensagem (têm grupo cadastrado). São os alvos possíveis
+// de um disparo, na ordem em que aparecem no config — a mesma ordem numerada
+// que o admin vê e escolhe.
+function hangaresComGrupo(config) {
+  return config.hangares.filter((h) => (h.grupoWhatsappId || '').trim());
+}
+
+/** Traduz a escolha do admin (TODOS, números, nomes) nos ids de hangar alvo. */
+function resolverAlvosBroadcast(texto, lista, config) {
+  const t = normalizar(texto || '');
+  if (/\b(todos|todas|tudo|all)\b/.test(t)) return lista.slice();
+  const escolhidos = new Set();
+  for (const n of t.match(/\d+/g) || []) {
+    const i = parseInt(n, 10) - 1;
+    if (i >= 0 && i < lista.length) escolhidos.add(lista[i]);
+  }
+  for (const id of lista) {
+    const h = config.hangares.find((x) => x.id === id);
+    const chaves = [h.hangar, h.id, String(h.id || '').replace(/-/g, ' '), h.bolsaoTechparking]
+      .filter(Boolean).map((x) => normalizar(x));
+    if (chaves.some((c) => c.length >= 3 && t.includes(c))) escolhidos.add(id);
+  }
+  return lista.filter((id) => escolhidos.has(id)); // preserva a ordem da lista
+}
+
+const CANCELAR_BROADCAST = /^\s*(cancelar|cancela|parar|sair|esquece[r]?)\s*$/i;
+
+/** Começa o disparo: mostra a lista numerada e pede os alvos. */
+function iniciarBroadcast(msg, config) {
+  const lista = hangaresComGrupo(config).map((h) => h.id);
+  if (!lista.length) {
+    return {
+      status: 'broadcast_sem_grupos', grupoId: msg.grupoId,
+      mensagemWhatsapp: 'Não há nenhum grupo de hangar cadastrado para enviar.',
+      notificarAdmin: false, responder: true, etapa: 'broadcast',
+    };
+  }
+  pendencias.registrar(msg.grupoId, msg.remetenteId, { tipo: 'broadcast_alvos', lista });
+  const linhas = lista.map((id, i) => {
+    const h = config.hangares.find((x) => x.id === id);
+    return `*${i + 1}* ${h.hangar || id}`;
+  });
+  return {
+    status: 'broadcast_escolher_alvos', grupoId: msg.grupoId,
+    mensagemWhatsapp: '📣 *Disparar mensagem para grupos*\n\nPara quais? Responda *TODOS*, '
+      + 'ou os números separados por vírgula (ex.: _1, 3, 5_):\n\n'
+      + `${linhas.join('\n')}\n\n_Para desistir, responda CANCELAR._`,
+    notificarAdmin: false, responder: true, etapa: 'broadcast',
+  };
+}
+
+/** Conduz o disparo passo a passo: alvos → texto → confirmação → envio. */
+async function continuarBroadcast(msg, pend, config) {
+  if (CANCELAR_BROADCAST.test(msg.texto || '')) {
+    pendencias.consumir(msg.grupoId, msg.remetenteId);
+    return {
+      status: 'broadcast_cancelado', grupoId: msg.grupoId,
+      mensagemWhatsapp: 'Disparo cancelado.',
+      notificarAdmin: false, responder: true, etapa: 'broadcast',
+    };
+  }
+
+  const nomesDe = (ids) => ids.map((id) => {
+    const h = config.hangares.find((x) => x.id === id);
+    return h ? (h.hangar || id) : id;
+  });
+
+  if (pend.tipo === 'broadcast_alvos') {
+    const alvos = resolverAlvosBroadcast(msg.texto, pend.lista, config);
+    if (!alvos.length) {
+      return {
+        status: 'broadcast_alvos_nao_entendido', grupoId: msg.grupoId,
+        mensagemWhatsapp: 'Não reconheci os grupos. Responda *TODOS* ou os números da lista (ex.: _1, 3_). _CANCELAR para desistir._',
+        notificarAdmin: false, responder: true, etapa: 'broadcast',
+      };
+    }
+    pendencias.consumir(msg.grupoId, msg.remetenteId);
+    pendencias.registrar(msg.grupoId, msg.remetenteId, { tipo: 'broadcast_texto', alvos });
+    const todos = alvos.length === pend.lista.length;
+    return {
+      status: 'broadcast_pedir_texto', grupoId: msg.grupoId,
+      mensagemWhatsapp: `Certo — ${todos ? `*todos os ${alvos.length} grupos*` : `*${alvos.length} grupo(s)*: ${nomesDe(alvos).join(', ')}`}.\n\n`
+        + 'Agora me mande *o texto* que vou enviar. _CANCELAR para desistir._',
+      notificarAdmin: false, responder: true, etapa: 'broadcast',
+    };
+  }
+
+  if (pend.tipo === 'broadcast_texto') {
+    const texto = String(msg.texto || '').trim();
+    if (!texto) {
+      return {
+        status: 'broadcast_texto_vazio', grupoId: msg.grupoId,
+        mensagemWhatsapp: 'Não veio texto. Me mande a mensagem que devo enviar. _CANCELAR para desistir._',
+        notificarAdmin: false, responder: true, etapa: 'broadcast',
+      };
+    }
+    pendencias.consumir(msg.grupoId, msg.remetenteId);
+    pendencias.registrar(msg.grupoId, msg.remetenteId, { tipo: 'broadcast_confirma', alvos: pend.alvos, texto });
+    const todos = pend.alvos.length === hangaresComGrupo(config).length;
+    return {
+      status: 'broadcast_confirmar', grupoId: msg.grupoId,
+      mensagemWhatsapp: `Vou enviar para ${todos ? `*todos os ${pend.alvos.length} grupos*` : `*${pend.alvos.length} grupo(s)*: ${nomesDe(pend.alvos).join(', ')}`}:\n\n`
+        + `━━━━━━━━━━\n${texto}\n━━━━━━━━━━\n\n`
+        + 'Confirma? Responda *SIM* para enviar ou *NÃO* para cancelar.',
+      notificarAdmin: false, responder: true, etapa: 'broadcast',
+    };
+  }
+
+  if (pend.tipo === 'broadcast_confirma') {
+    const resposta = msg.resposta; // 'sim' | 'nao' | null (do interpretador)
+    if (resposta !== 'sim' && resposta !== 'nao') {
+      return {
+        status: 'broadcast_confirma_nao_entendido', grupoId: msg.grupoId,
+        mensagemWhatsapp: 'Responda *SIM* para enviar ou *NÃO* para cancelar.',
+        notificarAdmin: false, responder: true, etapa: 'broadcast',
+      };
+    }
+    pendencias.consumir(msg.grupoId, msg.remetenteId);
+    if (resposta === 'nao') {
+      return {
+        status: 'broadcast_cancelado', grupoId: msg.grupoId,
+        mensagemWhatsapp: 'Disparo cancelado. Nada foi enviado.',
+        notificarAdmin: false, responder: true, etapa: 'broadcast',
+      };
+    }
+    // SIM: envia a cada grupo. Uma falha não derruba as outras.
+    let ok = 0;
+    const falharam = [];
+    for (const id of pend.alvos) {
+      const h = config.hangares.find((x) => x.id === id);
+      const destino = h && (h.grupoWhatsappId || '').trim();
+      if (!destino) { falharam.push(id); continue; }
+      try { await enviarTexto(destino, pend.texto); ok += 1; }
+      catch (e) { falharam.push(h.hangar || id); }
+    }
+    return {
+      status: 'broadcast_enviado', grupoId: msg.grupoId,
+      broadcastEnviados: ok, broadcastFalhas: falharam.length,
+      mensagemWhatsapp: `✅ Enviado para *${ok}* grupo(s).`
+        + (falharam.length ? `\n⚠️ Não consegui enviar para: ${falharam.join(', ')}.` : ''),
+      notificarAdmin: false, responder: true, etapa: 'broadcast',
+    };
+  }
+
+  // tipo broadcast desconhecido: limpa e segue.
+  pendencias.consumir(msg.grupoId, msg.remetenteId);
+  return { status: 'ignorado', motivo: 'pendência de broadcast inválida', grupoId: msg.grupoId, responder: false };
+}
+
 /**
  * Mensagens vindas de um grupo (ou número) de administração. Além dos comandos
  * de decisão (contingência, faturamento, ticket travado, em
  * responderAutorizacaoPrivada), aqui dá para CONSULTAR qualquer pátio — coisa
  * que no grupo de um hangar sai sozinha (o grupo já é o pátio), mas no hub da
- * administração precisa do nome do hangar junto.
+ * administração precisa do nome do hangar junto. E dá para DISPARAR uma
+ * mensagem a vários grupos de uma vez (com confirmação antes de enviar).
  */
 async function responderNoGrupoAdmin(msg, aoReceber) {
   const config = carregarConfig();
+
+  // Disparo em andamento tem prioridade: o admin está no meio do fluxo, e o
+  // texto que ele mandar agora é parte dele (alvos, mensagem ou SIM/NÃO).
+  const pend = msg.tipo === 'texto' ? pendencias.buscar(msg.grupoId, msg.remetenteId) : null;
+  if (pend && String(pend.tipo || '').startsWith('broadcast_')) {
+    return await continuarBroadcast(msg, pend, config);
+  }
+  if (msg.tipo === 'texto' && interpretarComandoBroadcast(msg.texto)) {
+    return iniciarBroadcast(msg, config);
+  }
   const hangar = msg.tipo === 'texto' ? acharHangarNoTexto(config, msg.texto) : null;
   // Pedido de pátio: o do parser normal (com verbo) OU, se um hangar foi
   // nomeado, o assunto solto. Nomear o hangar é o que separa consulta de
