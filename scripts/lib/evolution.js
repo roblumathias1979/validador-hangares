@@ -194,4 +194,28 @@ async function enviarTexto(grupoId, texto) {
   throw ultimoErro;
 }
 
-module.exports = { listarGrupos, criarGrupo, chamarEvolution, enviarTexto };
+// Envia uma imagem (arte, flyer) com legenda opcional. `base64` é o conteúdo da
+// imagem já em base64 (sem o prefixo data:). Mesma política de uma tentativa
+// extra do enviarTexto — um disparo para muitos grupos não pode perder um por
+// uma falha momentânea de rede.
+async function enviarImagem(grupoId, base64, { legenda = '', mimetype = 'image/jpeg', nomeArquivo = 'arte.jpg' } = {}) {
+  let ultimoErro = null;
+  for (let tentativa = 1; tentativa <= 2; tentativa += 1) {
+    try {
+      return await chamarEvolution(`/message/sendMedia/${EVOLUTION_INSTANCE}`, {
+        number: grupoId,
+        mediatype: 'image',
+        mimetype,
+        media: base64,
+        caption: legenda || '',
+        fileName: nomeArquivo,
+      });
+    } catch (erro) {
+      ultimoErro = erro;
+      if (tentativa < 2) await new Promise((r) => setTimeout(r, 1000));
+    }
+  }
+  throw ultimoErro;
+}
+
+module.exports = { listarGrupos, criarGrupo, chamarEvolution, enviarTexto, enviarImagem };

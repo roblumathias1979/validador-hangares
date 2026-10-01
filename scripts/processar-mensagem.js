@@ -36,7 +36,7 @@ const { interpretarMensagem, extrairPlaca, interpretarEscolhaPatio, interpretarC
 // O cliente da Evolution vive em lib/evolution.js: o painel também precisa
 // mandar mensagem, e duas cópias do mesmo cliente divergiriam — inclusive no
 // `Connection: close`, que existe por um bug real de socket reaproveitado.
-const { chamarEvolution, enviarTexto } = require('./lib/evolution');
+const { chamarEvolution, enviarTexto, enviarImagem } = require('./lib/evolution');
 const { avaliarLocal } = require('./lib/conferir-local');
 const pendencias = require('./lib/pendencias');
 const registro = require('./lib/registro');
@@ -1792,28 +1792,47 @@ async function continuarBroadcast(msg, pend, config) {
     return {
       status: 'broadcast_pedir_texto', grupoId: msg.grupoId,
       mensagemWhatsapp: `Certo — ${todos ? `*todos os ${alvos.length} grupos*` : `*${alvos.length} grupo(s)*: ${nomesDe(alvos).join(', ')}`}.\n\n`
-        + 'Agora me mande *o texto* que vou enviar. _CANCELAR para desistir._',
+        + 'Agora me mande *o texto* OU *a arte (imagem)* que vou enviar. '
+        + '_Na imagem, a legenda vai junto. CANCELAR para desistir._',
       notificarAdmin: false, responder: true, etapa: 'broadcast',
     };
   }
 
   if (pend.tipo === 'broadcast_texto') {
-    const texto = String(msg.texto || '').trim();
-    if (!texto) {
-      return {
-        status: 'broadcast_texto_vazio', grupoId: msg.grupoId,
-        mensagemWhatsapp: 'Não veio texto. Me mande a mensagem que devo enviar. _CANCELAR para desistir._',
-        notificarAdmin: false, responder: true, etapa: 'broadcast',
-      };
+    // O conteúdo pode ser TEXTO ou uma ARTE (imagem com legenda opcional).
+    let conteudo = null;
+    if (msg.tipo === 'imagem') {
+      try {
+        const img = await baixarImagemBase64(msg.messageId);
+        conteudo = { tipo: 'imagem', base64: img.base64, mimetype: img.mediaType, legenda: String(msg.legenda || '').trim() };
+      } catch (e) {
+        return {
+          status: 'broadcast_arte_falhou', grupoId: msg.grupoId,
+          mensagemWhatsapp: 'Não consegui baixar a imagem. Reenvie a arte, ou mande um texto. _CANCELAR para desistir._',
+          notificarAdmin: false, responder: true, etapa: 'broadcast',
+        };
+      }
+    } else {
+      const texto = String(msg.texto || '').trim();
+      if (!texto) {
+        return {
+          status: 'broadcast_texto_vazio', grupoId: msg.grupoId,
+          mensagemWhatsapp: 'Não veio nada. Me mande *o texto* OU *a arte (imagem)* que devo enviar. _CANCELAR para desistir._',
+          notificarAdmin: false, responder: true, etapa: 'broadcast',
+        };
+      }
+      conteudo = { tipo: 'texto', texto };
     }
     pendencias.consumir(msg.grupoId, msg.remetenteId);
-    pendencias.registrar(msg.grupoId, msg.remetenteId, { tipo: 'broadcast_confirma', alvos: pend.alvos, texto });
+    pendencias.registrar(msg.grupoId, msg.remetenteId, { tipo: 'broadcast_confirma', alvos: pend.alvos, conteudo });
     const todos = pend.alvos.length === hangaresComGrupo(config).length;
+    const paraQuem = todos ? `*todos os ${pend.alvos.length} grupos*` : `*${pend.alvos.length} grupo(s)*: ${nomesDe(pend.alvos).join(', ')}`;
+    const previa = conteudo.tipo === 'imagem'
+      ? `🖼️ *uma imagem*${conteudo.legenda ? ` com a legenda:\n━━━━━━━━━━\n${conteudo.legenda}\n━━━━━━━━━━` : ' (sem legenda)'}`
+      : `━━━━━━━━━━\n${conteudo.texto}\n━━━━━━━━━━`;
     return {
       status: 'broadcast_confirmar', grupoId: msg.grupoId,
-      mensagemWhatsapp: `Vou enviar para ${todos ? `*todos os ${pend.alvos.length} grupos*` : `*${pend.alvos.length} grupo(s)*: ${nomesDe(pend.alvos).join(', ')}`}:\n\n`
-        + `━━━━━━━━━━\n${texto}\n━━━━━━━━━━\n\n`
-        + 'Confirma? Responda *SIM* para enviar ou *NÃO* para cancelar.',
+      mensagemWhatsapp: `Vou enviar para ${paraQuem}:\n\n${previa}\n\nConfirma? Responda *SIM* para enviar ou *NÃO* para cancelar.`,
       notificarAdmin: false, responder: true, etapa: 'broadcast',
     };
   }
@@ -1835,20 +1854,28 @@ async function continuarBroadcast(msg, pend, config) {
         notificarAdmin: false, responder: true, etapa: 'broadcast',
       };
     }
-    // SIM: envia a cada grupo. Uma falha não derruba as outras.
+    // SIM: envia a cada grupo. Uma falha não derruba as outras. `conteudo` pode
+    // ser texto ou imagem (compat: pendências antigas tinham `texto` solto).
+    const conteudo = pend.conteudo || { tipo: 'texto', texto: pend.texto };
     let ok = 0;
     const falharam = [];
     for (const id of pend.alvos) {
       const h = config.hangares.find((x) => x.id === id);
       const destino = h && (h.grupoWhatsappId || '').trim();
       if (!destino) { falharam.push(id); continue; }
-      try { await enviarTexto(destino, pend.texto); ok += 1; }
-      catch (e) { falharam.push(h.hangar || id); }
+      try {
+        if (conteudo.tipo === 'imagem') {
+          await enviarImagem(destino, conteudo.base64, { legenda: conteudo.legenda, mimetype: conteudo.mimetype });
+        } else {
+          await enviarTexto(destino, conteudo.texto);
+        }
+        ok += 1;
+      } catch (e) { falharam.push(h.hangar || id); }
     }
     return {
       status: 'broadcast_enviado', grupoId: msg.grupoId,
       broadcastEnviados: ok, broadcastFalhas: falharam.length,
-      mensagemWhatsapp: `✅ Enviado para *${ok}* grupo(s).`
+      mensagemWhatsapp: `✅ Enviado para *${ok}* grupo(s)${conteudo.tipo === 'imagem' ? ' (arte)' : ''}.`
         + (falharam.length ? `\n⚠️ Não consegui enviar para: ${falharam.join(', ')}.` : ''),
       notificarAdmin: false, responder: true, etapa: 'broadcast',
     };
@@ -1870,9 +1897,10 @@ async function continuarBroadcast(msg, pend, config) {
 async function responderNoGrupoAdmin(msg, aoReceber) {
   const config = carregarConfig();
 
-  // Disparo em andamento tem prioridade: o admin está no meio do fluxo, e o
-  // texto que ele mandar agora é parte dele (alvos, mensagem ou SIM/NÃO).
-  const pend = msg.tipo === 'texto' ? pendencias.buscar(msg.grupoId, msg.remetenteId) : null;
+  // Disparo em andamento tem prioridade: o que o admin mandar agora é parte dele
+  // (alvos, a mensagem/arte, ou SIM/NÃO). Vale também para IMAGEM — a arte entra
+  // aqui —, por isso busca a pendência mesmo quando não é texto.
+  const pend = pendencias.buscar(msg.grupoId, msg.remetenteId);
   if (pend && String(pend.tipo || '').startsWith('broadcast_')) {
     return await continuarBroadcast(msg, pend, config);
   }
