@@ -28,7 +28,7 @@ const { conferirFechamentoInterno, conferirMaquininha } = require('./lib/confere
 const { gravarFechamento, gravarComplemento, totalDinheiroPorUnidade, fechamentoJaExiste } = require('./lib/armazenamento');
 const {
   abrirPendencia, buscarPendencia, atualizarPendencia, encerrarPendencia,
-  salvarComprovante, interpretarSimNao,
+  salvarComprovante, interpretarSimNao, calcularDiferencaEnvelope,
 } = require('./lib/retiradas');
 
 function formatarReais(v) {
@@ -298,7 +298,13 @@ async function processarTexto(msg, unidade) {
   let abriuPendenciaRetirada = false;
   if (lido.envelope !== null) {
     partes.push(`   • Envelope: ${formatarReais(lido.envelope)} (novo saldo de controle desta unidade)`);
-    const diferenca = Number((lido.envelope - saldoAnterior).toFixed(2));
+
+    // calcularDiferencaEnvelope soma o valorRecebido ao saldo anterior antes
+    // de comparar — ver comentário na função (scripts/lib/retiradas.js) e o
+    // caso real que isso corrige (Vila Mariana, 30/09→01/10/2026).
+    const { diferenca } = calcularDiferencaEnvelope({
+      saldoAnterior, valorRecebido: lido.valorRecebido, envelopeInformado: lido.envelope,
+    });
 
     if (diferenca < -TOLERANCIA_RETIRADA) {
       // Envelope veio MENOR do que a soma esperava — dinheiro saiu do caixa
@@ -311,7 +317,7 @@ async function processarTexto(msg, unidade) {
       abriuPendenciaRetirada = true;
       partes.push(`   • 💸 Isso indica uma retirada de ${formatarReais(Math.abs(diferenca))} do caixa desde o último controle. Qual foi o motivo (vale, insumo, outro)?`);
     } else if (Math.abs(diferenca) > 0.01) {
-      partes.push(`   • (${diferenca > 0 ? '+' : '-'}${formatarReais(Math.abs(diferenca))} de diferença em relação ao esperado só pela soma anterior)`);
+      partes.push(`   • (${diferenca > 0 ? '+' : '-'}${formatarReais(Math.abs(diferenca))} de diferença em relação ao esperado: saldo anterior + valor recebido)`);
     }
   }
 

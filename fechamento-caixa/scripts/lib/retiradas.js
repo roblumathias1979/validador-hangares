@@ -20,6 +20,22 @@
 const fs = require('fs');
 const path = require('path');
 
+/**
+ * Quanto o Envelope deveria valer e qual a diferença real — pedido do
+ * usuário (30/09→01/10/2026, caso real Vila Mariana): uma mesma mensagem
+ * pode informar "Valor recebido" (soma ao Envelope) E uma retirada em
+ * "outrosValores" (ex: "Vale Cláudio R$50") no mesmo texto. Comparar o
+ * Envelope informado direto contra o saldo anterior, sem somar o recebido,
+ * subestima a retirada: Envelope caiu só R$10 (214->204) porque os R$40
+ * recebidos quase cobriram a retirada de R$50 — o esperado é
+ * saldoAnterior + valorRecebido (254), não só saldoAnterior (214).
+ */
+function calcularDiferencaEnvelope({ saldoAnterior, valorRecebido, envelopeInformado }) {
+  const envelopeEsperado = Number(((saldoAnterior || 0) + (valorRecebido || 0)).toFixed(2));
+  const diferenca = Number((envelopeInformado - envelopeEsperado).toFixed(2));
+  return { envelopeEsperado, diferenca };
+}
+
 const PENDENCIAS_PATH = path.join(__dirname, '..', '..', 'data', 'retiradas-pendentes.json');
 const HISTORICO_PATH = path.join(__dirname, '..', '..', 'data', 'retiradas.jsonl');
 const COMPROVANTES_DIR = path.join(__dirname, '..', '..', 'data', 'comprovantes-retirada');
@@ -111,6 +127,7 @@ function interpretarSimNao(texto) {
 }
 
 module.exports = {
+  calcularDiferencaEnvelope,
   abrirPendencia, buscarPendencia, atualizarPendencia, encerrarPendencia,
   listarHistorico, salvarComprovante, interpretarSimNao,
   PENDENCIAS_PATH, HISTORICO_PATH,

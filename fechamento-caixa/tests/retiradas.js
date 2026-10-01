@@ -14,7 +14,7 @@ const path = require('path');
 const {
   PENDENCIAS_PATH, HISTORICO_PATH,
   abrirPendencia, buscarPendencia, atualizarPendencia, encerrarPendencia,
-  listarHistorico, interpretarSimNao,
+  listarHistorico, interpretarSimNao, calcularDiferencaEnvelope,
 } = require(path.join(__dirname, '..', 'scripts', 'lib', 'retiradas'));
 
 function backup(caminho) {
@@ -39,7 +39,25 @@ try {
   fs.writeFileSync(PENDENCIAS_PATH, '{}');
   fs.writeFileSync(HISTORICO_PATH, '');
 
-  console.log('interpretarSimNao é restrito (não aceita "ok"/emoji como resposta)');
+  console.log('calcularDiferencaEnvelope soma o valorRecebido antes de comparar (caso real: Vila Mariana, 30/09→01/10/2026)');
+  {
+    // "Valor recebido R$40" + "Vale Cláudio R$50" no mesmo texto: Envelope
+    // caiu só 214->204 (R$10) porque o recebido quase cobriu a retirada de
+    // R$50 — o bug antigo comparava 204 direto contra 214 e achava só R$10.
+    const r = calcularDiferencaEnvelope({ saldoAnterior: 214, valorRecebido: 40, envelopeInformado: 204 });
+    conferir('esperado = 214 + 40 = 254', r.envelopeEsperado === 254, r.envelopeEsperado);
+    conferir('retirada real = 254 - 204 = 50 (não 10)', r.diferenca === -50, r.diferenca);
+  }
+  conferir(
+    'sem valorRecebido informado -> esperado é só o saldo anterior (compatível com o comportamento antigo)',
+    calcularDiferencaEnvelope({ saldoAnterior: 214, valorRecebido: null, envelopeInformado: 180 }).diferenca === -34
+  );
+  conferir(
+    'Envelope maior que o esperado -> diferença positiva, não é retirada',
+    calcularDiferencaEnvelope({ saldoAnterior: 100, valorRecebido: 20, envelopeInformado: 130 }).diferenca === 10
+  );
+
+  console.log('\ninterpretarSimNao é restrito (não aceita "ok"/emoji como resposta)');
   conferir('"sim" -> sim', interpretarSimNao('sim') === 'sim');
   conferir('"Não." (com ponto e maiúscula) -> nao', interpretarSimNao('Não.') === 'nao');
   conferir('"ok" -> null (não é uma resposta válida)', interpretarSimNao('ok') === null);
