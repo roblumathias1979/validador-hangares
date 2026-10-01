@@ -31,7 +31,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env'), override: t
 
 const { carregarConfig, buscarHangarPorGrupo } = require('./lib/hangar');
 const { comTravaAsync } = require('./lib/trava-arquivo');
-const { interpretarMensagem, extrairPlaca, interpretarEscolhaPatio, interpretarComandoContingencia } = require('./lib/whatsapp');
+const { interpretarMensagem, extrairPlaca, interpretarEscolhaPatio, interpretarComandoContingencia, normalizar } = require('./lib/whatsapp');
 // O cliente da Evolution vive em lib/evolution.js: o painel também precisa
 // mandar mensagem, e duas cópias do mesmo cliente divergiriam — inclusive no
 // `Connection: close`, que existe por um bug real de socket reaproveitado.
@@ -510,6 +510,15 @@ async function conduzir(body, { aoReceber } = {}) {
   // Privado: só serve para a administração decidir sobre ticket bloqueado.
   if (msg.tipo === 'texto_privado') {
     return await responderAutorizacaoPrivada(msg);
+  }
+
+  // Grupo de administração: os comandos do privado valem a partir de um grupo
+  // listado como admin (contingência, faturamento, ticket travado) E dá para
+  // consultar qualquer pátio, nomeando o hangar. É um grupo criado só para
+  // isso — por isso vai ao handler da administração, e não ao fluxo de hangar
+  // (um grupo admin não é um hangar, e buscarHangarPorGrupo nem o encontraria).
+  if (ehFonteAdmin(carregarConfig(), msg.grupoId)) {
+    return await responderNoGrupoAdmin(msg, aoReceber);
   }
 
   const hangar = buscarHangarPorGrupo(carregarConfig(), msg.grupoId);
@@ -1565,16 +1574,105 @@ async function conduzir(body, { aoReceber } = {}) {
  * número do bot é público dentro dos grupos, e responder a estranhos
  * confirmaria que existe algo ali para ser explorado.
  */
+// Fonte reconhecida como administração: o destino de aviso de algum hangar
+// (grupoAdministracao), OU uma entrada na lista global adminsWhatsapp — que
+// aceita tanto um NÚMERO (…@s.whatsapp.net) quanto um GRUPO (…@g.us), para dar
+// poder de comando a um segundo telefone ou a um grupo só da administração.
+function ehFonteAdmin(config, jid) {
+  const id = (jid || '').trim();
+  if (!id) return false;
+  if ((config.adminsWhatsapp || []).map((n) => String(n).trim()).includes(id)) return true;
+  return config.hangares.some((h) => (h.grupoAdministracao || '').trim() === id);
+}
+
+/**
+ * Acha o hangar citado num texto livre ("pátio do solojet", "credenciados aibm
+ * 2"). Casa por nome, id e bolsão, e prefere o MAIS LONGO: "aibm 2" ganha de
+ * "aibm", "solojet shares" ganha de "solojet". Sem citação clara, devolve null
+ * — melhor perguntar qual pátio do que consultar o errado.
+ */
+function acharHangarNoTexto(config, texto) {
+  const t = normalizar(texto || '');
+  if (!t) return null;
+  let melhor = null;
+  for (const h of config.hangares) {
+    const chaves = [h.hangar, h.id, String(h.id || '').replace(/-/g, ' '), h.bolsaoTechparking]
+      .filter(Boolean).map((x) => normalizar(x));
+    for (const chave of chaves) {
+      if (chave.length >= 3 && t.includes(chave) && (!melhor || chave.length > melhor.len)) {
+        melhor = { hangar: h, len: chave.length };
+      }
+    }
+  }
+  return melhor ? melhor.hangar : null;
+}
+
+/**
+ * O assunto de pátio num texto, SEM exigir verbo — "credenciados do solojet",
+ * "vagas do alljet". No grupo do hangar o parser pede verbo (para frase solta
+ * não virar comando), mas no hub da administração nomear o hangar já é a
+ * intenção clara, então aqui basta o assunto. Devolve 'credenciados', 'tickets',
+ * 'status' ou null.
+ */
+function assuntoPatioNoHub(texto) {
+  const t = normalizar(texto || '');
+  if (/\b(credenciad[oa]s?|mensalistas?)\b/.test(t)) return 'credenciados';
+  if (/\btickets?\b/.test(t)) return 'tickets';
+  if (/\b(patio|vagas?|estacionamento)\b/.test(t)) return 'status';
+  return null;
+}
+
+/**
+ * Mensagens vindas de um grupo (ou número) de administração. Além dos comandos
+ * de decisão (contingência, faturamento, ticket travado, em
+ * responderAutorizacaoPrivada), aqui dá para CONSULTAR qualquer pátio — coisa
+ * que no grupo de um hangar sai sozinha (o grupo já é o pátio), mas no hub da
+ * administração precisa do nome do hangar junto.
+ */
+async function responderNoGrupoAdmin(msg, aoReceber) {
+  const config = carregarConfig();
+  const hangar = msg.tipo === 'texto' ? acharHangarNoTexto(config, msg.texto) : null;
+  // Pedido de pátio: o do parser normal (com verbo) OU, se um hangar foi
+  // nomeado, o assunto solto. Nomear o hangar é o que separa consulta de
+  // conversa — sem nome, uma palavra solta ("vagas") não vira consulta.
+  const pedido = (msg.tipo === 'texto' && (msg.pedidoPatio || (hangar ? assuntoPatioNoHub(msg.texto) : null))) || null;
+
+  if (pedido) {
+    if (!hangar) {
+      const nomes = config.hangares
+        .filter((h) => (h.grupoWhatsappId || '').trim())
+        .map((h) => h.hangar || h.id);
+      const exemplo = pedido === 'credenciados' ? 'credenciados do Solojet'
+        : pedido === 'tickets' ? 'tickets validados do Alljet' : 'como está o pátio do Solojet';
+      return {
+        status: 'admin_patio_sem_hangar', grupoId: msg.grupoId,
+        mensagemWhatsapp: `De qual pátio? Diga o nome do hangar junto — ex.: *${exemplo}*.\n\n`
+          + `Pátios: ${nomes.join(', ')}.`,
+        notificarAdmin: false, responder: true, etapa: 'admin_patio',
+      };
+    }
+    if (aoReceber) {
+      try { await aoReceber(msg.grupoId, `🔎 Consultando o pátio ${hangar.hangar || hangar.id}...`); } catch (e) { /* aviso é conforto */ }
+    }
+    // Sem menu no hub: o genérico ("status") traz tudo de uma vez, que é o que
+    // quem administra quer ao olhar um pátio de fora.
+    const formato = pedido === 'credenciados' ? 'credenciados'
+      : pedido === 'tickets' ? 'tickets' : 'ambos';
+    const patio = await consultarPatio(hangar.id, { formato });
+    return {
+      status: patio.status, hangarId: hangar.id, grupoId: msg.grupoId,
+      mensagemWhatsapp: patio.mensagemWhatsapp,
+      notificarAdmin: patio.notificarAdmin === true, responder: true, etapa: `admin_patio_${formato}`,
+      vagasDisponiveis: patio.disponiveis ?? null, totalVagas: patio.total ?? null,
+    };
+  }
+
+  return await responderAutorizacaoPrivada(msg);
+}
+
 async function responderAutorizacaoPrivada(msg) {
   const config = carregarConfig();
-  // Admin de verdade: o destino de aviso de algum hangar (grupoAdministracao)
-  // OU um número na lista global adminsWhatsapp. A lista existe para dar poder
-  // de agir no privado a quem não é o destino dos avisos — um segundo telefone
-  // da administração, por exemplo.
-  const grupoId = (msg.grupoId || '').trim();
-  const adminsWhatsapp = (config.adminsWhatsapp || []).map((n) => String(n).trim());
-  const ehAdmin = adminsWhatsapp.includes(grupoId)
-    || config.hangares.some((h) => (h.grupoAdministracao || '').trim() === grupoId);
+  const ehAdmin = ehFonteAdmin(config, msg.grupoId);
 
   // Comando de contingência: ligar/desligar o contorno do ValidPark pelo
   // WhatsApp, para quando a queda pega longe do painel. Vem ANTES da porta do

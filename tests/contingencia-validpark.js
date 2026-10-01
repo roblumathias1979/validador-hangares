@@ -27,7 +27,8 @@ const RAIZ = path.join(__dirname, '..');
 const GRUPO = '120363431859218622@g.us'; // Solojet (bolsão "HANGAR SOLOJET", pátio 30)
 const PESSOA = '5511999999999@s.whatsapp.net';
 const ADMIN = '5511913119423@s.whatsapp.net'; // grupoAdministracao
-const AUTORIZADO = '5511992773041@s.whatsapp.net'; // autorizado só p/ contingência
+const AUTORIZADO = '5511992773041@s.whatsapp.net'; // admin completo (adminsWhatsapp)
+const ADMGRUPO = '120363432317888806@g.us'; // grupo de administração (adminsWhatsapp)
 
 require('./cenario').montar({ hangares: { solojet: { cotaMensalValidacoes: null, grupoAdministracao: ADMIN } } });
 
@@ -90,6 +91,15 @@ http.request = (_o, cb) => {
   return { on() { return this; }, write() {}, end() {}, setTimeout() {}, destroy() {} };
 };
 
+// Consulta de pátio: stub (o real abre o ValidPark via Playwright). Precisa
+// estar de pé ANTES de processar-mensagem exigir o módulo, que ele desestrutura.
+const consultar = require(path.join(RAIZ, 'scripts', 'consultar-patio.js'));
+let ultimaConsulta = null;
+consultar.consultarPatio = async (id, opcoes) => {
+  ultimaConsulta = { id, formato: (opcoes || {}).formato };
+  return { status: 'patio_ok', disponiveis: 28, total: 90, mensagemWhatsapp: `📊 *${id}*\nVagas: 28 livres de 90` };
+};
+
 const fila = require(path.join(RAIZ, 'scripts', 'lib', 'validacoes-pendentes.js'));
 const bloqueados = require(path.join(RAIZ, 'scripts', 'lib', 'tickets-bloqueados.js'));
 const { processar } = require(path.join(RAIZ, 'scripts', 'processar-mensagem.js'));
@@ -97,6 +107,7 @@ const { processar } = require(path.join(RAIZ, 'scripts', 'processar-mensagem.js'
 const foto = (grupo) => ({ data: { key: { remoteJid: grupo, fromMe: false, id: `T${Math.random()}`, participant: PESSOA }, pushName: 'Cliente', message: { imageMessage: { caption: '', mimetype: 'image/jpeg' } } } });
 const textoAdmin = (t) => ({ data: { key: { remoteJid: ADMIN, fromMe: false, id: `A${Math.random()}` }, pushName: 'Rodrigo', message: { conversation: t } } });
 const textoPrivado = (de, t) => ({ data: { key: { remoteJid: de, fromMe: false, id: `P${Math.random()}` }, pushName: 'Estranho', message: { conversation: t } } });
+const textoGrupo = (grupo, t) => ({ data: { key: { remoteJid: grupo, fromMe: false, id: `G${Math.random()}`, participant: PESSOA }, pushName: 'Alguém', message: { conversation: t } } });
 const ativoAgora = () => (JSON.parse(fs.readFileSync(CONFIG, 'utf-8')).contingenciaValidPark || {}).ativo === true;
 
 let falhas = 0;
@@ -165,6 +176,39 @@ async function main() {
   fs.writeFileSync(path.join(RAIZ, 'data', 'validacoes-pendentes.json'), '{}');
   const extraFin = await processar(textoPrivado(AUTORIZADO, 'sim'), {});
   conferir('alcança o financeiro', extraFin.status === 'autorizacao_sem_alvo', `veio "${extraFin.status}"`);
+
+  console.log('\nGrupo de administração: comanda pela conversa do grupo');
+  resetCont();
+  const grpLiga = await processar(textoGrupo(ADMGRUPO, 'ligar contingência'), {});
+  conferir('grupo admin liga', grpLiga.status === 'contingencia_ligada', `veio "${grpLiga.status}"`);
+  conferir('config ligada', ativoAgora() === true);
+  const grpDesliga = await processar(textoGrupo(ADMGRUPO, 'desligar contingência'), {});
+  conferir('grupo admin desliga', grpDesliga.status === 'contingencia_desligada', `veio "${grpDesliga.status}"`);
+  fs.writeFileSync(path.join(RAIZ, 'data', 'tickets-bloqueados.json'), '{}');
+  fs.writeFileSync(path.join(RAIZ, 'data', 'validacoes-pendentes.json'), '{}');
+  const grpFin = await processar(textoGrupo(ADMGRUPO, 'sim'), {});
+  conferir('grupo admin alcança o financeiro', grpFin.status === 'autorizacao_sem_alvo', `veio "${grpFin.status}"`);
+  const grpOutro = await processar(textoGrupo(GRUPO, 'ligar contingência'), {});
+  conferir('grupo de hangar comum NÃO comanda', grpOutro.status !== 'contingencia_ligada', `veio "${grpOutro.status}"`);
+
+  console.log('\nConsulta de pátio pelo grupo admin (nomeando o hangar)');
+  ultimaConsulta = null;
+  const cons1 = await processar(textoGrupo(ADMGRUPO, 'como está o pátio do solojet'), {});
+  conferir('consulta o hangar citado', ultimaConsulta && ultimaConsulta.id === 'solojet', JSON.stringify(ultimaConsulta));
+  conferir('genérico traz tudo (ambos)', ultimaConsulta && ultimaConsulta.formato === 'ambos', ultimaConsulta && ultimaConsulta.formato);
+  conferir('responde com o pátio', /Vagas:/.test(cons1.mensagemWhatsapp || ''));
+
+  ultimaConsulta = null;
+  await processar(textoGrupo(ADMGRUPO, 'credenciados do alljet'), {}); // sem verbo: vale no hub
+  conferir('credenciados vai no formato certo', ultimaConsulta && ultimaConsulta.id === 'alljet' && ultimaConsulta.formato === 'credenciados', JSON.stringify(ultimaConsulta));
+
+  ultimaConsulta = null;
+  await processar(textoGrupo(ADMGRUPO, 'tickets validados do aibm 2'), {});
+  conferir('tickets do aibm 2 no formato certo', ultimaConsulta && ultimaConsulta.id === 'aibm-2' && ultimaConsulta.formato === 'tickets', JSON.stringify(ultimaConsulta));
+
+  ultimaConsulta = null;
+  const consSem = await processar(textoGrupo(ADMGRUPO, 'como está o pátio?'), {});
+  conferir('sem nome, pergunta qual pátio', consSem.status === 'admin_patio_sem_hangar' && ultimaConsulta === null, `veio "${consSem.status}"`);
 
   console.log('\nNúmero só em autorizados: contingência SIM, financeiro NÃO');
   const SO_CONT = '5511940000000@s.whatsapp.net';
