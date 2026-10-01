@@ -30,7 +30,8 @@ const { execFileSync } = require('child_process');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env'), override: true });
 
 const { carregarConfig, buscarHangarPorGrupo } = require('./lib/hangar');
-const { comTravaAsync } = require('./lib/trava-arquivo');
+const { comTravaAsync, lerJson, salvarAtomico } = require('./lib/trava-arquivo');
+const { destinosAdmin } = require('./lib/admins');
 const { interpretarMensagem, extrairPlaca, interpretarEscolhaPatio, interpretarComandoContingencia, interpretarComandoBroadcast, normalizar } = require('./lib/whatsapp');
 // O cliente da Evolution vive em lib/evolution.js: o painel também precisa
 // mandar mensagem, e duas cópias do mesmo cliente divergiriam — inclusive no
@@ -86,6 +87,39 @@ function rodarScript(arquivo, args) {
 const CONTINGENCIA_ESPERA_MS = Number(process.env.CONTINGENCIA_ESPERA_MS) || 25000;
 const CONTINGENCIA_POLL_MS = Number(process.env.CONTINGENCIA_POLL_MS) || 1000;
 const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Aviso de "ValidPark parece fora" quando uma validação falha por infraestrutura.
+// Throttle: não repetir antes disto, senão uma queda com movimento vira enxurrada.
+const AVISO_QUEDA_ARQUIVO = path.join(__dirname, '..', 'data', 'aviso-queda-validpark.json');
+const AVISO_QUEDA_MIN_MS = Number(process.env.AVISO_QUEDA_MIN_MS) || 15 * 60 * 1000;
+
+// Status do validate-ticket que indicam o SITE fora (não recusa legítima).
+// 'indeterminado' = login/resultado não confirmados; 'erro' = exceção (rede,
+// navegador, timeout). Recusas reais (sem_vagas, já utilizado, prazo) ficam de
+// fora de propósito, para o aviso não disparar à toa.
+const STATUS_QUEDA = new Set(['indeterminado', 'erro']);
+
+/**
+ * Cutuca a administração quando o ValidPark parece fora — o "empurrão" para
+ * ligar a contingência. Não liga nada sozinho: só avisa, e com trava de tempo
+ * para não repetir. Silencioso se a contingência já está ligada (nada a avisar).
+ */
+async function avisarQuedaValidPark(motivo) {
+  try {
+    const estado = lerJson(AVISO_QUEDA_ARQUIVO, {});
+    if (estado.ultimoEm && Date.now() - new Date(estado.ultimoEm).getTime() < AVISO_QUEDA_MIN_MS) return;
+    const config = carregarConfig();
+    if ((config.contingenciaValidPark || {}).ativo === true) return;
+    const destinos = destinosAdmin(config);
+    if (!destinos.length) return;
+    const texto = `🔴 O ValidPark falhou numa validação agora (${motivo}) — pode estar fora do ar.\n\n`
+      + 'Quer validar pelo sistema do aeroporto enquanto isso? Responda *ligar contingência*.';
+    for (const d of destinos) {
+      try { await enviarTexto(d, texto); } catch (e) { /* um destino falhar não impede os outros */ }
+    }
+    salvarAtomico(AVISO_QUEDA_ARQUIVO, { ultimoEm: new Date().toISOString(), motivo });
+  } catch (e) { /* o aviso é acessório: nunca pode derrubar a resposta ao cliente */ }
+}
 
 // Contingência LIGADA? Lida do arquivo a cada validação (o bot roda por
 // mensagem, então não há cache a envelhecer): o painel liga/desliga e vale já.
@@ -249,6 +283,12 @@ async function validar(hangar, msg, pedido, usarCota, faturamento = {}) {
     faturamento.fotoAutorizacao || '',
   ]);
 
+  // ValidPark falhou por infraestrutura (não recusa legítima)? Marca para o
+  // invólucro cutucar a administração — o "quer ligar a contingência?".
+  if (STATUS_QUEDA.has(validacao.status)) {
+    validacao.quedaValidPark = { motivo: validacao.status };
+  }
+
   // Pátio cheio: trava o ticket até a administração decidir.
   //
   // Se não há vaga, o carro daquele ticket provavelmente não está ali. Pode ser
@@ -332,6 +372,9 @@ async function validar(hangar, msg, pedido, usarCota, faturamento = {}) {
     notificarAdmin: validacao.notificarAdmin === true,
     responder: true,
     etapa: usarCota ? 'validacao_com_cota' : 'validacao',
+    // Leva adiante a marca de queda do ValidPark para o invólucro cutucar a
+    // administração (ver avisarQuedaValidPark em processar).
+    quedaValidPark: validacao.quedaValidPark || null,
   };
 }
 
@@ -508,6 +551,12 @@ async function processar(body, opcoes = {}) {
       hangar = buscarHangarPorGrupo(carregarConfig(), resultado.grupoId);
     } catch (e) { /* grupo desconhecido: cai no adminNaoConfigurado abaixo */ }
     await avisarAdmin(hangar, resultado, opcoes.aoNotificarAdmin);
+  }
+
+  // ValidPark caiu numa validação: cutuca a administração para ligar a
+  // contingência (com trava de tempo, e só se não estiver já ligada).
+  if (resultado.quedaValidPark) {
+    await avisarQuedaValidPark(resultado.quedaValidPark.motivo);
   }
 
   return resultado;
