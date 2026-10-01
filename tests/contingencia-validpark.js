@@ -107,7 +107,9 @@ consultar.consultarPatio = async (id, opcoes) => {
 // Envio a grupos: stub (o real chama a Evolution). Antes do require, idem.
 const evolution = require(path.join(RAIZ, 'scripts', 'lib', 'evolution.js'));
 let enviados = [];
+let imagensEnviadas = [];
 evolution.enviarTexto = async (grupo, texto) => { enviados.push({ grupo, texto }); return { ok: true }; };
+evolution.enviarImagem = async (grupo, base64, opts) => { imagensEnviadas.push({ grupo, base64, legenda: (opts || {}).legenda }); return { ok: true }; };
 
 const fila = require(path.join(RAIZ, 'scripts', 'lib', 'validacoes-pendentes.js'));
 const bloqueados = require(path.join(RAIZ, 'scripts', 'lib', 'tickets-bloqueados.js'));
@@ -117,6 +119,7 @@ const foto = (grupo) => ({ data: { key: { remoteJid: grupo, fromMe: false, id: `
 const textoAdmin = (t) => ({ data: { key: { remoteJid: ADMIN, fromMe: false, id: `A${Math.random()}` }, pushName: 'Rodrigo', message: { conversation: t } } });
 const textoPrivado = (de, t) => ({ data: { key: { remoteJid: de, fromMe: false, id: `P${Math.random()}` }, pushName: 'Estranho', message: { conversation: t } } });
 const textoGrupo = (grupo, t) => ({ data: { key: { remoteJid: grupo, fromMe: false, id: `G${Math.random()}`, participant: PESSOA }, pushName: 'Alguém', message: { conversation: t } } });
+const fotoGrupoAdmin = (legenda) => ({ data: { key: { remoteJid: ADMGRUPO, fromMe: false, id: `I${Math.random()}`, participant: PESSOA }, pushName: 'Alguém', message: { imageMessage: { caption: legenda, mimetype: 'image/jpeg' } } } });
 const ativoAgora = () => (JSON.parse(fs.readFileSync(CONFIG, 'utf-8')).contingenciaValidPark || {}).ativo === true;
 
 // "Coletor" simulado: fica de olho na fila e, assim que o bot enfileira uma
@@ -286,6 +289,20 @@ async function main() {
   await processar(textoGrupo(ADMGRUPO, 'teste'), {});
   const nao = await processar(textoGrupo(ADMGRUPO, 'não'), {});
   conferir('NÃO cancela sem enviar', nao.status === 'broadcast_cancelado' && enviados.length === 0, `veio "${nao.status}"`);
+
+  console.log('\nDisparo de ARTE (imagem) em massa');
+  enviados = []; imagensEnviadas = [];
+  await processar(textoGrupo(ADMGRUPO, 'mandar mensagem para grupos'), {});
+  await processar(textoGrupo(ADMGRUPO, 'todos'), {});
+  const artePrev = await processar(fotoGrupoAdmin('Promoção de outubro!'), {});
+  conferir('reconhece a arte e pede confirmação', artePrev.status === 'broadcast_confirmar' && /imagem/i.test(artePrev.mensagemWhatsapp), `veio "${artePrev.status}"`);
+  conferir('mostra a legenda na prévia', /Promoção de outubro/.test(artePrev.mensagemWhatsapp || ''));
+  conferir('nada enviado antes do SIM', imagensEnviadas.length === 0);
+  const arteEnv = await processar(textoGrupo(ADMGRUPO, 'sim'), {});
+  conferir('envia a arte ao confirmar', arteEnv.status === 'broadcast_enviado' && arteEnv.broadcastEnviados > 0, `veio "${arteEnv.status}"`);
+  conferir('enviou IMAGEM (não texto) a todos', imagensEnviadas.length === arteEnv.broadcastEnviados && imagensEnviadas.length > 1, `${imagensEnviadas.length} imagens`);
+  conferir('a legenda foi junto', imagensEnviadas.every((i) => i.legenda === 'Promoção de outubro!'));
+  conferir('a arte não vazou para o próprio grupo admin', imagensEnviadas.every((i) => i.grupo !== ADMGRUPO));
 
   console.log('\nDisparo: CANCELAR a qualquer momento');
   await processar(textoGrupo(ADMGRUPO, 'mandar mensagem para grupos'), {});
