@@ -800,9 +800,12 @@ const servidor = http.createServer(async (req, res) => {
       const corpo = await lerCorpo(req);
       const ativo = corpo.ativo === true || corpo.ativo === 'true';
       const config = lerConfig();
-      const antes = (config.contingenciaValidPark || {}).ativo === true;
-      if (antes === ativo) { json(res, 200, { semMudanca: true, contingencia: config.contingenciaValidPark || { ativo } }); return; }
+      const atual = config.contingenciaValidPark || {};
+      if ((atual.ativo === true) === ativo) { json(res, 200, { semMudanca: true, contingencia: atual }); return; }
+      // Espalha o atual para preservar 'autorizados' (números que ligam a
+      // contingência pelo WhatsApp) — só ativo/desde/por mudam aqui.
       config.contingenciaValidPark = {
+        ...atual,
         ativo,
         desde: ativo ? new Date().toISOString() : null,
         por: ativo ? (usuario.nome || null) : null,

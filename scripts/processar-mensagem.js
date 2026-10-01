@@ -1567,20 +1567,27 @@ async function conduzir(body, { aoReceber } = {}) {
  */
 async function responderAutorizacaoPrivada(msg) {
   const config = carregarConfig();
-  const ehAdmin = config.hangares.some(
-    (h) => (h.grupoAdministracao || '').trim() === msg.grupoId
-  );
-  if (!ehAdmin) {
-    return { status: 'ignorado', motivo: 'privado de número que não é administração', grupoId: msg.grupoId, responder: false };
-  }
+  // Admin de verdade: o destino de aviso de algum hangar (grupoAdministracao)
+  // OU um número na lista global adminsWhatsapp. A lista existe para dar poder
+  // de agir no privado a quem não é o destino dos avisos — um segundo telefone
+  // da administração, por exemplo.
+  const grupoId = (msg.grupoId || '').trim();
+  const adminsWhatsapp = (config.adminsWhatsapp || []).map((n) => String(n).trim());
+  const ehAdmin = adminsWhatsapp.includes(grupoId)
+    || config.hangares.some((h) => (h.grupoAdministracao || '').trim() === grupoId);
 
   // Comando de contingência: ligar/desligar o contorno do ValidPark pelo
-  // WhatsApp, para quando a queda pega o admin longe do painel. Só a
-  // administração chega aqui (ehAdmin acima), então o comando é restrito por
-  // natureza. Vem antes do SIM/NÃO: é uma ordem, não uma decisão sobre pedido.
+  // WhatsApp, para quando a queda pega longe do painel. Vem ANTES da porta do
+  // admin porque tem autorização PRÓPRIA, mais larga: a administração pode
+  // sempre, e também os números em contingenciaValidPark.autorizados — que
+  // comandam SÓ a contingência, não aprovam faturamento nem ticket travado.
   const comandoCont = interpretarComandoContingencia(msg.texto);
   if (comandoCont !== null) {
     const atual = config.contingenciaValidPark || {};
+    const autorizados = (atual.autorizados || []).map((n) => String(n).trim());
+    if (!ehAdmin && !autorizados.includes((msg.grupoId || '').trim())) {
+      return { status: 'ignorado', motivo: 'contingência de número não autorizado', grupoId: msg.grupoId, responder: false };
+    }
     if ((atual.ativo === true) === comandoCont) {
       return {
         status: 'contingencia_sem_mudanca', grupoId: msg.grupoId,
@@ -1589,7 +1596,10 @@ async function responderAutorizacaoPrivada(msg) {
       };
     }
     const quemCont = msg.remetente || msg.grupoId;
+    // Espalha o atual para PRESERVAR 'autorizados' (e o que mais houver) — só
+    // ativo/desde/por mudam aqui.
     config.contingenciaValidPark = {
+      ...atual,
       ativo: comandoCont,
       desde: comandoCont ? new Date().toISOString() : null,
       por: comandoCont ? quemCont : null,
@@ -1611,6 +1621,12 @@ async function responderAutorizacaoPrivada(msg) {
         : '✅ Contingência do ValidPark *desligada*.\n\nA validação volta a ser feita pelo ValidPark, na hora.',
       notificarAdmin: false, responder: true, etapa: 'comando_contingencia',
     };
+  }
+
+  // Daqui para baixo é decisão de admin de verdade (faturamento, ticket
+  // travado). Número fora da administração não passa.
+  if (!ehAdmin) {
+    return { status: 'ignorado', motivo: 'privado de número que não é administração', grupoId: msg.grupoId, responder: false };
   }
 
   // O admin decide sobre DUAS coisas pelo privado: ticket bloqueado (pátio
