@@ -54,9 +54,42 @@ function enfileirar(pedido) {
       entregueEm: null,
       concluidoEm: null,
       resultado: null,
+      // Quem já avisou o grupo do resultado. O bot pode ESPERAR o resultado
+      // para responder na hora (como o ValidPark) e, se conseguir, reivindica
+      // o aviso aqui; senão o servidor avisa quando o coletor reporta. Esta
+      // marca garante que só UM dos dois fale com o grupo.
+      avisado: false,
     };
     salvarAtomico(ARQUIVO, todas);
     return todas[id];
+  });
+}
+
+/** Só leitura de uma validação pelo id — o bot acompanha a sua enquanto espera. */
+function consultar(id) {
+  return lerJson(ARQUIVO, {})[id] || null;
+}
+
+/**
+ * Reivindica o direito de avisar o grupo sobre o resultado — operação atômica
+ * que resolve a corrida entre o bot (esperando para responder na hora) e o
+ * servidor (avisando quando o coletor reporta). O PRIMEIRO a chamar com o
+ * resultado já pronto leva; o segundo recebe `jaAvisado`.
+ *
+ * Devolve: `{ pronto:false }` se o resultado ainda não chegou; `{ pronto:true,
+ * reivindicado:true, validacao }` para quem ganhou; `{ pronto:true,
+ * reivindicado:false, jaAvisado:true, validacao }` para quem chegou depois.
+ */
+function reivindicarAviso(id) {
+  return comTrava(ARQUIVO, () => {
+    const todas = lerJson(ARQUIVO, {});
+    const v = todas[id];
+    if (!v) return { pronto: false, inexistente: true };
+    if (!v.resultado) return { pronto: false, validacao: v };
+    if (v.avisado) return { pronto: true, reivindicado: false, jaAvisado: true, validacao: v };
+    v.avisado = true;
+    salvarAtomico(ARQUIVO, todas);
+    return { pronto: true, reivindicado: true, validacao: v };
   });
 }
 
@@ -109,4 +142,4 @@ function listar() {
     .sort((a, b) => String(b.criadoEm).localeCompare(String(a.criadoEm)));
 }
 
-module.exports = { enfileirar, retirarParaProcessar, registrarResultado, listar, ARQUIVO, REENTREGA_MS };
+module.exports = { enfileirar, retirarParaProcessar, registrarResultado, consultar, reivindicarAviso, listar, ARQUIVO, REENTREGA_MS };
