@@ -440,10 +440,16 @@ const servidor = http.createServer(async (req, res) => {
           catch (e) { /* devolução é o melhor esforço; o erro real já vai ao grupo */ }
         }
         if (v.grupoId) {
-          const msg = v.resultado.ok
-            ? `✅ Ticket ${v.ticket} validado com sucesso.${v.simular ? ' (teste — nada foi alterado)' : ''}`
-            : `⚠️ Não consegui validar o ticket ${v.ticket} agora. Nossa equipe foi avisada${v.motivo === 'cota' ? ' e a validação da cota foi devolvida' : ''}.`;
-          try { await enviarTexto(v.grupoId, msg); } catch (e) { /* o resultado já ficou registrado */ }
+          // Na contingência o bot pode estar ESPERANDO para responder na hora
+          // (como o ValidPark). A reivindicação resolve a corrida: se o bot já
+          // avisou o grupo, o servidor não repete; senão, avisa aqui.
+          const aviso = validacoesPendentes.reivindicarAviso(corpo.id);
+          if (aviso.pronto && aviso.reivindicado) {
+            const msg = v.resultado.ok
+              ? `✅ Ticket ${v.ticket} validado com sucesso.${v.simular ? ' (teste — nada foi alterado)' : ''}`
+              : `⚠️ Não consegui validar o ticket ${v.ticket} agora. Nossa equipe foi avisada${v.motivo === 'cota' ? ' e a validação da cota foi devolvida' : ''}.`;
+            try { await enviarTexto(v.grupoId, msg); } catch (e) { /* o resultado já ficou registrado */ }
+          }
         }
       }
       json(res, 200, { ok: true });

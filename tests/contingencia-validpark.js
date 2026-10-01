@@ -22,6 +22,10 @@ const path = require('path');
 process.env.EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY || 'teste';
 process.env.EVOLUTION_URL = 'http://127.0.0.1:9';
 process.env.EVOLUTION_INSTANCE = 'teste';
+// Espera curta no teste: o bot aguarda o resultado do coletor para responder na
+// hora; aqui um "coletor" simulado marca a validação logo, e a espera é breve.
+process.env.CONTINGENCIA_ESPERA_MS = '3000';
+process.env.CONTINGENCIA_POLL_MS = '20';
 
 const RAIZ = path.join(__dirname, '..');
 const GRUPO = '120363431859218622@g.us'; // Solojet (bolsão "HANGAR SOLOJET", pátio 30)
@@ -115,21 +119,49 @@ const textoPrivado = (de, t) => ({ data: { key: { remoteJid: de, fromMe: false, 
 const textoGrupo = (grupo, t) => ({ data: { key: { remoteJid: grupo, fromMe: false, id: `G${Math.random()}`, participant: PESSOA }, pushName: 'Alguém', message: { conversation: t } } });
 const ativoAgora = () => (JSON.parse(fs.readFileSync(CONFIG, 'utf-8')).contingenciaValidPark || {}).ativo === true;
 
+// "Coletor" simulado: fica de olho na fila e, assim que o bot enfileira uma
+// validação, marca o resultado — como o coletor do aeroporto faria em segundos.
+// Devolve uma função para desligar. `ok=false` simula falha na validação.
+function simularColetor(ok = true) {
+  const iv = setInterval(() => {
+    const pend = fila.retirarParaProcessar();
+    for (const v of pend) fila.registrarResultado(v.id, { ok, codigo: ok ? 200 : 500, resposta: ok ? 'ok' : 'erro' });
+  }, 10);
+  return () => clearInterval(iv);
+}
+
 let falhas = 0;
 const conferir = (nome, ok, detalhe) => { if (ok) return console.log(`  ok   ${nome}`); falhas += 1; console.log(`  FALHA ${nome}${detalhe ? ` — ${detalhe}` : ''}`); };
 
 async function main() {
-  console.log('Ligada, pátio com vaga: enfileira para o coletor, sem abrir o ValidPark');
+  console.log('Ligada, pátio com vaga: valida pelo coletor e responde NA HORA, sem ValidPark');
   escreverSnapshot({ vagas: 90, ocupadas: 0 });
   ticketAtual = 'C00000000001';
+  let pararColetor = simularColetor(true);
   const r1 = await processar(foto(GRUPO), {});
+  pararColetor();
   conferir('não chamou o ValidPark', chamouScript === false);
-  conferir('status de contingência', r1.status === 'contingencia_enfileirada', `veio "${r1.status}"`);
-  conferir('avisa que valida pelo aeroporto', /manuten|aeroporto/i.test(r1.mensagemWhatsapp || ''));
-  const naFila = fila.retirarParaProcessar();
-  conferir('enfileirou 1', naFila.length === 1 && naFila[0].ticket === ticketAtual, JSON.stringify(naFila.map((x) => x.ticket)));
-  conferir('no pátio do hangar (30), não no #1PARK', naFila[0] && naFila[0].patioId === 30 && naFila[0].patioLabel === 'HANGAR SOLOJET', JSON.stringify(naFila[0]));
-  conferir('motivo contingência e prazo do hangar', naFila[0] && naFila[0].motivo === 'contingencia' && naFila[0].dias === 20);
+  conferir('responde validado na hora (uma mensagem só)', r1.status === 'validado' && /validado/i.test(r1.mensagemWhatsapp || ''), `veio "${r1.status}"`);
+  const feita = fila.listar().find((v) => v.ticket === 'C00000000001');
+  conferir('validou no pátio do hangar (30), não no #1PARK', feita && feita.patioId === 30 && feita.patioLabel === 'HANGAR SOLOJET', JSON.stringify(feita));
+  conferir('motivo contingência e prazo do hangar', feita && feita.motivo === 'contingencia' && feita.dias === 20);
+  conferir('marcada como avisada (sem aviso duplicado)', feita && feita.avisado === true);
+
+  console.log('\nLigada, coletor falha: responde o erro na hora');
+  escreverSnapshot({ vagas: 90, ocupadas: 0 });
+  ticketAtual = 'C00000000009';
+  pararColetor = simularColetor(false);
+  const rFalha = await processar(foto(GRUPO), {});
+  pararColetor();
+  conferir('status de falha', rFalha.status === 'contingencia_falhou', `veio "${rFalha.status}"`);
+  conferir('avisa a equipe', rFalha.notificarAdmin === true);
+
+  console.log('\nLigada, coletor mudo: cai no aviso assíncrono (não trava)');
+  escreverSnapshot({ vagas: 90, ocupadas: 0 });
+  ticketAtual = 'C00000000010';
+  const rTimeout = await processar(foto(GRUPO), {}); // sem coletor: espera esgota
+  conferir('vira recebimento assíncrono', rTimeout.status === 'contingencia_enfileirada', `veio "${rTimeout.status}"`);
+  conferir('ainda não avisada (servidor avisa depois)', (fila.listar().find((v) => v.ticket === 'C00000000010') || {}).avisado !== true);
 
   console.log('\nLigada, pátio cheio: bloqueia (guarda anti-fraude de sempre)');
   escreverSnapshot({ vagas: 2, ocupadas: 2 });
@@ -265,6 +297,16 @@ async function main() {
   chamouScript = false;
   await processar(foto(GRUPO), {}).catch(() => {});
   conferir('tentou abrir o ValidPark de novo', chamouScript === true);
+
+  console.log('\nReivindicação do aviso: só um (bot OU servidor) avisa o grupo');
+  fs.writeFileSync(path.join(RAIZ, 'data', 'validacoes-pendentes.json'), '{}');
+  const it = fila.enfileirar({ ticket: 'R1', grupoId: GRUPO, hangarId: 'solojet', motivo: 'contingencia' });
+  conferir('sem resultado, ninguém reivindica', fila.reivindicarAviso(it.id).pronto === false);
+  fila.registrarResultado(it.id, { ok: true, codigo: 200, resposta: 'ok' });
+  const primeiro = fila.reivindicarAviso(it.id);
+  const segundo = fila.reivindicarAviso(it.id);
+  conferir('o primeiro reivindica', primeiro.pronto && primeiro.reivindicado === true);
+  conferir('o segundo vê que já foi avisado', segundo.pronto && segundo.reivindicado === false && segundo.jaAvisado === true);
 
   console.log(`\n${falhas ? `${falhas} falha(s)` : 'tudo certo'}`);
 }

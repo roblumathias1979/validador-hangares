@@ -76,6 +76,11 @@ def ler_config():
         "destino": c.get("destino", "url", fallback="https://validador.1park.com.br/api/techparking/snapshot"),
         "token": token,
         "intervalo": c.getint("coletor", "intervalo", fallback=60),
+        # Validações são puxadas MUITO mais rápido que o snapshot: na
+        # contingência (ValidPark fora), o cliente espera a resposta na hora,
+        # como no ValidPark. Puxar a fila é leve (um GET ao nosso servidor), ao
+        # contrário do snapshot, que varre o TECHPARKING inteiro.
+        "intervalo_validacoes": c.getint("coletor", "intervalo_validacoes", fallback=3),
         # Arquivo de raízes para validar o HTTPS do destino. Padrão: o
         # ca-validador.pem que vem junto do coletor. Deixe em branco no .ini
         # para usar as raízes da máquina.
@@ -185,7 +190,7 @@ def enviar(cfg, dados):
         return json.loads(r.read().decode("utf-8"))
 
 
-def ciclo(cfg, log):
+def enviar_snapshot(cfg, log):
     # Tudo ou nada: se qualquer leitura falhar, não envia. Um snapshot só com
     # os tickets e sem os credenciados faria o pátio parecer mais vazio do que
     # está, e a câmera daria "regular" para quem excedeu.
@@ -194,18 +199,21 @@ def ciclo(cfg, log):
     except Exception as e:
         log.error("TECHPARKING não respondeu: %s", e)
         return False
-    enviou = False
     try:
         r = enviar(cfg, dados)
         log.info("enviado: %s pátios, %s tickets, %s credenciados", r.get("patios"), r.get("avulsos"), r.get("credenciados"))
-        enviou = True
+        return True
     except urllib.error.HTTPError as e:
         log.error("servidor recusou (%s): %s", e.code, e.read().decode("utf-8", "replace")[:300])
     except Exception as e:
         log.error("não consegui enviar: %s", e)
+    return False
 
-    # As validações autorizadas são independentes do snapshot: rodam mesmo que
-    # o envio acima falhe, contanto que o TECHPARKING (lido acima) esteja de pé.
+
+def ciclo(cfg, log):
+    # Uma rodada completa: snapshot + validações. Usada no --uma-vez. No modo
+    # contínuo, snapshot e validações têm ritmos diferentes (ver main).
+    enviou = enviar_snapshot(cfg, log)
     executar_validacoes(cfg, log)
     return enviou
 
@@ -362,11 +370,22 @@ def main():
         sys.exit(0 if teste_validacao(cfg, sys.argv[i + 1]) else 1)
     if "--uma-vez" in sys.argv:
         sys.exit(0 if ciclo(cfg, log) else 1)
-    log.info("coletor iniciado, a cada %ss", cfg["intervalo"])
+    intervalo = cfg["intervalo"]
+    intervalo_val = cfg["intervalo_validacoes"]
+    log.info("coletor iniciado — snapshot a cada %ss, validações a cada %ss", intervalo, intervalo_val)
+    # Dois ritmos num laço só: o snapshot (pesado, varre o TECHPARKING) sai no
+    # intervalo longo; as validações (leves, um GET ao nosso servidor) saem no
+    # curto, para a contingência responder quase na hora, como o ValidPark.
+    proximo_snapshot = 0.0
     while True:
-        inicio = time.monotonic()
-        ciclo(cfg, log)
-        time.sleep(max(5, cfg["intervalo"] - (time.monotonic() - inicio)))
+        if time.monotonic() >= proximo_snapshot:
+            enviar_snapshot(cfg, log)
+            proximo_snapshot = time.monotonic() + intervalo
+        try:
+            executar_validacoes(cfg, log)
+        except Exception as e:  # noqa: BLE001 — uma falha não pode parar o laço
+            log.warning("executar_validacoes falhou: %s", e)
+        time.sleep(max(1, intervalo_val))
 
 
 if __name__ == "__main__":

@@ -14,8 +14,14 @@ token =
 ca_bundle = ca-validador.pem
 
 [coletor]
-; Segundos entre um envio e outro.
+; Segundos entre um envio de SNAPSHOT e outro (varre o TECHPARKING).
 intervalo = 60
+
+; Segundos entre uma puxada de VALIDAÇÕES e outra. Bem menor que o snapshot:
+; na contingência (ValidPark fora) o cliente espera a resposta na hora, então a
+; fila é puxada a cada poucos segundos. Puxar é leve (um GET ao servidor).
+; Padrão 3. Só é usada na execução contínua.
+intervalo_validacoes = 3
 
 ; Validação de ticket vencido (opcional — só é usada no teste --validar e,
 ; depois, na execução das autorizações vindas do WhatsApp). Os padrões já são

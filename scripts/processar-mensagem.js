@@ -80,6 +80,13 @@ function rodarScript(arquivo, args) {
   return JSON.parse(linhas[linhas.length - 1]);
 }
 
+// Quanto o bot ESPERA o coletor validar antes de desistir e cair no aviso
+// assíncrono. Com o coletor puxando a fila a cada poucos segundos, o resultado
+// costuma vir bem antes disso — e aí a resposta é uma só, como no ValidPark.
+const CONTINGENCIA_ESPERA_MS = Number(process.env.CONTINGENCIA_ESPERA_MS) || 25000;
+const CONTINGENCIA_POLL_MS = Number(process.env.CONTINGENCIA_POLL_MS) || 1000;
+const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
+
 // Contingência LIGADA? Lida do arquivo a cada validação (o bot roda por
 // mensagem, então não há cache a envelhecer): o painel liga/desliga e vale já.
 function contingenciaLigada() {
@@ -106,7 +113,7 @@ function contingenciaLigada() {
  * É assíncrona: o cliente ouve "validando" e a confirmação chega quando o
  * coletor reporta (o servidor avisa o grupo então, como na cota e no faturamento).
  */
-function validarPorContingencia(hangar, msg, pedido) {
+async function validarPorContingencia(hangar, msg, pedido) {
   const patio = snapshotTechparking.patioDoBolsao(hangar.bolsaoTechparking);
 
   // Sem foto fresca do pátio não dá para validar com segurança: nem o pátio
@@ -159,8 +166,9 @@ function validarPorContingencia(hangar, msg, pedido) {
   }
 
   // Enfileira para o coletor, no pátio do hangar, com o prazo padrão dele.
+  let item;
   try {
-    filaValidacoes.enfileirar({
+    item = filaValidacoes.enfileirar({
       ticket: pedido.ticket, grupoId: msg.grupoId, hangarId: hangar.id,
       patioId: patio.id, patioLabel: patio.label,
       dias: hangar.diasValidacaoPadrao ?? null,
@@ -177,30 +185,61 @@ function validarPorContingencia(hangar, msg, pedido) {
     };
   }
 
-  let mensagem = `✅ Recebi o ticket ${pedido.ticket}. O ValidPark está em manutenção, então vou validar pelo sistema do aeroporto — aviso aqui assim que confirmar.`;
-  if (pedido.placaEhGenerica) {
-    mensagem += ` (vou usar a placa padrão ${pedido.placa}, porque não veio placa na foto — se precisar corrigir, fale com a administração.)`;
+  // Espera o coletor validar, para responder UMA mensagem só — como o ValidPark.
+  // O coletor puxa a fila a cada poucos segundos; quase sempre o resultado vem
+  // dentro desta janela. Se demorar, cai no aviso assíncrono e o servidor avisa
+  // o grupo quando o resultado chegar (a reivindicação impede aviso duplicado).
+  const limite = Date.now() + CONTINGENCIA_ESPERA_MS;
+  while (Date.now() < limite) {
+    await esperar(CONTINGENCIA_POLL_MS);
+    const r = filaValidacoes.reivindicarAviso(item.id);
+    if (r.pronto && r.reivindicado) {
+      const ok = Boolean(r.validacao.resultado && r.validacao.resultado.ok);
+      let mensagem;
+      if (ok) {
+        mensagem = `✅ Ticket ${pedido.ticket} validado.`;
+        if (pedido.placaEhGenerica) mensagem += ` (validei com a placa padrão ${pedido.placa} porque não veio placa na foto — se precisar corrigir, fale com a administração.)`;
+        if (pedido.identificacao) mensagem += `\n\n🏷️ Identificado como: *${pedido.identificacao}*`;
+      } else {
+        mensagem = `⚠️ Não consegui validar o ticket ${pedido.ticket} agora. Nossa equipe foi avisada.`;
+      }
+      return {
+        status: ok ? 'validado' : 'contingencia_falhou', hangarId: hangar.id, grupoId: msg.grupoId, ticket: pedido.ticket,
+        patioTechparking: patio.label,
+        mensagemWhatsapp: mensagem,
+        mensagem: `Contingência: ticket ${pedido.ticket} ${ok ? 'validado' : 'falhou'} no pátio ${patio.label} (id ${patio.id}).`,
+        notificarAdmin: !ok, responder: true, etapa: 'contingencia',
+      };
+    }
+    if (r.pronto && r.jaAvisado) {
+      // Corrida: o servidor já avisou o grupo. Não repetir.
+      return { status: 'contingencia_ja_avisada', hangarId: hangar.id, grupoId: msg.grupoId, ticket: pedido.ticket, responder: false };
+    }
   }
-  if (pedido.identificacao) mensagem += `\n\n🏷️ Identificado como: *${pedido.identificacao}*`;
 
+  // Demorou além da espera: confirma o recebimento e deixa o desfecho para o
+  // aviso do servidor quando o coletor reportar.
+  let mensagem = `✅ Recebi o ticket ${pedido.ticket}. Estou validando pelo sistema do aeroporto — aviso aqui assim que confirmar.`;
+  if (pedido.placaEhGenerica) mensagem += ` (vou usar a placa padrão ${pedido.placa}; se precisar corrigir, fale com a administração.)`;
+  if (pedido.identificacao) mensagem += `\n\n🏷️ Identificado como: *${pedido.identificacao}*`;
   return {
     status: 'contingencia_enfileirada', hangarId: hangar.id, grupoId: msg.grupoId, ticket: pedido.ticket,
     patioTechparking: patio.label,
     mensagemWhatsapp: mensagem,
-    mensagem: `Contingência: ticket ${pedido.ticket} enfileirado para o coletor no pátio ${patio.label} (id ${patio.id}).`,
+    mensagem: `Contingência: ticket ${pedido.ticket} enfileirado no pátio ${patio.label} (id ${patio.id}); espera esgotou, aviso virá do servidor.`,
     notificarAdmin: false, responder: true, etapa: 'contingencia',
   };
 }
 
 // Roda validate-ticket.js e monta a resposta. `usarCota` vem true quando o
 // cliente respondeu SIM à pergunta sobre gastar uma validação fora do prazo.
-function validar(hangar, msg, pedido, usarCota, faturamento = {}) {
+async function validar(hangar, msg, pedido, usarCota, faturamento = {}) {
   // CONTINGÊNCIA: ValidPark fora do ar. A validação normal (dentro do prazo)
   // não vai ao site — vai pelo coletor, no pátio do próprio hangar. Cota
   // (usarCota) e faturamento (faturamento.autorizar) têm seus próprios caminhos
   // assíncronos e não passam por aqui, então ficam de fora da contingência.
   if (!usarCota && !faturamento.autorizar && contingenciaLigada()) {
-    return validarPorContingencia(hangar, msg, pedido);
+    return await validarPorContingencia(hangar, msg, pedido);
   }
 
   const validacao = rodarScript('validate-ticket.js', [
@@ -843,7 +882,7 @@ async function conduzir(body, { aoReceber } = {}) {
         pedido.placa = placaNoTexto;
         pedido.placaEhGenerica = false;
       }
-      return seguirAposIdentificar(hangar, msg, pedido);
+      return await seguirAposIdentificar(hangar, msg, pedido);
     }
 
     // "SIM, quero identificar" — pede o texto.
@@ -861,7 +900,7 @@ async function conduzir(body, { aoReceber } = {}) {
         if (!pedido) {
           return { status: 'ignorado', motivo: 'pendência já consumida por outra mensagem', grupoId: msg.grupoId, responder: false };
         }
-        return seguirAposIdentificar(hangar, msg, pedido);
+        return await seguirAposIdentificar(hangar, msg, pedido);
       }
       // Texto que não é sim nem não pode MUITO BEM ser a identificação —
       // alguém que já sabe o fluxo responde "João da Silva" direto. Aproveitar
@@ -878,7 +917,7 @@ async function conduzir(body, { aoReceber } = {}) {
           pedido.placa = placaNoTexto;
           pedido.placaEhGenerica = false;
         }
-        return seguirAposIdentificar(hangar, msg, pedido);
+        return await seguirAposIdentificar(hangar, msg, pedido);
       }
     }
 
@@ -949,10 +988,10 @@ async function conduzir(body, { aoReceber } = {}) {
           notificarAdmin: false, responder: true, etapa: 'pedido_foto_veiculo',
         };
       }
-      return validar(hangar, msg, pedido, false);
+      return await validar(hangar, msg, pedido, false);
     }
 
-    return validar(hangar, msg, pedido, true);
+    return await validar(hangar, msg, pedido, true);
   }
 
   // ---- foto chegando com pedido de foto do veículo = é a comprovação ----
@@ -1049,7 +1088,7 @@ async function conduzir(body, { aoReceber } = {}) {
       };
     }
 
-    const resultado = { ...infoLocal, ...validar(hangar, msg, pedido, false) };
+    const resultado = { ...infoLocal, ...(await validar(hangar, msg, pedido, false)) };
 
     // Queima a foto SÓ quando validou. Registrar antes faria o cliente perder
     // uma foto boa por causa de um erro nosso — pátio cheio, site fora do ar —
@@ -1126,7 +1165,7 @@ async function conduzir(body, { aoReceber } = {}) {
     }
     // A referência da foto guardada na auditoria é o id da mensagem no
     // WhatsApp: é o que permite reencontrar quem autorizou, e quando.
-    return validar(hangar, msg, pedido, false, {
+    return await validar(hangar, msg, pedido, false, {
       autorizar: true,
       fotoAutorizacao: msg.messageId,
     });
@@ -1550,7 +1589,7 @@ async function conduzir(body, { aoReceber } = {}) {
 
   return {
     ...infoLocal,
-    ...validar(hangar, msg, {
+    ...(await validar(hangar, msg, {
       ticket: ocr.ticket,
       placa,
       placaEhGenerica: !msg.placa,
@@ -1558,7 +1597,7 @@ async function conduzir(body, { aoReceber } = {}) {
       // ticket nos pátios que perguntam.
       identificacao: (hangar.perguntarIdentificacao && msg.placa) ? msg.placa : null,
       dataEmissaoIso: ocr.dataEmissaoIso,
-    }, false),
+    }, false)),
   };
 }
 
@@ -2099,7 +2138,7 @@ function quandoLegivel(iso) {
  * a validação. A placa genérica é aplicada AQUI, porque quem respondeu "não"
  * nunca informou placa nenhuma e o ValidPark não aceita campo vazio.
  */
-function seguirAposIdentificar(hangar, msg, pedido) {
+async function seguirAposIdentificar(hangar, msg, pedido) {
   if (!pedido.placa) {
     pedido.placa = hangar.placaGenerica || 'AAA0000';
     pedido.placaEhGenerica = true;
