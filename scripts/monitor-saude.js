@@ -27,6 +27,7 @@ require('dotenv').config({ path: path.join(RAIZ, '.env'), override: true });
 
 const { carregarConfig } = require('./lib/hangar');
 const { salvarAtomico, lerJson } = require('./lib/trava-arquivo');
+const { destinosAdmin } = require('./lib/admins');
 
 const ARQUIVO = path.join(RAIZ, 'data', 'saude.json');
 const EVOLUTION_URL = process.env.EVOLUTION_URL || 'http://127.0.0.1:8080';
@@ -119,6 +120,79 @@ async function verificar() {
   };
 }
 
+// Manda um texto para TODOS os destinos de administração (grupoAdministracao de
+// cada hangar + a lista adminsWhatsapp — o grupo "Adm Bot" incluso). Devolve se
+// algum recebeu.
+async function enviarAdmins(texto) {
+  const destinos = destinosAdmin(carregarConfig());
+  if (!destinos.length) return { avisado: false, motivo: 'nenhum destino de administração' };
+  let algum = false;
+  for (const number of destinos) {
+    const r = await pedir(
+      `${EVOLUTION_URL}/message/sendText/${EVOLUTION_INSTANCE}`,
+      { apikey: process.env.EVOLUTION_API_KEY }, 'POST', { number, text: texto }
+    );
+    if (r.ok) algum = true;
+  }
+  return { avisado: algum, destinos };
+}
+
+/**
+ * O ValidPark está de pé? Faz o que uma validação faz — login e leitura das
+ * vagas de um pátio de referência. Serve mais que um GET na página: a queda que
+ * motivou tudo isso servia a página de login (HTTP 200) mas falhava o login/a
+ * validação. Só `total` numérico (contador que só aparece DEPOIS do login)
+ * prova que entrou. Lança/!total = fora. Em contingência, não checa — estamos
+ * contornando o site de propósito, e checá-lo só gastaria um navegador.
+ */
+async function checarValidpark() {
+  const cfg = carregarConfig();
+  if ((cfg.contingenciaValidPark || {}).ativo === true) return { pular: true, motivo: 'em contingência' };
+  const ref = (cfg.hangares || []).find(
+    (h) => (h.grupoWhatsappId || '').trim() && h.usuarioEnvVar && process.env[h.usuarioEnvVar]
+  );
+  if (!ref) return { pular: true, motivo: 'sem hangar de referência com credencial' };
+  try {
+    const { consultarPatio } = require('./consultar-patio');
+    const p = await consultarPatio(ref.id, { usarCache: false });
+    return Number.isFinite(p.total)
+      ? { ok: true, ref: ref.id, detalhe: 'login e leitura ok' }
+      : { ok: false, ref: ref.id, detalhe: 'logou mas não leu as vagas — site instável' };
+  } catch (e) {
+    return { ok: false, ref: ref.id, detalhe: `não respondeu: ${String(e.message).slice(0, 80)}` };
+  }
+}
+
+// O estado do ValidPark é um alarme SEPARADO do saudavel geral: ele não entra no
+// "🟢 normalizado", que diria bobagem ("site respondendo") durante a contingência.
+// Avisa na queda e a cada REAVISO_MS enquanto durar; avisa também quando volta.
+async function acompanharValidpark(anterior, atual, vpInjetado) {
+  const vp = vpInjetado || await checarValidpark();
+  const ant = (anterior && anterior.validpark) || null;
+  if (vp.pular) {
+    if (ant) atual.validpark = ant; // preserva o último conhecido, sem alarmar
+    return;
+  }
+  const estavaOk = ant ? ant.ok !== false : true;
+  let ultimoAvisoEm = (ant && ant.ultimoAvisoEm) || null;
+  const foraDesde = vp.ok ? null : ((ant && ant.foraDesde) || atual.em);
+  const caiuAgora = estavaOk && !vp.ok;
+  const faz6h = !vp.ok && ultimoAvisoEm && (Date.now() - new Date(ultimoAvisoEm).getTime() > REAVISO_MS);
+
+  if (!vp.ok && (caiuAgora || faz6h)) {
+    const r = await enviarAdmins(
+      `🔴 O ValidPark parece fora do ar (${vp.detalhe}).\n\n`
+      + 'Quer validar pelo sistema do aeroporto enquanto isso? Responda *ligar contingência*.'
+    );
+    if (r.avisado) ultimoAvisoEm = atual.em;
+  }
+  if (vp.ok && ant && ant.ok === false) {
+    await enviarAdmins('🟢 O ValidPark voltou a responder. Se você tinha ligado a *contingência*, já pode desligar — responda *desligar contingência*.');
+    ultimoAvisoEm = null;
+  }
+  atual.validpark = { ok: vp.ok, detalhe: vp.detalhe, ref: vp.ref, em: atual.em, foraDesde, ultimoAvisoEm };
+}
+
 // Tentativa de aviso. Pode falhar justamente quando mais importa — se o que
 // caiu foi o WhatsApp, não há como avisar por ele. O registro em disco é a via
 // que sempre funciona.
@@ -177,6 +251,14 @@ async function main() {
     atual.recuperadoAvisado = r.ok;
   }
 
+  // Vigia do ValidPark, à parte do saudavel geral (ver acompanharValidpark).
+  // Nunca derruba o monitor: um erro aqui não pode apagar o resto da checagem.
+  try {
+    await acompanharValidpark(anterior, atual);
+  } catch (e) {
+    atual.validparkErro = String(e.message).slice(0, 120);
+  }
+
   salvarAtomico(ARQUIVO, atual);
   console.log(JSON.stringify(atual));
 }
@@ -188,4 +270,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { verificar };
+module.exports = { verificar, checarValidpark, acompanharValidpark };
