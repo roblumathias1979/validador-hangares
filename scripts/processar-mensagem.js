@@ -32,7 +32,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env'), override: t
 const { carregarConfig, buscarHangarPorGrupo } = require('./lib/hangar');
 const { comTravaAsync, lerJson, salvarAtomico } = require('./lib/trava-arquivo');
 const { destinosAdmin } = require('./lib/admins');
-const { interpretarMensagem, extrairPlaca, interpretarEscolhaPatio, interpretarComandoContingencia, interpretarComandoBroadcast, normalizar } = require('./lib/whatsapp');
+const { interpretarMensagem, extrairPlaca, interpretarEscolhaPatio, interpretarComandoContingencia, interpretarComandoBroadcast, interpretarPedidoDiagnostico, normalizar } = require('./lib/whatsapp');
 // O cliente da Evolution vive em lib/evolution.js: o painel também precisa
 // mandar mensagem, e duas cópias do mesmo cliente divergiriam — inclusive no
 // `Connection: close`, que existe por um bug real de socket reaproveitado.
@@ -1886,6 +1886,57 @@ async function continuarBroadcast(msg, pend, config) {
   return { status: 'ignorado', motivo: 'pendência de broadcast inválida', grupoId: msg.grupoId, responder: false };
 }
 
+// Diagnóstico do sistema para o grupo admin: o que está de pé, o que caiu, e o
+// que dá para fazer. Junta o monitor de saúde (WhatsApp/n8n/disco fresco +
+// ValidPark da última sentinela), o coletor (idade do snapshot) e a contingência.
+async function diagnosticarSistema() {
+  const SAUDE = path.join(__dirname, '..', 'data', 'saude.json');
+  const min = (iso) => Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+  const bolinha = (ok) => (ok ? '🟢' : '🔴');
+
+  const linhas = ['🩺 *Status do validador*', ''];
+  const problemas = [];
+
+  // WhatsApp / n8n / disco — checagem fresca (rápida, segundos).
+  let checagens = {};
+  try { checagens = (require('./monitor-saude').verificar && (await require('./monitor-saude').verificar()).checagens) || {}; }
+  catch (e) { linhas.push('⚠️ Não consegui rodar a verificação agora.'); }
+  if (checagens.whatsapp) { linhas.push(`${bolinha(checagens.whatsapp.ok)} WhatsApp: ${checagens.whatsapp.detalhe}`); if (!checagens.whatsapp.ok) problemas.push('whatsapp'); }
+  if (checagens.n8n) { linhas.push(`${bolinha(checagens.n8n.ok)} Fluxo (n8n): ${checagens.n8n.detalhe}`); if (!checagens.n8n.ok) problemas.push('n8n'); }
+  if (checagens.disco) { linhas.push(`${bolinha(checagens.disco.ok)} Disco: ${checagens.disco.detalhe}`); if (!checagens.disco.ok) problemas.push('disco'); }
+
+  // ValidPark — da última passada da sentinela (checar aqui abriria o navegador
+  // e travaria a resposta por até 45s).
+  const saude = lerJson(SAUDE, null);
+  const vp = saude && saude.validpark;
+  if (vp) { linhas.push(`${bolinha(vp.ok)} ValidPark: ${vp.detalhe}${vp.em ? ` (há ${min(vp.em)} min)` : ''}`); if (!vp.ok) problemas.push('validpark'); }
+  else linhas.push('⚪ ValidPark: ainda sem verificação da sentinela');
+
+  // Coletor do aeroporto — pela idade do snapshot.
+  const snap = snapshotTechparking.ler();
+  const coletorOk = snap.fresca === true;
+  linhas.push(`${bolinha(coletorOk)} Coletor do aeroporto: ${snap.existe ? `última foto há ${Math.round((snap.idadeMs || 0) / 60000)} min` : 'nenhuma foto recebida'}`);
+  if (!coletorOk) problemas.push('coletor');
+
+  // Contingência.
+  const cont = (carregarConfig().contingenciaValidPark || {}).ativo === true;
+  linhas.push(`${cont ? '🟡' : '⚪'} Contingência: ${cont ? 'LIGADA (validando pelo aeroporto)' : 'desligada'}`);
+
+  // O que fazer.
+  linhas.push('', '*O que dá para fazer*');
+  const conselhos = [];
+  if (problemas.includes('whatsapp')) conselhos.push('🔧 WhatsApp desconectado — reconectar a sessão (escanear o QR). Enquanto isso o bot não recebe nem responde. Chamar o suporte técnico.');
+  if (problemas.includes('n8n')) conselhos.push('🔧 O fluxo (n8n) não respondeu — precisa de suporte técnico no servidor.');
+  if (problemas.includes('disco')) conselhos.push('🔧 Pouco espaço em disco no servidor — chamar o suporte técnico antes que trave.');
+  if (problemas.includes('validpark') && !cont) conselhos.push('👉 O ValidPark está fora. Responda *ligar contingência* para validar pelo aeroporto enquanto ele não volta. (dá para resolver aqui mesmo)');
+  if (problemas.includes('validpark') && cont) conselhos.push('✅ O ValidPark está fora, mas a *contingência está ligada* — as validações seguem pelo aeroporto. Desligue quando ele voltar.');
+  if (problemas.includes('coletor')) conselhos.push('🔧 O coletor do aeroporto não está enviando dados — e a contingência também depende dele. Verificar o serviço *coletor-aeroporto* na máquina do aeroporto (AnyDesk) ou chamar o suporte.');
+  if (!problemas.length) conselhos.push('✅ Está tudo no ar. Se um cliente relatou falha, pode ter sido pontual — peça para reenviar o ticket. Se persistir, me mande o ticket que eu verifico.');
+  linhas.push(...conselhos);
+
+  return linhas.join('\n');
+}
+
 /**
  * Mensagens vindas de um grupo (ou número) de administração. Além dos comandos
  * de decisão (contingência, faturamento, ticket travado, em
@@ -1907,7 +1958,20 @@ async function responderNoGrupoAdmin(msg, aoReceber) {
   if (msg.tipo === 'texto' && interpretarComandoBroadcast(msg.texto)) {
     return iniciarBroadcast(msg, config);
   }
+
   const hangar = msg.tipo === 'texto' ? acharHangarNoTexto(config, msg.texto) : null;
+
+  // Diagnóstico: "por que não está funcionando?", "status do sistema". Antes do
+  // pátio, mas só quando NENHUM hangar foi nomeado (senão é consulta de pátio).
+  if (msg.tipo === 'texto' && !hangar && interpretarPedidoDiagnostico(msg.texto)) {
+    if (aoReceber) { try { await aoReceber(msg.grupoId, '🩺 Verificando o sistema...'); } catch (e) { /* aviso é conforto */ } }
+    return {
+      status: 'diagnostico', grupoId: msg.grupoId,
+      mensagemWhatsapp: await diagnosticarSistema(),
+      notificarAdmin: false, responder: true, etapa: 'diagnostico',
+    };
+  }
+
   // Pedido de pátio: o do parser normal (com verbo) OU, se um hangar foi
   // nomeado, o assunto solto. Nomear o hangar é o que separa consulta de
   // conversa — sem nome, uma palavra solta ("vagas") não vira consulta.
