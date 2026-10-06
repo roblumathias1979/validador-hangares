@@ -2287,8 +2287,8 @@ async function executarMovimentacao(hangar, msg, tipo, nomeFiltro, aoReceber, pe
     nomeFiltro, periodoLabel: per.label, truncado: fmt.truncado,
   });
   texto += fmt.truncado
-    ? `\n\n_Mostrei os primeiros ${LIMITE_MOV}. Responda *VER MAIS* para a lista completa, ou *PDF* para o relatório._`
-    : '\n\n_Responda *PDF* para receber em relatório._';
+    ? `\n\n_Mostrei os primeiros ${LIMITE_MOV}._ Responda *VER MAIS* para a lista completa, ou *SIM* para receber em PDF.`
+    : '\n\nVocê quer receber esse relatório em *PDF*? Responda *SIM* ou *NÃO*.';
   return {
     status: 'movimentacao', hangarId: hangar.id, grupoId: msg.grupoId,
     mensagemWhatsapp: texto, notificarAdmin: false, responder: true, etapa: 'movimentacao',
@@ -2361,13 +2361,20 @@ async function resolverPeriodo(pendente, msg, aoReceber) {
 // resultado da consulta (na fila, retido ~30 min); não precisa consultar de novo.
 async function resolverPosMovimentacao(pendente, msg, aoReceber) {
   const t = normalizar(msg.texto || '');
-  const querPdf = /\b(pdf|relatorio)\b/.test(t);
-  const querMais = pendente.truncado && /\b(ver mais|mais|completa|lista completa|tudo)\b/.test(t);
-  if (!querPdf && !querMais) {
+  const querMais = pendente.truncado && /\b(ver mais|mais|completa|lista completa)\b/.test(t);
+  const querPdf = msg.resposta === 'sim' || /\b(pdf|relatorio)\b/.test(t);
+  const recusou = msg.resposta === 'nao';
+  if (!querPdf && !querMais && !recusou) {
     pendencias.consumir(msg.grupoId, msg.remetenteId);
-    return { status: 'ignorado', motivo: 'não pediu ver mais nem pdf', grupoId: msg.grupoId, responder: false };
+    return { status: 'ignorado', motivo: 'resposta fora do contexto do relatório', grupoId: msg.grupoId, responder: false };
   }
   pendencias.consumir(msg.grupoId, msg.remetenteId);
+  if (recusou && !querMais) {
+    return {
+      status: 'mov_pdf_recusado', grupoId: msg.grupoId,
+      mensagemWhatsapp: 'Ok, não vou gerar o PDF. 👍', notificarAdmin: false, responder: true, etapa: 'movimentacao',
+    };
+  }
   const item = filaConsultas.consultar(pendente.consultaId);
   if (!item || !item.resultado || !item.resultado.ok) {
     return {
@@ -2394,7 +2401,7 @@ async function resolverPosMovimentacao(pendente, msg, aoReceber) {
   });
   return {
     status: 'movimentacao', hangarId: pendente.hangarId, grupoId: msg.grupoId,
-    mensagemWhatsapp: `${fmt.texto}\n\n_Responda *PDF* para receber em relatório._`,
+    mensagemWhatsapp: `${fmt.texto}\n\nVocê quer receber esse relatório em *PDF*? Responda *SIM* ou *NÃO*.`,
     notificarAdmin: false, responder: true, etapa: 'movimentacao',
   };
 }
@@ -2424,7 +2431,8 @@ async function responderNoGrupoAdmin(msg, aoReceber) {
   if (!ehNovaMov && pend && pend.tipo === 'mov_escolha') {
     return await resolverMovimentacao(pend, msg, aoReceber);
   }
-  if (!ehNovaMov && pend && pend.tipo === 'mov_pos' && /\b(pdf|relatorio|ver mais|mais|completa|tudo)\b/.test(normalizar(msg.texto || ''))) {
+  if (!ehNovaMov && pend && pend.tipo === 'mov_pos'
+      && (msg.resposta === 'sim' || msg.resposta === 'nao' || /\b(pdf|relatorio|ver mais|mais|completa)\b/.test(normalizar(msg.texto || '')))) {
     return await resolverPosMovimentacao(pend, msg, aoReceber);
   }
   if (!ehNovaMov && pend && pend.tipo === 'mov_periodo') {

@@ -185,10 +185,19 @@ async function main() {
   const pararPdf = simularColetor(MOVS);
   const lista = await processar(texto(GRUPO, '1'), {});
   pararPdf();
-  conferir('oferece PDF após a lista', /PDF/.test(lista.mensagemWhatsapp), lista.mensagemWhatsapp);
-  const pdf1 = await processar(texto(GRUPO, 'pdf'), {});
-  conferir('gera o PDF e envia como documento', pdf1.status === 'movimentacao_pdf' && pdfsGerados === 1 && documentosEnviados.length === 1, `status "${pdf1.status}", pdfs ${pdfsGerados}, docs ${documentosEnviados.length}`);
+  conferir('pergunta se quer em PDF (sim/não)', /quer receber esse relat/i.test(lista.mensagemWhatsapp) && /SIM/.test(lista.mensagemWhatsapp), lista.mensagemWhatsapp);
+  const pdf1 = await processar(texto(GRUPO, 'sim'), {});
+  conferir('SIM gera o PDF e envia como documento', pdf1.status === 'movimentacao_pdf' && pdfsGerados === 1 && documentosEnviados.length === 1, `status "${pdf1.status}", pdfs ${pdfsGerados}, docs ${documentosEnviados.length}`);
   conferir('documento é .pdf com legenda', /\.pdf$/.test(documentosEnviados[0].opts.nomeArquivo) && /Solojet/i.test(documentosEnviados[0].opts.legenda));
+
+  console.log('\nPDF: responder NÃO não gera');
+  pdfsGerados = 0; documentosEnviados = [];
+  await processar(texto(GRUPO, 'entrada e saída'), {});
+  const pararNao = simularColetor(MOVS);
+  await processar(texto(GRUPO, '1'), {});
+  pararNao();
+  const nao = await processar(texto(GRUPO, 'não'), {});
+  conferir('NÃO não gera PDF', nao.status === 'mov_pdf_recusado' && pdfsGerados === 0 && documentosEnviados.length === 0, `status "${nao.status}"`);
 
   console.log('\nPDF direto no pedido: "histórico da maria em pdf"');
   pdfsGerados = 0; documentosEnviados = [];
