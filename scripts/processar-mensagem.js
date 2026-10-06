@@ -2104,6 +2104,18 @@ function extrairNomeMovimentacao(texto, hangar) {
   return nome.length >= 2 ? nome : null;
 }
 
+// Filtra movimentos por nome casando PALAVRA A PALAVRA: o nome bate se contém
+// todas as palavras buscadas, em qualquer ordem. Assim "larissa oliveira almeida"
+// acha "LARISSA OLIVEIRA DE ALMEIDA" (o "de" sumido no pedido não atrapalha).
+function movimentosDoNome(movimentos, nomeFiltro) {
+  const tokens = normalizar(nomeFiltro || '').split(/\s+/).filter((w) => w.length >= 2);
+  if (!tokens.length) return movimentos || [];
+  return (movimentos || []).filter((m) => {
+    const n = normalizar(m.nome);
+    return tokens.every((tk) => n.includes(tk));
+  });
+}
+
 // Enfileira a consulta ao coletor, espera, filtra por nome (se houver) e formata.
 // Usada tanto pelo menu (resolverMovimentacao) quanto pelo pedido direto por nome.
 async function executarMovimentacao(hangar, msg, tipo, nomeFiltro, aoReceber) {
@@ -2139,10 +2151,7 @@ async function executarMovimentacao(hangar, msg, tipo, nomeFiltro, aoReceber) {
     };
   }
   // Filtro por nome é aqui mesmo, sobre o que o coletor devolveu (o `nome` vem junto).
-  if (nomeFiltro) {
-    const alvo = normalizar(nomeFiltro);
-    resultado.movimentos = (resultado.movimentos || []).filter((m) => normalizar(m.nome).includes(alvo));
-  }
+  if (nomeFiltro) resultado.movimentos = movimentosDoNome(resultado.movimentos, nomeFiltro);
   const LIMITE_MOV = 40;
   const fmt = formatarMovimentacao(resultado, hangar, tipo, nomeFiltro, LIMITE_MOV);
   let texto = fmt.texto;
@@ -2194,8 +2203,7 @@ async function resolverVerMais(pendente, msg) {
   const hangar = config.hangares.find((h) => h.id === pendente.hangarId) || { id: pendente.hangarId };
   let resultado = item.resultado;
   if (pendente.nomeFiltro) {
-    const alvo = normalizar(pendente.nomeFiltro);
-    resultado = { ...resultado, movimentos: (resultado.movimentos || []).filter((m) => normalizar(m.nome).includes(alvo)) };
+    resultado = { ...resultado, movimentos: movimentosDoNome(resultado.movimentos, pendente.nomeFiltro) };
   }
   const fmt = formatarMovimentacao(resultado, hangar, pendente.tipoMov, pendente.nomeFiltro, 300);
   return {

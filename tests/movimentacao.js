@@ -52,6 +52,7 @@ const MOVS = [
   { datahora: '2026-10-06T08:15:00', evento: 'Entrada de credenciado', cartao: '111', nome: 'SOLOJET JOÃO', grupo: 'HANGAR SOLOJET' },
   { datahora: '2026-10-06T17:40:00', evento: 'Saída de credenciado', cartao: '111', nome: 'SOLOJET JOÃO', grupo: 'HANGAR SOLOJET' },
   { datahora: '2026-10-06T09:00:00', evento: 'Entrada de credenciado', cartao: '222', nome: 'SOLOJET MARIA', grupo: 'HANGAR SOLOJET' },
+  { datahora: '2026-10-06T07:20:00', evento: 'Entrada de credenciado', cartao: '333', nome: 'SOLOJET LARISSA OLIVEIRA DE ALMEIDA', grupo: 'HANGAR SOLOJET' },
 ];
 
 let falhas = 0;
@@ -91,6 +92,12 @@ async function main() {
   parar5();
   conferir('vai direto à movimentação (pula o menu)', direto.status === 'movimentacao', `veio "${direto.status}"`);
   conferir('mostra só a Maria', /MARIA/.test(direto.mensagemWhatsapp) && !/JOÃO/.test(direto.mensagemWhatsapp), direto.mensagemWhatsapp);
+
+  console.log('\nNome com "de" no meio: busca sem o "de" ainda acha');
+  const parar7 = simularColetor(MOVS);
+  const comDe = await processar(texto(GRUPO, 'movimentação larissa oliveira de almeida'), {});
+  parar7();
+  conferir('acha mesmo faltando o "de" na busca', /LARISSA OLIVEIRA DE ALMEIDA/.test(comDe.mensagemWhatsapp) && !/Nenhuma/.test(comDe.mensagemWhatsapp), comDe.mensagemWhatsapp);
 
   console.log('\nPedido direto por nome no admin: "entrada e saída do solojet joão"');
   const parar6 = simularColetor(MOVS);
