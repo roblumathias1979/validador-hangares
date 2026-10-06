@@ -1978,11 +1978,15 @@ async function diagnosticarSistema() {
 
 // ----------------------------------------------- movimentação (entrada/saída)
 
-// A escolha do menu de movimentação: credenciados ou tudo.
+// A escolha do menu de movimentação: 1 (credenciados), 2 (tudo) ou um NOME.
+// Devolve { tipo, nome? } ou null (não entendi).
 function escolhaMovimentacao(texto) {
-  const t = normalizar(texto || '');
-  if (/^1\b/.test(t) || /credenciad/.test(t)) return 'credenciados';
-  if (/^2\b/.test(t) || /\btudo\b|\btodos\b|\bcompleto\b|\bgeral\b/.test(t)) return 'tudo';
+  const original = String(texto || '').trim();
+  const t = normalizar(original);
+  if (/^1\b/.test(t) || /^credenciad/.test(t)) return { tipo: 'credenciados' };
+  if (/^2\b/.test(t) || /\btudo\b|\btodos\b|\bcompleto\b|\bgeral\b/.test(t)) return { tipo: 'tudo' };
+  // Qualquer outra coisa com letras é tratada como NOME de credenciado a filtrar.
+  if (/[a-z]{2,}/.test(t)) return { tipo: 'credenciados', nome: original };
   return null;
 }
 
@@ -1998,7 +2002,7 @@ function menuMovimentacao(hangar, msg) {
       + 'O que você quer ver?\n'
       + '*1* — Só credenciados (mensalistas)\n'
       + '*2* — Tudo (toda a movimentação dos credenciados)\n\n'
-      + 'Responda com o número.',
+      + 'Responda com o número — ou mande o *nome* de um credenciado para ver só ele.',
     notificarAdmin: false, responder: true, etapa: 'menu_movimentacao',
   };
 }
@@ -2016,12 +2020,13 @@ async function esperarConsulta(id) {
 }
 
 // Monta a mensagem a partir dos movimentos que o coletor devolveu.
-function formatarMovimentacao(resultado, hangar, tipo) {
+function formatarMovimentacao(resultado, hangar, tipo, nomeFiltro) {
   const hhmm = (iso) => { try { return new Date(iso).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' }); } catch (e) { return '--:--'; } };
-  const titulo = `🚪 *${hangar.hangar || hangar.id}* — ${tipo === 'tudo' ? 'movimentação' : 'entradas e saídas'} de hoje`;
+  const assunto = nomeFiltro ? `entradas e saídas de *${nomeFiltro}*` : (tipo === 'tudo' ? 'movimentação' : 'entradas e saídas');
+  const titulo = `🚪 *${hangar.hangar || hangar.id}* — ${assunto} de hoje`;
   const movs = (resultado && resultado.movimentos) || [];
   if (!movs.length) {
-    return `${titulo}\n\n_Nenhum registro hoje até agora._`;
+    return `${titulo}\n\n_${nomeFiltro ? `Nenhuma movimentação de "${nomeFiltro}"` : 'Nenhum registro'} hoje até agora._`;
   }
   const LIMITE = 60;
   const mostra = movs.slice(0, LIMITE);
@@ -2039,14 +2044,16 @@ function formatarMovimentacao(resultado, hangar, tipo) {
 
 // Resolve a escolha do menu: enfileira a consulta ao coletor, espera e responde.
 async function resolverMovimentacao(pendente, msg, aoReceber) {
-  const tipo = escolhaMovimentacao(msg.texto);
-  if (!tipo) {
+  const escolha = escolhaMovimentacao(msg.texto);
+  if (!escolha) {
     return {
       status: 'mov_nao_entendido', hangarId: pendente.hangarId, grupoId: msg.grupoId,
-      mensagemWhatsapp: 'Não entendi. Responda *1* para só credenciados ou *2* para tudo.',
+      mensagemWhatsapp: 'Não entendi. Responda *1* (credenciados), *2* (tudo) ou o *nome* de um credenciado.',
       notificarAdmin: false, responder: true, etapa: 'menu_movimentacao',
     };
   }
+  const tipo = escolha.tipo;
+  const nomeFiltro = escolha.nome || null;
   pendencias.consumir(msg.grupoId, msg.remetenteId);
   const config = carregarConfig();
   const hangar = config.hangares.find((h) => h.id === pendente.hangarId) || { id: pendente.hangarId };
@@ -2082,9 +2089,15 @@ async function resolverMovimentacao(pendente, msg, aoReceber) {
       notificarAdmin: true, responder: true, etapa: 'movimentacao',
     };
   }
+  // Filtro por nome é aqui mesmo, sobre o que o coletor devolveu (o `nome` vem
+  // junto) — não precisa consultar de novo nem mexer no coletor.
+  if (nomeFiltro) {
+    const alvo = normalizar(nomeFiltro);
+    resultado.movimentos = (resultado.movimentos || []).filter((m) => normalizar(m.nome).includes(alvo));
+  }
   return {
     status: 'movimentacao', hangarId: pendente.hangarId, grupoId: msg.grupoId,
-    mensagemWhatsapp: formatarMovimentacao(resultado, hangar, tipo),
+    mensagemWhatsapp: formatarMovimentacao(resultado, hangar, tipo, nomeFiltro),
     notificarAdmin: false, responder: true, etapa: 'movimentacao',
   };
 }

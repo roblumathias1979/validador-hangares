@@ -51,6 +51,7 @@ const texto = (grupo, t) => ({ data: { key: { remoteJid: grupo, fromMe: false, i
 const MOVS = [
   { datahora: '2026-10-06T08:15:00', evento: 'Entrada de credenciado', cartao: '111', nome: 'SOLOJET JOÃO', grupo: 'HANGAR SOLOJET' },
   { datahora: '2026-10-06T17:40:00', evento: 'Saída de credenciado', cartao: '111', nome: 'SOLOJET JOÃO', grupo: 'HANGAR SOLOJET' },
+  { datahora: '2026-10-06T09:00:00', evento: 'Entrada de credenciado', cartao: '222', nome: 'SOLOJET MARIA', grupo: 'HANGAR SOLOJET' },
 ];
 
 let falhas = 0;
@@ -66,6 +67,22 @@ async function main() {
   parar();
   conferir('responde a movimentação', r.status === 'movimentacao', `veio "${r.status}"`);
   conferir('mostra entrada e saída com nome', /SOLOJET JOÃO/.test(r.mensagemWhatsapp) && /🟢/.test(r.mensagemWhatsapp) && /🔴/.test(r.mensagemWhatsapp), r.mensagemWhatsapp);
+
+  console.log('\nFiltro por nome: mostra só o credenciado pedido');
+  await processar(texto(GRUPO, 'entrada e saída'), {});
+  const parar3 = simularColetor(MOVS);
+  const porNome = await processar(texto(GRUPO, 'maria'), {});
+  parar3();
+  conferir('responde a movimentação', porNome.status === 'movimentacao', `veio "${porNome.status}"`);
+  conferir('mostra só a Maria', /MARIA/.test(porNome.mensagemWhatsapp) && !/JOÃO/.test(porNome.mensagemWhatsapp), porNome.mensagemWhatsapp);
+  conferir('título cita o nome', /maria/i.test(porNome.mensagemWhatsapp));
+
+  console.log('\nFiltro por nome sem resultado: avisa');
+  await processar(texto(GRUPO, 'entrada e saída'), {});
+  const parar4 = simularColetor(MOVS);
+  const semNome2 = await processar(texto(GRUPO, 'fulano inexistente'), {});
+  parar4();
+  conferir('avisa que não achou', /Nenhuma movimenta/i.test(semNome2.mensagemWhatsapp), semNome2.mensagemWhatsapp);
 
   console.log('\nGrupo admin sem nome do hangar: pergunta qual');
   const semNome = await processar(texto(ADMGRUPO, 'entrada e saída'), {});
