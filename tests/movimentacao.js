@@ -1,0 +1,90 @@
+#!/usr/bin/env node
+/**
+ * Consulta de entrada e saída (movimentação) de credenciados pelo grupo.
+ *
+ * A consulta roda no TECHPARKING (só o coletor alcança), então é assíncrona: o
+ * bot pergunta credenciados/tudo, enfileira, espera o coletor e responde. O que
+ * este teste protege (o lado do bot; o filtro em si roda no coletor, em Python):
+ *
+ * 1. No grupo do hangar: "entrada e saída" → menu → "1" → lista (coletor dublê).
+ * 2. No grupo admin: precisa nomear o hangar; sem nome, pergunta qual.
+ * 3. A resposta mostra os movimentos (entrada 🟢 / saída 🔴) com horário e nome.
+ */
+
+const fs = require('fs');
+const path = require('path');
+
+process.env.EVOLUTION_API_KEY = 'teste';
+process.env.EVOLUTION_URL = 'http://127.0.0.1:9';
+process.env.EVOLUTION_INSTANCE = 'teste';
+process.env.CONTINGENCIA_ESPERA_MS = '3000';
+process.env.CONTINGENCIA_POLL_MS = '20';
+
+const RAIZ = path.join(__dirname, '..');
+const GRUPO = '120363431859218622@g.us'; // Solojet
+const ADMGRUPO = '120363432317888806@g.us'; // grupo admin
+const PESSOA = '5511999999999@s.whatsapp.net';
+
+require('./cenario').montar({});
+
+const EXTRA = ['data/consultas-pendentes.json', 'data/pendencias.json', 'data/mensagens-vistas.json'];
+const guardado = {};
+for (const a of EXTRA) { const p = path.join(RAIZ, a); guardado[a] = fs.existsSync(p) ? fs.readFileSync(p, 'utf-8') : null; }
+process.on('exit', () => { for (const a of EXTRA) { const p = path.join(RAIZ, a); if (guardado[a] === null) { try { fs.unlinkSync(p); } catch (e) {} } else fs.writeFileSync(p, guardado[a]); } });
+for (const a of EXTRA) fs.writeFileSync(path.join(RAIZ, a), '{}');
+
+const filaConsultas = require(path.join(RAIZ, 'scripts', 'lib', 'consultas-pendentes.js'));
+const { processar } = require(path.join(RAIZ, 'scripts', 'processar-mensagem.js'));
+
+// Coletor dublê: assim que o bot enfileira uma consulta, devolve movimentos.
+function simularColetor(movimentos) {
+  const iv = setInterval(() => {
+    for (const q of filaConsultas.retirarParaProcessar()) {
+      filaConsultas.registrarResultado(q.id, { ok: true, movimentos, total: movimentos.length });
+    }
+  }, 10);
+  return () => clearInterval(iv);
+}
+
+const texto = (grupo, t) => ({ data: { key: { remoteJid: grupo, fromMe: false, id: `M${Math.random()}`, participant: PESSOA }, pushName: 'Alguém', message: { conversation: t } } });
+
+const MOVS = [
+  { datahora: '2026-10-06T08:15:00', evento: 'Entrada de credenciado', cartao: '111', nome: 'SOLOJET JOÃO', grupo: 'HANGAR SOLOJET' },
+  { datahora: '2026-10-06T17:40:00', evento: 'Saída de credenciado', cartao: '111', nome: 'SOLOJET JOÃO', grupo: 'HANGAR SOLOJET' },
+];
+
+let falhas = 0;
+const conferir = (nome, ok, detalhe) => { if (ok) return console.log(`  ok   ${nome}`); falhas += 1; console.log(`  FALHA ${nome}${detalhe ? ` — ${detalhe}` : ''}`); };
+
+async function main() {
+  console.log('Grupo do hangar: menu → escolha → lista');
+  const menu = await processar(texto(GRUPO, 'entrada e saída'), {});
+  conferir('abre o menu credenciados/tudo', menu.status === 'menu_movimentacao' && /credenciados/i.test(menu.mensagemWhatsapp) && /tudo/i.test(menu.mensagemWhatsapp), `veio "${menu.status}"`);
+
+  const parar = simularColetor(MOVS);
+  const r = await processar(texto(GRUPO, '1'), {});
+  parar();
+  conferir('responde a movimentação', r.status === 'movimentacao', `veio "${r.status}"`);
+  conferir('mostra entrada e saída com nome', /SOLOJET JOÃO/.test(r.mensagemWhatsapp) && /🟢/.test(r.mensagemWhatsapp) && /🔴/.test(r.mensagemWhatsapp), r.mensagemWhatsapp);
+
+  console.log('\nGrupo admin sem nome do hangar: pergunta qual');
+  const semNome = await processar(texto(ADMGRUPO, 'entrada e saída'), {});
+  conferir('pede o nome do pátio', semNome.status === 'mov_sem_hangar', `veio "${semNome.status}"`);
+
+  console.log('\nGrupo admin nomeando o hangar: menu → tudo → lista');
+  const menuAdm = await processar(texto(ADMGRUPO, 'entrada e saída do solojet'), {});
+  conferir('abre o menu (hangar nomeado)', menuAdm.status === 'menu_movimentacao', `veio "${menuAdm.status}"`);
+  const parar2 = simularColetor(MOVS);
+  const r2 = await processar(texto(ADMGRUPO, 'tudo'), {});
+  parar2();
+  conferir('responde a movimentação no admin', r2.status === 'movimentacao', `veio "${r2.status}"`);
+
+  console.log('\nColetor mudo: avisa que não respondeu (não trava)');
+  await processar(texto(GRUPO, 'movimentação'), {});
+  const semResp = await processar(texto(GRUPO, 'credenciados'), {}); // sem coletor dublê
+  conferir('status sem resposta', semResp.status === 'mov_sem_resposta', `veio "${semResp.status}"`);
+
+  console.log(`\n${falhas ? `${falhas} falha(s)` : 'tudo certo'}`);
+}
+
+main().catch((e) => { console.error('teste quebrou:', e); falhas += 1; }).finally(() => process.exit(falhas ? 1 : 0));

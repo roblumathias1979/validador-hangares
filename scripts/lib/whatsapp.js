@@ -153,6 +153,20 @@ function interpretarComandoIdentificacao(texto) {
 }
 
 /**
+ * Pedido de movimentação (entrada e saída) dos credenciados. Devolve true/false.
+ * Separado da consulta de pátio (vagas) e do diagnóstico.
+ */
+function interpretarPedidoMovimentacao(texto) {
+  const t = normalizar(texto || '');
+  if (!t || t.length > 120) return false;
+  if (/\b(movimenta[çc][aã]o|movimento)\b/.test(t)) return true;
+  if (/\bentrada[s]?\b[^.?!]{0,15}\bsaida[s]?\b/.test(t)) return true; // "entrada e saída"
+  if (/\bquem\b[^.?!]{0,20}\b(entrou|saiu|entrou e saiu)\b/.test(t)) return true;
+  if (/\b(entrou|saiu|entraram|sairam)\b[^.?!]{0,20}\b(credenciad|funcionari|hoje)/.test(t)) return true;
+  return false;
+}
+
+/**
  * Pergunta de diagnóstico do SISTEMA ("por que não está funcionando?", "status
  * do validador", "diagnóstico", "o que houve"). Diferente da consulta de pátio
  * (que é sobre vagas de um hangar). Devolve true/false.
@@ -407,4 +421,4 @@ function interpretarMensagem(body) {
   };
 }
 
-module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus, interpretarPedidoPatio, interpretarEscolhaPatio, interpretarConsultaValidacao, interpretarComandoIdentificacao, interpretarComandoContingencia, interpretarComandoBroadcast, interpretarPedidoDiagnostico, normalizar };
+module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus, interpretarPedidoPatio, interpretarEscolhaPatio, interpretarConsultaValidacao, interpretarComandoIdentificacao, interpretarComandoContingencia, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoMovimentacao, normalizar };

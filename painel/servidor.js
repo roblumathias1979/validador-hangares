@@ -57,6 +57,7 @@ const { salvarEComitar } = require('../scripts/lib/salvar-config');
 const bloqueados = require('../scripts/lib/tickets-bloqueados');
 const { enviarTexto } = require('../scripts/lib/evolution');
 const validacoesPendentes = require('../scripts/lib/validacoes-pendentes');
+const consultasPendentes = require('../scripts/lib/consultas-pendentes');
 const cotaForaPrazo = require('../scripts/lib/cota-fora-prazo');
 const { carregarConfig, buscarHangar } = require('../scripts/lib/hangar');
 const registro = require(path.join(RAIZ, 'scripts', 'lib', 'registro'));
@@ -452,6 +453,27 @@ const servidor = http.createServer(async (req, res) => {
           }
         }
       }
+      json(res, 200, { ok: true });
+    } catch (erro) {
+      json(res, 400, { erro: erro.message });
+    }
+    return;
+  }
+
+  // Consultas de histórico (entrada/saída de credenciados): o coletor PUXA aqui.
+  if (req.method === 'GET' && req.url === '/api/techparking/consultas') {
+    if (!coletorAutorizado(req)) { json(res, 401, { erro: 'Token do coletor inválido.' }); return; }
+    json(res, 200, { consultas: consultasPendentes.retirarParaProcessar() });
+    return;
+  }
+
+  // E REPORTA o resultado (a lista já filtrada por hangar). O bot está
+  // esperando esse resultado para responder no grupo; aqui só guardamos.
+  if (req.method === 'POST' && req.url === '/api/techparking/consulta-resultado') {
+    if (!coletorAutorizado(req)) { json(res, 401, { erro: 'Token do coletor inválido.' }); return; }
+    try {
+      const corpo = await lerCorpo(req);
+      consultasPendentes.registrarResultado(corpo.id, corpo.resultado || corpo);
       json(res, 200, { ok: true });
     } catch (erro) {
       json(res, 400, { erro: erro.message });

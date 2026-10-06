@@ -27,6 +27,7 @@ import os
 import sys
 import time
 import ssl
+import unicodedata
 import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
@@ -211,10 +212,11 @@ def enviar_snapshot(cfg, log):
 
 
 def ciclo(cfg, log):
-    # Uma rodada completa: snapshot + validações. Usada no --uma-vez. No modo
-    # contínuo, snapshot e validações têm ritmos diferentes (ver main).
+    # Uma rodada completa: snapshot + validações + consultas. Usada no --uma-vez.
+    # No modo contínuo, snapshot e o resto têm ritmos diferentes (ver main).
     enviou = enviar_snapshot(cfg, log)
     executar_validacoes(cfg, log)
+    executar_consultas(cfg, log)
     return enviou
 
 
@@ -343,6 +345,132 @@ def _reportar(cfg, id_validacao, r, log):
         log.warning("nao consegui reportar validacao %s: %s", id_validacao, e)
 
 
+def _norm(s):
+    """Caixa alta sem acento, para casar grupo/bolsão de fontes diferentes."""
+    return "".join(ch for ch in unicodedata.normalize("NFD", str(s or "").strip().upper())
+                   if unicodedata.category(ch) != "Mn")
+
+
+def consultar_historico(cfg, dataini, dataend):
+    """POST /consultas/historico/ — a movimentação (entrada/saída) do período.
+    Corpo capturado do próprio sistema em 06/10/2026. Leitura pura."""
+    corpo = {"dataini": dataini, "dataend": dataend, "evento": "", "usuario": "",
+             "credencial": "", "terminal": 0, "transacao": "", "placa": ""}
+    headers = {"Content-Type": "application/json", "accept": "application/json"}
+    if cfg["tk_token"]:
+        headers["Authorization"] = "Bearer " + cfg["tk_token"]
+    url = f"{cfg['techparking']}/consultas/historico/"
+    codigo, bruto = _abrir(urllib.request.Request(url, data=json.dumps(corpo).encode("utf-8"),
+                                                  method="POST", headers=headers))
+    if codigo != 200:
+        raise RuntimeError(f"historico HTTP {codigo}: {bruto[:200]}")
+    res = json.loads(bruto)
+    if isinstance(res, str):
+        res = json.loads(res)
+    # Pode vir embrulhado: [ [ {...}, ... ] ].
+    if isinstance(res, list) and res and isinstance(res[0], list):
+        res = res[0]
+    return res or []
+
+
+def ler_credenciados_cadastro(cfg):
+    """GET /credenciados/ — o cadastro completo. Mapeia cartão -> {grupo, nome},
+    para ligar cada movimento ao hangar de forma confiável (inclusive de quem
+    já saiu, que não está mais no snapshot)."""
+    headers = {"accept": "application/json"}
+    if cfg["tk_token"]:
+        headers["Authorization"] = "Bearer " + cfg["tk_token"]
+    url = f"{cfg['techparking']}/credenciados/"
+    codigo, bruto = _abrir(urllib.request.Request(url, headers=headers))
+    if codigo != 200:
+        raise RuntimeError(f"credenciados HTTP {codigo}: {bruto[:200]}")
+    res = json.loads(bruto)
+    if isinstance(res, str):
+        res = json.loads(res)
+    mapa = {}
+    for c in (res or []):
+        if not isinstance(c, dict):
+            continue
+        cart = str(c.get("cartao") or "").strip()
+        if cart:
+            mapa[cart] = {"grupo": str(c.get("grupo") or "").strip(),
+                          "nome": str(c.get("nome") or "").strip()}
+    return mapa
+
+
+def _filtrar_movimentos(hist, cadastro, grupo_bolsao, tipo):
+    """Do histórico bruto, fica só com o que interessa ao hangar pedido.
+    - credenciados: eventos de 'Entrada/Saída de credenciado'.
+    - tudo: todos os eventos de quem é credenciado daquele hangar.
+    Sempre filtra pelo grupo (bolsão) do hangar, via cartão -> grupo do cadastro."""
+    alvo = _norm(grupo_bolsao) if grupo_bolsao else None
+    so_credenciados = (tipo != "tudo")
+    out = []
+    for m in hist:
+        if not isinstance(m, dict):
+            continue
+        cart = str(m.get("cartao") or "").strip()
+        evento = m.get("evento") or ""
+        info = cadastro.get(cart)
+        grupo = info["grupo"] if info else ""
+        if alvo and _norm(grupo) != alvo:
+            continue
+        if so_credenciados:
+            if "CREDENCIAD" not in _norm(evento):
+                continue
+        elif not info:
+            # 'tudo' é dos credenciados do hangar: sem cartão mapeado, fora.
+            continue
+        out.append({"datahora": m.get("datahora"), "evento": evento, "cartao": cart,
+                    "nome": info["nome"] if info else (m.get("usuario") or ""), "grupo": grupo})
+    out.sort(key=lambda x: str(x.get("datahora") or ""), reverse=True)
+    return out[:300]
+
+
+def executar_consultas(cfg, log):
+    """Puxa as consultas de movimentação do nosso servidor, resolve cada uma no
+    TECHPARKING (histórico + cadastro) e devolve a lista já filtrada por hangar."""
+    try:
+        url = _base_servidor(cfg) + "/consultas"
+        req = urllib.request.Request(url, headers={
+            "Authorization": "Bearer " + cfg["token"], "accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=30, context=_ctx_https(cfg)) as r:
+            pendentes = json.loads(r.read().decode("utf-8")).get("consultas", [])
+    except Exception as e:  # noqa: BLE001
+        log.warning("nao consegui buscar consultas: %s", e)
+        return
+    if not pendentes:
+        return
+    try:
+        cadastro = ler_credenciados_cadastro(cfg)
+    except Exception as e:  # noqa: BLE001
+        cadastro = {}
+        log.warning("nao consegui ler cadastro de credenciados: %s", e)
+    for q in pendentes:
+        try:
+            hist = consultar_historico(cfg, q["dataini"], q["dataend"])
+            movimentos = _filtrar_movimentos(hist, cadastro, q.get("grupoBolsao"), q.get("tipo"))
+            resultado = {"ok": True, "movimentos": movimentos, "total": len(movimentos)}
+            log.info("consulta %s (%s/%s) -> %s movimentos", q.get("id"), q.get("tipo"),
+                     q.get("grupoBolsao"), len(movimentos))
+        except Exception as e:  # noqa: BLE001
+            resultado = {"ok": False, "resposta": str(e)[:300]}
+            log.warning("consulta %s estourou: %s", q.get("id"), e)
+        _reportar_consulta(cfg, q["id"], resultado, log)
+
+
+def _reportar_consulta(cfg, id_consulta, resultado, log):
+    try:
+        url = _base_servidor(cfg) + "/consulta-resultado"
+        dados = json.dumps({"id": id_consulta, "resultado": resultado}).encode("utf-8")
+        req = urllib.request.Request(url, data=dados, method="POST", headers={
+            "Authorization": "Bearer " + cfg["token"], "Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=30, context=_ctx_https(cfg)):
+            pass
+    except Exception as e:  # noqa: BLE001
+        log.warning("nao consegui reportar consulta %s: %s", id_consulta, e)
+
+
 def teste_validacao(cfg, ticket):
     """Um-shot para provar a validação com o olho humano: mostra o ticket
     ANTES, o que foi enviado, e o ticket DEPOIS. É como se confere, sem crer."""
@@ -385,6 +513,10 @@ def main():
             executar_validacoes(cfg, log)
         except Exception as e:  # noqa: BLE001 — uma falha não pode parar o laço
             log.warning("executar_validacoes falhou: %s", e)
+        try:
+            executar_consultas(cfg, log)
+        except Exception as e:  # noqa: BLE001
+            log.warning("executar_consultas falhou: %s", e)
         time.sleep(max(1, intervalo_val))
 
 

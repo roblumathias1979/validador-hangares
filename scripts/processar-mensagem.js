@@ -32,7 +32,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env'), override: t
 const { carregarConfig, buscarHangarPorGrupo } = require('./lib/hangar');
 const { comTrava, comTravaAsync, lerJson, salvarAtomico } = require('./lib/trava-arquivo');
 const { destinosAdmin } = require('./lib/admins');
-const { interpretarMensagem, extrairPlaca, interpretarEscolhaPatio, interpretarComandoContingencia, interpretarComandoBroadcast, interpretarPedidoDiagnostico, normalizar } = require('./lib/whatsapp');
+const { interpretarMensagem, extrairPlaca, interpretarEscolhaPatio, interpretarComandoContingencia, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoMovimentacao, normalizar } = require('./lib/whatsapp');
 // O cliente da Evolution vive em lib/evolution.js: o painel também precisa
 // mandar mensagem, e duas cópias do mesmo cliente divergiriam — inclusive no
 // `Connection: close`, que existe por um bug real de socket reaproveitado.
@@ -45,6 +45,7 @@ const fotosUsadas = require('./lib/fotos-usadas');
 const cotaMensal = require('./lib/cota-mensal');
 const cotaForaPrazo = require('./lib/cota-fora-prazo');
 const filaValidacoes = require('./lib/validacoes-pendentes');
+const filaConsultas = require('./lib/consultas-pendentes');
 const filaFaturamentos = require('./lib/faturamentos-pendentes');
 const { calcularValorPermanencia, formatarReais } = require('./lib/precos');
 const asaas = require('./lib/asaas');
@@ -770,6 +771,12 @@ async function conduzir(body, { aoReceber } = {}) {
     };
   }
 
+  // ---- entrada e saída (movimentação) dos credenciados DESTE hangar ----
+  // O grupo já é o hangar, então não precisa nomear: pergunta credenciados/tudo.
+  if (msg.tipo === 'texto' && interpretarPedidoMovimentacao(msg.texto)) {
+    return menuMovimentacao(hangar, msg);
+  }
+
   // ---- resposta a uma pergunta anterior ----
   if (msg.tipo === 'texto') {
     const pendente = pendencias.buscar(msg.grupoId, msg.remetenteId);
@@ -933,6 +940,11 @@ async function conduzir(body, { aoReceber } = {}) {
         vagasDisponiveis: patio.disponiveis ?? null,
         totalVagas: patio.total ?? null,
       };
+    }
+
+    // Resposta ao menu de entrada/saída: 1 (credenciados) ou 2 (tudo).
+    if (pendente.tipo === 'mov_escolha') {
+      return await resolverMovimentacao(pendente, msg, aoReceber);
     }
 
     // O texto É a identificação: nome, carro ou placa, como a pessoa quiser.
@@ -1964,6 +1976,119 @@ async function diagnosticarSistema() {
   return linhas.join('\n');
 }
 
+// ----------------------------------------------- movimentação (entrada/saída)
+
+// A escolha do menu de movimentação: credenciados ou tudo.
+function escolhaMovimentacao(texto) {
+  const t = normalizar(texto || '');
+  if (/^1\b/.test(t) || /credenciad/.test(t)) return 'credenciados';
+  if (/^2\b/.test(t) || /\btudo\b|\btodos\b|\bcompleto\b|\bgeral\b/.test(t)) return 'tudo';
+  return null;
+}
+
+// Guarda a pergunta "credenciados ou tudo?" e devolve o menu. `hangar` é o
+// hangar já resolvido (o grupo é dele, ou foi nomeado no hub admin).
+function menuMovimentacao(hangar, msg) {
+  pendencias.registrar(msg.grupoId, msg.remetenteId, {
+    tipo: 'mov_escolha', hangarId: hangar.id, grupoBolsao: hangar.bolsaoTechparking || null,
+  });
+  return {
+    status: 'menu_movimentacao', hangarId: hangar.id, grupoId: msg.grupoId,
+    mensagemWhatsapp: `🚪 *Entrada e saída — ${hangar.hangar || hangar.id}* (hoje)\n\n`
+      + 'O que você quer ver?\n'
+      + '*1* — Só credenciados (mensalistas)\n'
+      + '*2* — Tudo (toda a movimentação dos credenciados)\n\n'
+      + 'Responda com o número.',
+    notificarAdmin: false, responder: true, etapa: 'menu_movimentacao',
+  };
+}
+
+// Espera o coletor processar a consulta (puxa a fila a cada ~3s). Mesma lógica
+// da contingência: resposta em segundos; se estourar, avisa que não deu.
+async function esperarConsulta(id) {
+  const limite = Date.now() + CONTINGENCIA_ESPERA_MS;
+  while (Date.now() < limite) {
+    await esperar(CONTINGENCIA_POLL_MS);
+    const v = filaConsultas.consultar(id);
+    if (v && v.resultado) return v.resultado;
+  }
+  return null;
+}
+
+// Monta a mensagem a partir dos movimentos que o coletor devolveu.
+function formatarMovimentacao(resultado, hangar, tipo) {
+  const hhmm = (iso) => { try { return new Date(iso).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' }); } catch (e) { return '--:--'; } };
+  const titulo = `🚪 *${hangar.hangar || hangar.id}* — ${tipo === 'tudo' ? 'movimentação' : 'entradas e saídas'} de hoje`;
+  const movs = (resultado && resultado.movimentos) || [];
+  if (!movs.length) {
+    return `${titulo}\n\n_Nenhum registro hoje até agora._`;
+  }
+  const LIMITE = 60;
+  const mostra = movs.slice(0, LIMITE);
+  const icone = (ev) => {
+    const e = normalizar(ev || '');
+    if (/saida|saída/.test(e)) return '🔴';
+    if (/entrada/.test(e)) return '🟢';
+    return '•';
+  };
+  const linhas = mostra.map((m) => `${icone(m.evento)} ${hhmm(m.datahora)} — ${m.nome || m.cartao || '—'}${tipo === 'tudo' ? ` (${m.evento})` : ''}`);
+  let texto = `${titulo}\n\n${linhas.join('\n')}`;
+  if (movs.length > LIMITE) texto += `\n\n_… e mais ${movs.length - LIMITE}. Mostrando os ${LIMITE} mais recentes._`;
+  return texto;
+}
+
+// Resolve a escolha do menu: enfileira a consulta ao coletor, espera e responde.
+async function resolverMovimentacao(pendente, msg, aoReceber) {
+  const tipo = escolhaMovimentacao(msg.texto);
+  if (!tipo) {
+    return {
+      status: 'mov_nao_entendido', hangarId: pendente.hangarId, grupoId: msg.grupoId,
+      mensagemWhatsapp: 'Não entendi. Responda *1* para só credenciados ou *2* para tudo.',
+      notificarAdmin: false, responder: true, etapa: 'menu_movimentacao',
+    };
+  }
+  pendencias.consumir(msg.grupoId, msg.remetenteId);
+  const config = carregarConfig();
+  const hangar = config.hangares.find((h) => h.id === pendente.hangarId) || { id: pendente.hangarId };
+  // Janela do dia em horário de São Paulo.
+  const hoje = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' }); // YYYY-MM-DD
+  let item;
+  try {
+    item = filaConsultas.enfileirar({
+      tipo, grupoBolsao: pendente.grupoBolsao, hangarId: pendente.hangarId, grupoId: msg.grupoId,
+      dataini: `${hoje} 00:00:00`, dataend: `${hoje} 23:59:59`,
+    });
+  } catch (erro) {
+    return {
+      status: 'erro', hangarId: pendente.hangarId, grupoId: msg.grupoId, mensagem: erro.message,
+      mensagemWhatsapp: '⚠️ Não consegui montar a consulta agora. Nossa equipe foi avisada.',
+      notificarAdmin: true, responder: true, etapa: 'movimentacao',
+    };
+  }
+  if (aoReceber) { try { await aoReceber(msg.grupoId, '🔎 Buscando a movimentação no sistema do aeroporto...'); } catch (e) { /* aviso é conforto */ } }
+  const resultado = await esperarConsulta(item.id);
+  if (!resultado) {
+    return {
+      status: 'mov_sem_resposta', hangarId: pendente.hangarId, grupoId: msg.grupoId,
+      mensagemWhatsapp: '⚠️ O sistema do aeroporto não respondeu a tempo. Tente de novo em instantes; se persistir, nossa equipe verifica.',
+      notificarAdmin: true, responder: true, etapa: 'movimentacao',
+    };
+  }
+  if (!resultado.ok) {
+    return {
+      status: 'mov_erro', hangarId: pendente.hangarId, grupoId: msg.grupoId,
+      mensagem: resultado.resposta || 'falha na consulta',
+      mensagemWhatsapp: '⚠️ Não consegui consultar a movimentação agora. Nossa equipe foi avisada.',
+      notificarAdmin: true, responder: true, etapa: 'movimentacao',
+    };
+  }
+  return {
+    status: 'movimentacao', hangarId: pendente.hangarId, grupoId: msg.grupoId,
+    mensagemWhatsapp: formatarMovimentacao(resultado, hangar, tipo),
+    notificarAdmin: false, responder: true, etapa: 'movimentacao',
+  };
+}
+
 /**
  * Mensagens vindas de um grupo (ou número) de administração. Além dos comandos
  * de decisão (contingência, faturamento, ticket travado, em
@@ -1982,11 +2107,28 @@ async function responderNoGrupoAdmin(msg, aoReceber) {
   if (pend && String(pend.tipo || '').startsWith('broadcast_')) {
     return await continuarBroadcast(msg, pend, config);
   }
+  // Resposta ao menu de entrada/saída (credenciados ou tudo).
+  if (pend && pend.tipo === 'mov_escolha') {
+    return await resolverMovimentacao(pend, msg, aoReceber);
+  }
   if (msg.tipo === 'texto' && interpretarComandoBroadcast(msg.texto)) {
     return iniciarBroadcast(msg, config);
   }
 
   const hangar = msg.tipo === 'texto' ? acharHangarNoTexto(config, msg.texto) : null;
+
+  // Entrada e saída (movimentação), nomeando o hangar: "entrada e saída do Solojet".
+  if (msg.tipo === 'texto' && interpretarPedidoMovimentacao(msg.texto)) {
+    if (!hangar) {
+      const nomes = config.hangares.filter((h) => (h.grupoWhatsappId || '').trim()).map((h) => h.hangar || h.id);
+      return {
+        status: 'mov_sem_hangar', grupoId: msg.grupoId,
+        mensagemWhatsapp: `De qual pátio? Diga o nome do hangar junto — ex.: *entrada e saída do Solojet*.\n\nPátios: ${nomes.join(', ')}.`,
+        notificarAdmin: false, responder: true, etapa: 'movimentacao',
+      };
+    }
+    return menuMovimentacao(hangar, msg);
+  }
 
   // Diagnóstico: "por que não está funcionando?", "status do sistema". Antes do
   // pátio, mas só quando NENHUM hangar foi nomeado (senão é consulta de pátio).
