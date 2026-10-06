@@ -73,9 +73,15 @@ async function main() {
   conferir('status sem_vagas', nao.status === 'sem_vagas', `veio "${nao.status}"`);
   conferir('agora travou', Boolean(bloqueados.estaBloqueado('CHEIO0000001')));
 
-  console.log('\nCliente manda a FOTO → pedido de faturamento (motivo patio_cheio)');
+  console.log('\nCliente responde SIM → bot pede a foto; foto = autorização (motivo patio_cheio)');
   ticketAtual = 'CHEIO0000002';
-  await processar(foto(), {});                 // oferta
+  const oferta2 = await processar(foto(), {});   // oferta
+  conferir('oferta pergunta SIM ou NÃO', /Deseja \*faturar e validar\*/.test(oferta2.mensagemWhatsapp) && /\*SIM\* ou \*NÃO\*/.test(oferta2.mensagemWhatsapp), oferta2.mensagemWhatsapp);
+  const entendeu = await processar(texto('talvez'), {});
+  conferir('texto que não é sim/não → não entendi, oferta continua de pé', entendeu.status === 'resposta_nao_entendida', `veio "${entendeu.status}"`);
+  const sim = await processar(texto('sim'), {});
+  conferir('SIM → pede a foto', sim.status === 'faturamento_aguardando_foto' && sim.mensagemWhatsapp === 'Preciso de uma foto sua para autorizar e seguir com o faturamento.', sim.mensagemWhatsapp);
+  conferir('SIM sozinho não enfileira nem trava', !filaFaturamentos.listar().some((f) => f.ticket === 'CHEIO0000002') && !bloqueados.estaBloqueado('CHEIO0000002'));
   const autorizou = await processar(foto(), {}); // foto = autorização
   conferir('vai para aprovação do admin', autorizou.status === 'faturamento_aguardando_admin', `veio "${autorizou.status}"`);
   const fat = filaFaturamentos.listar().find((f) => f.ticket === 'CHEIO0000002');

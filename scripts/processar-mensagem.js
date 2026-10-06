@@ -333,8 +333,8 @@ async function validar(hangar, msg, pedido, usarCota, faturamento = {}) {
         status: 'patio_cheio_requer_autorizacao_faturamento', hangarId: hangar.id, grupoId: msg.grupoId, ticket: pedido.ticket, valor,
         mensagem: `Pátio ${hangar.hangar || hangar.id} SEM VAGA. Oferecido faturar: R$ ${formatarReais(valor)} (ticket ${pedido.ticket}).`,
         mensagemWhatsapp: `⚠️ O pátio está *sem vaga* agora.\n\n`
-          + `Dá para *faturar e validar* assim mesmo: R$ ${formatarReais(valor)}, boleto para o hangar.\n\n`
-          + 'Para autorizar, mande uma *FOTO* confirmando. Ou responda *NÃO* — aí o ticket fica bloqueado para a administração decidir.',
+          + `Deseja *faturar e validar* o ticket ${pedido.ticket} para o hangar? Valor: R$ ${formatarReais(valor)}, boleto para o hangar.\n\n`
+          + 'Responda *SIM* ou *NÃO*. Se NÃO, o ticket fica bloqueado para a administração decidir.',
         notificarAdmin: false, responder: true, etapa: 'oferta_faturamento_patio_cheio',
       };
     }
@@ -901,10 +901,19 @@ async function conduzir(body, { aoReceber } = {}) {
           };
         }
       }
+      // SIM não autoriza sozinho: a pendência fica de pé e a FOTO que vier
+      // em seguida é a autorização (caminho de faturamento por foto, abaixo).
+      if (msg.resposta === 'sim') {
+        return {
+          status: 'faturamento_aguardando_foto', hangarId: hangar.id, grupoId: msg.grupoId, ticket: pendente.ticket,
+          mensagemWhatsapp: 'Preciso de uma foto sua para autorizar e seguir com o faturamento.',
+          notificarAdmin: false, responder: true, etapa: 'resposta',
+        };
+      }
       return {
-        status: 'faturamento_aguardando_foto', hangarId: hangar.id, grupoId: msg.grupoId, ticket: pendente.ticket,
-        mensagemWhatsapp: `Para faturar e validar o ticket ${pendente.ticket} (pátio cheio) preciso da *FOTO* de autorização. `
-          + 'Mande a foto, ou responda *NÃO* — aí o ticket fica bloqueado.',
+        status: 'resposta_nao_entendida', hangarId: hangar.id, grupoId: msg.grupoId, ticket: pendente.ticket,
+        mensagemWhatsapp: `Não entendi. Para faturar e validar o ticket ${pendente.ticket} (pátio cheio), responda *SIM*. `
+          + 'Para deixar pra lá, responda *NÃO* — aí o ticket fica bloqueado.',
         notificarAdmin: false, responder: true, etapa: 'resposta',
       };
     }
