@@ -775,8 +775,10 @@ async function conduzir(body, { aoReceber } = {}) {
   // O grupo já é o hangar. Se a pessoa já disse o NOME ("histórico do João"),
   // vai direto a ele; senão, pergunta credenciados/tudo.
   if (msg.tipo === 'texto' && interpretarPedidoMovimentacao(msg.texto)) {
+    const periodo = periodoDoTexto(msg.texto);
     const nome = extrairNomeMovimentacao(msg.texto, hangar);
-    if (nome) return await executarMovimentacao(hangar, msg, 'credenciados', nome, aoReceber, periodoDoTexto(msg.texto));
+    if (pediuEscolherPeriodo(msg.texto, periodo)) return perguntarPeriodo(hangar, msg, nome);
+    if (nome) return await executarMovimentacao(hangar, msg, 'credenciados', nome, aoReceber, periodo);
     return menuMovimentacao(hangar, msg);
   }
 
@@ -952,6 +954,10 @@ async function conduzir(body, { aoReceber } = {}) {
     // "VER MAIS" da lista de movimentação.
     if (pendente.tipo === 'mov_vermais') {
       return await resolverVerMais(pendente, msg);
+    }
+    // Período escolhido (resposta a "qual período?").
+    if (pendente.tipo === 'mov_periodo') {
+      return await resolverPeriodo(pendente, msg, aoReceber);
     }
 
     // O texto É a identificação: nome, carro ou placa, como a pessoa quiser.
@@ -2020,7 +2026,7 @@ function periodoDoTexto(texto, hojeRef) {
   const hoje = hojeRef || hojeSP();
   const anoAtual = Number(hoje.slice(0, 4));
   const t = normalizar(texto || '');
-  const janela = (ini, fim, label) => {
+  const janela = (ini, fim, label, explicito = true) => {
     // Garante ini <= fim e limita a faixa.
     if (ini > fim) { const tmp = ini; ini = fim; fim = tmp; }
     let rotulo = label;
@@ -2028,7 +2034,7 @@ function periodoDoTexto(texto, hojeRef) {
       ini = addDias(fim, -(MAX_DIAS_PERIODO - 1));
       rotulo = `${rotuloBr(ini)} a ${rotuloBr(fim)} (máx. ${MAX_DIAS_PERIODO} dias)`;
     }
-    return { dataini: `${ini} 00:00:00`, dataend: `${fim} 23:59:59`, label: rotulo };
+    return { dataini: `${ini} 00:00:00`, dataend: `${fim} 23:59:59`, label: rotulo, explicito };
   };
 
   // Intervalo: DD/MM [a|ate|até|-] DD/MM
@@ -2048,7 +2054,15 @@ function periodoDoTexto(texto, hojeRef) {
   const mUlt = t.match(/ultim\w*\s+(\d{1,3})\s*dias?/);
   if (mUlt) { const n = Math.max(1, Number(mUlt[1])); return janela(addDias(hoje, -(n - 1)), hoje, `últimos ${n} dias`); }
   if (/\b(essa|esta|ultima|nessa|desta)\s+semana\b|\bsemana\b/.test(t)) { return janela(addDias(hoje, -6), hoje, 'últimos 7 dias'); }
-  return janela(hoje, hoje, 'hoje');
+  return janela(hoje, hoje, 'hoje', false); // sem período explícito → hoje por padrão
+}
+
+// A pessoa pediu para ESCOLHER o período ("por período", "por data", "escolher
+// período") mas não disse qual? Aí o bot pergunta em vez de assumir hoje.
+function pediuEscolherPeriodo(texto, periodo) {
+  if (periodo && periodo.explicito) return false;
+  const t = normalizar(texto || '');
+  return /\b(periodo|por\s+data|escolher\s+(o\s+)?(periodo|data)|outra\s+data|outro\s+dia)\b/.test(t);
 }
 
 // A escolha do menu de movimentação: 1 (credenciados), 2 (tudo) ou um NOME.
@@ -2163,7 +2177,7 @@ const PALAVRAS_PEDIDO_MOV = new Set(['movimentacao', 'movimento', 'movimentacoes
   'lista', 'listar', 'no', 'na', 'pra', 'para',
   // palavras de período (não são nome):
   'ontem', 'anteontem', 'dia', 'dias', 'semana', 'ultimos', 'ultimas', 'ultimo', 'ultima',
-  'ate', 'essa', 'esta', 'nessa', 'desta', 'entre']);
+  'ate', 'essa', 'esta', 'nessa', 'desta', 'entre', 'por', 'periodo', 'periodos', 'data', 'datas', 'escolher']);
 
 // Tira do texto as palavras do pedido (e do hangar) — o que sobra é o nome do
 // credenciado, quando a pessoa pede direto ("histórico do João"). null se nada sobra.
@@ -2264,6 +2278,48 @@ async function resolverMovimentacao(pendente, msg, aoReceber) {
   return await executarMovimentacao(hangar, msg, escolha.tipo, escolha.nome || null, aoReceber, periodo);
 }
 
+// Pergunta QUAL período, quando a pessoa pede "por período/por data" sem dizer.
+function perguntarPeriodo(hangar, msg, nome) {
+  pendencias.registrar(msg.grupoId, msg.remetenteId, {
+    tipo: 'mov_periodo', hangarId: hangar.id, grupoBolsao: hangar.bolsaoTechparking || null, nome: nome || null,
+  });
+  return {
+    status: 'mov_pede_periodo', hangarId: hangar.id, grupoId: msg.grupoId,
+    mensagemWhatsapp: `🗓️ Qual período${nome ? ` de *${nome}*` : ''}? Por exemplo:\n`
+      + '• *hoje*\n• *ontem*\n• *dia 05/10*\n• *de 01/10 a 05/10*\n• *últimos 7 dias*',
+    notificarAdmin: false, responder: true, etapa: 'movimentacao',
+  };
+}
+
+// Recebe o período escolhido. Com nome, vai direto; sem nome, abre o menu
+// (credenciados/tudo) já com o período.
+async function resolverPeriodo(pendente, msg, aoReceber) {
+  const periodo = periodoDoTexto(msg.texto);
+  if (!periodo.explicito) {
+    return {
+      status: 'mov_periodo_nao_entendido', hangarId: pendente.hangarId, grupoId: msg.grupoId,
+      mensagemWhatsapp: 'Não entendi o período. Ex.: *hoje*, *ontem*, *dia 05/10*, *de 01/10 a 05/10*, *últimos 7 dias*.',
+      notificarAdmin: false, responder: true, etapa: 'movimentacao',
+    };
+  }
+  pendencias.consumir(msg.grupoId, msg.remetenteId);
+  const config = carregarConfig();
+  const hangar = config.hangares.find((h) => h.id === pendente.hangarId)
+    || { id: pendente.hangarId, bolsaoTechparking: pendente.grupoBolsao };
+  if (pendente.nome) return await executarMovimentacao(hangar, msg, 'credenciados', pendente.nome, aoReceber, periodo);
+  pendencias.registrar(msg.grupoId, msg.remetenteId, {
+    tipo: 'mov_escolha', hangarId: hangar.id, grupoBolsao: hangar.bolsaoTechparking || null,
+    dataini: periodo.dataini, dataend: periodo.dataend, periodoLabel: periodo.label,
+  });
+  return {
+    status: 'menu_movimentacao', hangarId: hangar.id, grupoId: msg.grupoId,
+    mensagemWhatsapp: `🚪 *Entrada e saída — ${hangar.hangar || hangar.id}* (${periodo.label})\n\n`
+      + 'O que você quer ver?\n*1* — Só credenciados\n*2* — Tudo\n\n'
+      + 'Responda com o número, ou o *nome* de um credenciado.',
+    notificarAdmin: false, responder: true, etapa: 'menu_movimentacao',
+  };
+}
+
 // "VER MAIS": relê o resultado completo da consulta (na fila, retido ~30 min) e
 // mostra tudo, ainda separado por entrada/saída.
 async function resolverVerMais(pendente, msg) {
@@ -2318,6 +2374,10 @@ async function responderNoGrupoAdmin(msg, aoReceber) {
   if (pend && pend.tipo === 'mov_vermais') {
     return await resolverVerMais(pend, msg);
   }
+  // Período escolhido (resposta a "qual período?").
+  if (pend && pend.tipo === 'mov_periodo') {
+    return await resolverPeriodo(pend, msg, aoReceber);
+  }
   if (msg.tipo === 'texto' && interpretarComandoBroadcast(msg.texto)) {
     return iniciarBroadcast(msg, config);
   }
@@ -2335,8 +2395,10 @@ async function responderNoGrupoAdmin(msg, aoReceber) {
         notificarAdmin: false, responder: true, etapa: 'movimentacao',
       };
     }
+    const periodo = periodoDoTexto(msg.texto);
     const nome = extrairNomeMovimentacao(msg.texto, hangar);
-    if (nome) return await executarMovimentacao(hangar, msg, 'credenciados', nome, aoReceber, periodoDoTexto(msg.texto));
+    if (pediuEscolherPeriodo(msg.texto, periodo)) return perguntarPeriodo(hangar, msg, nome);
+    if (nome) return await executarMovimentacao(hangar, msg, 'credenciados', nome, aoReceber, periodo);
     return menuMovimentacao(hangar, msg);
   }
 

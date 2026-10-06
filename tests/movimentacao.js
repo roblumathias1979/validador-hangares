@@ -154,6 +154,22 @@ async function main() {
   conferir('vai direto (nome) e com período ontem', rJoaoOntem.status === 'movimentacao' && ultimaConsulta && ultimaConsulta.dataini === `${ontem} 00:00:00`, `veio "${rJoaoOntem.status}"`);
   conferir('título com nome e período', /JOÃO/.test(rJoaoOntem.mensagemWhatsapp) && /de ontem/.test(rJoaoOntem.mensagemWhatsapp));
 
+  console.log('\n"por período" sem dizer qual: pergunta e eu escolho');
+  const pedePer = await processar(texto(GRUPO, 'movimentação jumper por periodo'), {});
+  conferir('pergunta qual período', pedePer.status === 'mov_pede_periodo' && /per[ií]odo/i.test(pedePer.mensagemWhatsapp), `veio "${pedePer.status}"`);
+  conferir('mantém o nome na pergunta', /jumper/i.test(pedePer.mensagemWhatsapp));
+  ultimaConsulta = null;
+  const pararP = simularColetor(MOVS);
+  const escolhido = await processar(texto(GRUPO, 'ontem'), {});
+  pararP();
+  conferir('aplica o período escolhido', escolhido.status === 'movimentacao' && ultimaConsulta && ultimaConsulta.dataini === `${ontem} 00:00:00`, JSON.stringify(ultimaConsulta && ultimaConsulta.dataini));
+
+  console.log('\n"por período" sem nome: pergunta, escolho, cai no menu');
+  const pedePer2 = await processar(texto(GRUPO, 'entrada e saída por período'), {});
+  conferir('pergunta o período', pedePer2.status === 'mov_pede_periodo');
+  const menuPos = await processar(texto(GRUPO, 'dia 05/10'), {});
+  conferir('vai ao menu com o período', menuPos.status === 'menu_movimentacao' && /05\/10/.test(menuPos.mensagemWhatsapp), `veio "${menuPos.status}"`);
+
   console.log('\nColetor mudo: avisa que não respondeu (não trava)');
   await processar(texto(GRUPO, 'movimentação'), {});
   const semResp = await processar(texto(GRUPO, 'credenciados'), {}); // sem coletor dublê
