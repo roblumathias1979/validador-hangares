@@ -179,6 +179,24 @@ async function main() {
   const menuPos = await processar(texto(GRUPO, 'dia 05/10'), {});
   conferir('vai ao menu com o período', menuPos.status === 'menu_movimentacao' && /05\/10/.test(menuPos.mensagemWhatsapp), `veio "${menuPos.status}"`);
 
+  console.log('\nMenu de período numerado (1,2,3,4)');
+  const mp = await processar(texto(GRUPO, 'histórico do jumper por periodo'), {});
+  conferir('menu numerado 1-4', /\*1\*/.test(mp.mensagemWhatsapp) && /\*4\*/.test(mp.mensagemWhatsapp) && /Hoje/i.test(mp.mensagemWhatsapp), mp.mensagemWhatsapp);
+  ultimaConsulta = null;
+  const pararN = simularColetor(MOVS);
+  const opc2 = await processar(texto(GRUPO, '2'), {}); // ontem
+  pararN();
+  conferir('opção 2 = ontem', opc2.status === 'movimentacao' && ultimaConsulta && ultimaConsulta.dataini === `${ontem} 00:00:00`, JSON.stringify(ultimaConsulta && ultimaConsulta.dataini));
+
+  console.log('\nOpção 4: pergunta data inicial e final');
+  await processar(texto(GRUPO, 'entrada e saída por periodo'), {});
+  const op4 = await processar(texto(GRUPO, '4'), {});
+  conferir('pede data inicial', /data inicial/i.test(op4.mensagemWhatsapp), op4.mensagemWhatsapp);
+  const dIni = await processar(texto(GRUPO, '01/10'), {});
+  conferir('pede data final', /data final/i.test(dIni.mensagemWhatsapp), dIni.mensagemWhatsapp);
+  const dFim = await processar(texto(GRUPO, '03/10'), {});
+  conferir('conclui com a faixa → menu credenciados/tudo', dFim.status === 'menu_movimentacao' && /01\/10\/\d{4} a 03\/10/.test(dFim.mensagemWhatsapp), dFim.mensagemWhatsapp);
+
   console.log('\nPDF: oferta após a lista e geração');
   pdfsGerados = 0; documentosEnviados = [];
   await processar(texto(GRUPO, 'entrada e saída'), {});

@@ -2019,6 +2019,21 @@ function diffDias(a, b) {
   const t = (s) => { const [y, m, d] = s.split('-').map(Number); return Date.UTC(y, m - 1, d); };
   return Math.round((t(b) - t(a)) / 86400000);
 }
+// Monta a faixa {dataini,dataend,label,explicito} com ini<=fim e limite de dias.
+function montarFaixa(ini, fim, label) {
+  if (ini > fim) { const tmp = ini; ini = fim; fim = tmp; }
+  let rotulo = label || `${rotuloBr(ini)} a ${rotuloBr(fim)}`;
+  if (diffDias(ini, fim) > MAX_DIAS_PERIODO - 1) {
+    ini = addDias(fim, -(MAX_DIAS_PERIODO - 1));
+    rotulo = `${rotuloBr(ini)} a ${rotuloBr(fim)} (máx. ${MAX_DIAS_PERIODO} dias)`;
+  }
+  return { dataini: `${ini} 00:00:00`, dataend: `${fim} 23:59:59`, label: rotulo, explicito: true };
+}
+// Lê UMA data (DD/MM ou DD/MM/AAAA) do texto → YYYY-MM-DD, ou null.
+function lerDataUnica(texto, anoAtual) {
+  const m = normalizar(texto || '').match(/(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/);
+  return m ? dataBrParaYmd(m[1], m[2], m[3], anoAtual || Number(hojeSP().slice(0, 4))) : null;
+}
 
 // Lê o período pedido no texto. Sem período → HOJE. Entende "ontem", "dia DD/MM",
 // "de DD/MM a DD/MM", "últimos N dias", "essa semana". Devolve {dataini, dataend,
@@ -2179,7 +2194,10 @@ const PALAVRAS_PEDIDO_MOV = new Set(['movimentacao', 'movimento', 'movimentacoes
   // palavras de período (não são nome):
   'ontem', 'anteontem', 'dia', 'dias', 'semana', 'ultimos', 'ultimas', 'ultimo', 'ultima',
   'ate', 'essa', 'esta', 'nessa', 'desta', 'entre', 'por', 'periodo', 'periodos', 'data', 'datas', 'escolher',
-  'pdf', 'relatorio', 'relatorios', 'em']);
+  'pdf', 'relatorio', 'relatorios', 'em',
+  // verbos/educação comuns que não são nome:
+  'consultar', 'consulta', 'consultas', 'gostaria', 'queria', 'preciso', 'poderia', 'pode',
+  'favor', 'por favor', 'dos', 'das', 'todos', 'todas', 'relacao', 'informe', 'informar']);
 
 // Pediu em PDF/relatório?
 function pedeRelatorioPdf(texto) {
@@ -2315,30 +2333,24 @@ async function resolverMovimentacao(pendente, msg, aoReceber) {
   return await executarMovimentacao(hangar, msg, escolha.tipo, escolha.nome || null, aoReceber, periodo);
 }
 
-// Pergunta QUAL período, quando a pessoa pede "por período/por data" sem dizer.
+// Pergunta QUAL período com MENU numerado, quando se pede "por período" sem dizer.
 function perguntarPeriodo(hangar, msg, nome) {
   pendencias.registrar(msg.grupoId, msg.remetenteId, {
-    tipo: 'mov_periodo', hangarId: hangar.id, grupoBolsao: hangar.bolsaoTechparking || null, nome: nome || null,
+    tipo: 'mov_periodo', passo: 'menu', hangarId: hangar.id,
+    grupoBolsao: hangar.bolsaoTechparking || null, nome: nome || null,
   });
   return {
     status: 'mov_pede_periodo', hangarId: hangar.id, grupoId: msg.grupoId,
-    mensagemWhatsapp: `🗓️ Qual período${nome ? ` de *${nome}*` : ''}? Por exemplo:\n`
-      + '• *hoje*\n• *ontem*\n• *dia 05/10*\n• *de 01/10 a 05/10*\n• *últimos 7 dias*',
+    mensagemWhatsapp: `🗓️ Qual período${nome ? ` de *${nome}*` : ''}?\n`
+      + '*1* — Hoje\n*2* — Ontem\n*3* — Últimos 7 dias\n*4* — Outro período (escolher as datas)\n\n'
+      + 'Responda com o número.',
     notificarAdmin: false, responder: true, etapa: 'movimentacao',
   };
 }
 
-// Recebe o período escolhido. Com nome, vai direto; sem nome, abre o menu
-// (credenciados/tudo) já com o período.
-async function resolverPeriodo(pendente, msg, aoReceber) {
-  const periodo = periodoDoTexto(msg.texto);
-  if (!periodo.explicito) {
-    return {
-      status: 'mov_periodo_nao_entendido', hangarId: pendente.hangarId, grupoId: msg.grupoId,
-      mensagemWhatsapp: 'Não entendi o período. Ex.: *hoje*, *ontem*, *dia 05/10*, *de 01/10 a 05/10*, *últimos 7 dias*.',
-      notificarAdmin: false, responder: true, etapa: 'movimentacao',
-    };
-  }
+// Depois de ter o período, segue: com nome vai direto; sem nome, abre o menu
+// credenciados/tudo já com o período.
+async function concluirPeriodo(pendente, msg, periodo, aoReceber) {
   pendencias.consumir(msg.grupoId, msg.remetenteId);
   const config = carregarConfig();
   const hangar = config.hangares.find((h) => h.id === pendente.hangarId)
@@ -2355,6 +2367,47 @@ async function resolverPeriodo(pendente, msg, aoReceber) {
       + 'Responda com o número, ou o *nome* de um credenciado.',
     notificarAdmin: false, responder: true, etapa: 'menu_movimentacao',
   };
+}
+
+// Recebe a resposta do menu de período (1/2/3/4), o sub-fluxo de datas (4), ou
+// uma data/período digitado direto.
+async function resolverPeriodo(pendente, msg, aoReceber) {
+  const t = normalizar(msg.texto || '');
+  const h = hojeSP();
+
+  // Sub-fluxo "outro período": data inicial e depois data final.
+  if (pendente.passo === 'data_inicial') {
+    const ini = lerDataUnica(msg.texto);
+    if (!ini) return { status: 'mov_periodo_data', hangarId: pendente.hangarId, grupoId: msg.grupoId, mensagemWhatsapp: 'Não entendi. Mande a *data inicial*, ex.: *01/10*.', notificarAdmin: false, responder: true, etapa: 'movimentacao' };
+    pendencias.registrar(msg.grupoId, msg.remetenteId, { ...pendente, passo: 'data_final', dataIniYmd: ini });
+    return { status: 'mov_periodo_data', hangarId: pendente.hangarId, grupoId: msg.grupoId, mensagemWhatsapp: `Data inicial *${rotuloBr(ini)}*. E a *data final*? (ex.: *05/10*)`, notificarAdmin: false, responder: true, etapa: 'movimentacao' };
+  }
+  if (pendente.passo === 'data_final') {
+    const fim = lerDataUnica(msg.texto);
+    if (!fim) return { status: 'mov_periodo_data', hangarId: pendente.hangarId, grupoId: msg.grupoId, mensagemWhatsapp: 'Não entendi. Mande a *data final*, ex.: *05/10*.', notificarAdmin: false, responder: true, etapa: 'movimentacao' };
+    return await concluirPeriodo(pendente, msg, montarFaixa(pendente.dataIniYmd, fim), aoReceber);
+  }
+
+  // Menu numerado.
+  let periodo = null;
+  if (/^1\b/.test(t)) periodo = montarFaixa(h, h, 'hoje');
+  else if (/^2\b/.test(t)) { const d = addDias(h, -1); periodo = montarFaixa(d, d, 'ontem'); }
+  else if (/^3\b/.test(t)) periodo = montarFaixa(addDias(h, -6), h, 'últimos 7 dias');
+  else if (/^4\b/.test(t)) {
+    pendencias.registrar(msg.grupoId, msg.remetenteId, { ...pendente, passo: 'data_inicial' });
+    return { status: 'mov_periodo_data', hangarId: pendente.hangarId, grupoId: msg.grupoId, mensagemWhatsapp: 'Qual a *data inicial*? (ex.: *01/10*)', notificarAdmin: false, responder: true, etapa: 'movimentacao' };
+  } else {
+    const p = periodoDoTexto(msg.texto); // deixa digitar a data direto também
+    if (p.explicito) periodo = p;
+  }
+  if (!periodo) {
+    return {
+      status: 'mov_periodo_nao_entendido', hangarId: pendente.hangarId, grupoId: msg.grupoId,
+      mensagemWhatsapp: 'Responda *1* (hoje), *2* (ontem), *3* (últimos 7 dias) ou *4* (outro período).',
+      notificarAdmin: false, responder: true, etapa: 'movimentacao',
+    };
+  }
+  return await concluirPeriodo(pendente, msg, periodo, aoReceber);
 }
 
 // Depois da lista: "VER MAIS" (lista completa) ou "PDF" (relatório). Relê o
