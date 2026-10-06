@@ -37,9 +37,11 @@ const filaConsultas = require(path.join(RAIZ, 'scripts', 'lib', 'consultas-pende
 const { processar } = require(path.join(RAIZ, 'scripts', 'processar-mensagem.js'));
 
 // Coletor dublê: assim que o bot enfileira uma consulta, devolve movimentos.
+let ultimaConsulta = null;
 function simularColetor(movimentos) {
   const iv = setInterval(() => {
     for (const q of filaConsultas.retirarParaProcessar()) {
+      ultimaConsulta = q;
       filaConsultas.registrarResultado(q.id, { ok: true, movimentos, total: movimentos.length });
     }
   }, 10);
@@ -131,6 +133,26 @@ async function main() {
   const verMais = await processar(texto(GRUPO, 'ver mais'), {});
   conferir('VER MAIS mostra a lista (sem novo corte)', verMais.status === 'movimentacao' && !/VER MAIS/i.test(verMais.mensagemWhatsapp), `veio "${verMais.status}"`);
   conferir('VER MAIS inclui mais itens que a 1ª', (verMais.mensagemWhatsapp.match(/PESSOA/g) || []).length > (longo.mensagemWhatsapp.match(/PESSOA/g) || []).length);
+
+  console.log('\nPor período: "entrada e saída de ontem"');
+  const hojeSP = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+  const ontem = (() => { const [y, m, d] = hojeSP.split('-').map(Number); const dt = new Date(Date.UTC(y, m - 1, d)); dt.setUTCDate(dt.getUTCDate() - 1); return dt.toISOString().slice(0, 10); })();
+  const menuOntem = await processar(texto(GRUPO, 'entrada e saída de ontem'), {});
+  conferir('menu mostra o período (ontem)', /\(ontem\)/.test(menuOntem.mensagemWhatsapp), menuOntem.mensagemWhatsapp);
+  ultimaConsulta = null;
+  const pararO = simularColetor(MOVS);
+  const rOntem = await processar(texto(GRUPO, '1'), {});
+  pararO();
+  conferir('consulta usa as datas de ontem', ultimaConsulta && ultimaConsulta.dataini === `${ontem} 00:00:00` && ultimaConsulta.dataend === `${ontem} 23:59:59`, JSON.stringify(ultimaConsulta && { i: ultimaConsulta.dataini, f: ultimaConsulta.dataend }));
+  conferir('título reflete o período', /de ontem/.test(rOntem.mensagemWhatsapp));
+
+  console.log('\nPor data direto com nome: "histórico do joão ontem"');
+  ultimaConsulta = null;
+  const pararJ = simularColetor(MOVS);
+  const rJoaoOntem = await processar(texto(GRUPO, 'histórico do joão ontem'), {});
+  pararJ();
+  conferir('vai direto (nome) e com período ontem', rJoaoOntem.status === 'movimentacao' && ultimaConsulta && ultimaConsulta.dataini === `${ontem} 00:00:00`, `veio "${rJoaoOntem.status}"`);
+  conferir('título com nome e período', /JOÃO/.test(rJoaoOntem.mensagemWhatsapp) && /de ontem/.test(rJoaoOntem.mensagemWhatsapp));
 
   console.log('\nColetor mudo: avisa que não respondeu (não trava)');
   await processar(texto(GRUPO, 'movimentação'), {});

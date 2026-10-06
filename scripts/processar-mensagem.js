@@ -776,7 +776,7 @@ async function conduzir(body, { aoReceber } = {}) {
   // vai direto a ele; senão, pergunta credenciados/tudo.
   if (msg.tipo === 'texto' && interpretarPedidoMovimentacao(msg.texto)) {
     const nome = extrairNomeMovimentacao(msg.texto, hangar);
-    if (nome) return await executarMovimentacao(hangar, msg, 'credenciados', nome, aoReceber);
+    if (nome) return await executarMovimentacao(hangar, msg, 'credenciados', nome, aoReceber, periodoDoTexto(msg.texto));
     return menuMovimentacao(hangar, msg);
   }
 
@@ -1985,6 +1985,72 @@ async function diagnosticarSistema() {
 
 // ----------------------------------------------- movimentação (entrada/saída)
 
+// ---- período da consulta de movimentação ----
+const MAX_DIAS_PERIODO = 31; // faixa longa pesa no TECHPARKING (SQL legado)
+
+function hojeSP() {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' }); // YYYY-MM-DD
+}
+// Soma dias a uma data YYYY-MM-DD tratando-a como data de calendário (sem fuso).
+function addDias(ymd, n) {
+  const [y, m, d] = ymd.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + n);
+  return dt.toISOString().slice(0, 10);
+}
+// Converte "DD/MM" ou "DD/MM/AAAA" em YYYY-MM-DD (ano atual quando omitido).
+function dataBrParaYmd(dia, mes, ano, anoAtual) {
+  let a = ano ? Number(ano) : anoAtual;
+  if (a < 100) a += 2000;
+  const mm = String(Number(mes)).padStart(2, '0');
+  const dd = String(Number(dia)).padStart(2, '0');
+  return `${a}-${mm}-${dd}`;
+}
+const rotuloBr = (ymd) => { const [y, m, d] = ymd.split('-'); return `${d}/${m}/${y}`; };
+// Dias entre duas datas YYYY-MM-DD (calendário, sem fuso).
+function diffDias(a, b) {
+  const t = (s) => { const [y, m, d] = s.split('-').map(Number); return Date.UTC(y, m - 1, d); };
+  return Math.round((t(b) - t(a)) / 86400000);
+}
+
+// Lê o período pedido no texto. Sem período → HOJE. Entende "ontem", "dia DD/MM",
+// "de DD/MM a DD/MM", "últimos N dias", "essa semana". Devolve {dataini, dataend,
+// label}, com as horas do dia e a faixa limitada a MAX_DIAS_PERIODO.
+function periodoDoTexto(texto, hojeRef) {
+  const hoje = hojeRef || hojeSP();
+  const anoAtual = Number(hoje.slice(0, 4));
+  const t = normalizar(texto || '');
+  const janela = (ini, fim, label) => {
+    // Garante ini <= fim e limita a faixa.
+    if (ini > fim) { const tmp = ini; ini = fim; fim = tmp; }
+    let rotulo = label;
+    if (diffDias(ini, fim) > MAX_DIAS_PERIODO - 1) {
+      ini = addDias(fim, -(MAX_DIAS_PERIODO - 1));
+      rotulo = `${rotuloBr(ini)} a ${rotuloBr(fim)} (máx. ${MAX_DIAS_PERIODO} dias)`;
+    }
+    return { dataini: `${ini} 00:00:00`, dataend: `${fim} 23:59:59`, label: rotulo };
+  };
+
+  // Intervalo: DD/MM [a|ate|até|-] DD/MM
+  const datas = [...t.matchAll(/(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/g)];
+  if (/\b(a|ate|-)\b|\bentre\b/.test(t) && datas.length >= 2) {
+    const ini = dataBrParaYmd(datas[0][1], datas[0][2], datas[0][3], anoAtual);
+    const fim = dataBrParaYmd(datas[1][1], datas[1][2], datas[1][3], anoAtual);
+    return janela(ini, fim, `${rotuloBr(ini)} a ${rotuloBr(fim)}`);
+  }
+  // Um dia específico.
+  if (datas.length === 1) {
+    const dia = dataBrParaYmd(datas[0][1], datas[0][2], datas[0][3], anoAtual);
+    return janela(dia, dia, rotuloBr(dia));
+  }
+  if (/\bontem\b/.test(t)) { const d = addDias(hoje, -1); return janela(d, d, 'ontem'); }
+  if (/\banteontem\b/.test(t)) { const d = addDias(hoje, -2); return janela(d, d, 'anteontem'); }
+  const mUlt = t.match(/ultim\w*\s+(\d{1,3})\s*dias?/);
+  if (mUlt) { const n = Math.max(1, Number(mUlt[1])); return janela(addDias(hoje, -(n - 1)), hoje, `últimos ${n} dias`); }
+  if (/\b(essa|esta|ultima|nessa|desta)\s+semana\b|\bsemana\b/.test(t)) { return janela(addDias(hoje, -6), hoje, 'últimos 7 dias'); }
+  return janela(hoje, hoje, 'hoje');
+}
+
 // A escolha do menu de movimentação: 1 (credenciados), 2 (tudo) ou um NOME.
 // Devolve { tipo, nome? } ou null (não entendi).
 function escolhaMovimentacao(texto) {
@@ -2000,12 +2066,14 @@ function escolhaMovimentacao(texto) {
 // Guarda a pergunta "credenciados ou tudo?" e devolve o menu. `hangar` é o
 // hangar já resolvido (o grupo é dele, ou foi nomeado no hub admin).
 function menuMovimentacao(hangar, msg) {
+  const periodo = periodoDoTexto(msg.texto);
   pendencias.registrar(msg.grupoId, msg.remetenteId, {
     tipo: 'mov_escolha', hangarId: hangar.id, grupoBolsao: hangar.bolsaoTechparking || null,
+    dataini: periodo.dataini, dataend: periodo.dataend, periodoLabel: periodo.label,
   });
   return {
     status: 'menu_movimentacao', hangarId: hangar.id, grupoId: msg.grupoId,
-    mensagemWhatsapp: `🚪 *Entrada e saída — ${hangar.hangar || hangar.id}* (hoje)\n\n`
+    mensagemWhatsapp: `🚪 *Entrada e saída — ${hangar.hangar || hangar.id}* (${periodo.label})\n\n`
       + 'O que você quer ver?\n'
       + '*1* — Só credenciados (mensalistas)\n'
       + '*2* — Tudo (toda a movimentação dos credenciados)\n\n'
@@ -2044,13 +2112,18 @@ function limparNomeCredenciado(nome, hangar) {
 
 // Monta a mensagem SEPARANDO entradas e saídas (e "outros", no modo tudo).
 // Mostra até `limite` linhas no total; devolve { texto, truncado, total }.
-function formatarMovimentacao(resultado, hangar, tipo, nomeFiltro, limite = 40) {
-  // A datahora do TECHPARKING já é horário LOCAL (ex.: "2026-10-06T11:15:23").
-  // Lemos o relógio direto da string — 24h, e sem o deslocamento de fuso que
-  // converter no servidor (UTC) causaria.
-  const hhmm = (iso) => { const m = String(iso || '').match(/T(\d{2}:\d{2})/); return m ? m[1] : '--:--'; };
+function formatarMovimentacao(resultado, hangar, tipo, nomeFiltro, limite = 40, periodoLabel = 'hoje') {
+  // Em faixa de vários dias, mostra a DATA junto da hora; num dia só, basta a hora.
+  const umDia = !/ a | máx| dias$/.test(periodoLabel || '');
+  const hhmm = (iso) => {
+    const s = String(iso || '');
+    const h = (s.match(/T(\d{2}:\d{2})/) || [])[1] || '--:--';
+    if (umDia) return h;
+    const d = (s.match(/^(\d{4})-(\d{2})-(\d{2})/) || []);
+    return d.length ? `${d[3]}/${d[2]} ${h}` : h;
+  };
   const assunto = nomeFiltro ? `entradas e saídas de *${nomeFiltro}*` : (tipo === 'tudo' ? 'movimentação' : 'entradas e saídas');
-  const titulo = `🚪 *${hangar.hangar || hangar.id}* — ${assunto} de hoje`;
+  const titulo = `🚪 *${hangar.hangar || hangar.id}* — ${assunto} de ${periodoLabel}`;
   const movs = (resultado && resultado.movimentos) || [];
   if (!movs.length) {
     return { texto: `${titulo}\n\n_${nomeFiltro ? `Nenhuma movimentação de "${nomeFiltro}"` : 'Nenhum registro'} hoje até agora._`, truncado: false, total: 0 };
@@ -2087,7 +2160,10 @@ const PALAVRAS_PEDIDO_MOV = new Set(['movimentacao', 'movimento', 'movimentacoes
   'horario', 'horarios', 'credenciado', 'credenciados', 'funcionario', 'funcionarios',
   'mensalista', 'mensalistas', 'hoje', 'patio', 'do', 'da', 'de', 'dos', 'das', 'o', 'a',
   'os', 'as', 'e', 'ver', 'quero', 'saber', 'qual', 'quais', 'me', 'mostra', 'mostrar',
-  'lista', 'listar', 'no', 'na', 'pra', 'para']);
+  'lista', 'listar', 'no', 'na', 'pra', 'para',
+  // palavras de período (não são nome):
+  'ontem', 'anteontem', 'dia', 'dias', 'semana', 'ultimos', 'ultimas', 'ultimo', 'ultima',
+  'ate', 'essa', 'esta', 'nessa', 'desta', 'entre']);
 
 // Tira do texto as palavras do pedido (e do hangar) — o que sobra é o nome do
 // credenciado, quando a pessoa pede direto ("histórico do João"). null se nada sobra.
@@ -2098,7 +2174,8 @@ function extrairNomeMovimentacao(texto, hangar) {
   }
   const resto = String(texto || '').trim().split(/\s+/).filter((w) => {
     const n = normalizar(w);
-    return n && !PALAVRAS_PEDIDO_MOV.has(n) && !doHangar.has(n);
+    if (!n || /\d/.test(n)) return false; // datas/números não são nome
+    return !PALAVRAS_PEDIDO_MOV.has(n) && !doHangar.has(n);
   });
   const nome = resto.join(' ').trim();
   return nome.length >= 2 ? nome : null;
@@ -2118,13 +2195,13 @@ function movimentosDoNome(movimentos, nomeFiltro) {
 
 // Enfileira a consulta ao coletor, espera, filtra por nome (se houver) e formata.
 // Usada tanto pelo menu (resolverMovimentacao) quanto pelo pedido direto por nome.
-async function executarMovimentacao(hangar, msg, tipo, nomeFiltro, aoReceber) {
-  const hoje = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' }); // YYYY-MM-DD
+async function executarMovimentacao(hangar, msg, tipo, nomeFiltro, aoReceber, periodo) {
+  const per = periodo || periodoDoTexto('');
   let item;
   try {
     item = filaConsultas.enfileirar({
       tipo, grupoBolsao: hangar.bolsaoTechparking || null, hangarId: hangar.id, grupoId: msg.grupoId,
-      dataini: `${hoje} 00:00:00`, dataend: `${hoje} 23:59:59`,
+      dataini: per.dataini, dataend: per.dataend,
     });
   } catch (erro) {
     return {
@@ -2153,11 +2230,11 @@ async function executarMovimentacao(hangar, msg, tipo, nomeFiltro, aoReceber) {
   // Filtro por nome é aqui mesmo, sobre o que o coletor devolveu (o `nome` vem junto).
   if (nomeFiltro) resultado.movimentos = movimentosDoNome(resultado.movimentos, nomeFiltro);
   const LIMITE_MOV = 40;
-  const fmt = formatarMovimentacao(resultado, hangar, tipo, nomeFiltro, LIMITE_MOV);
+  const fmt = formatarMovimentacao(resultado, hangar, tipo, nomeFiltro, LIMITE_MOV, per.label);
   let texto = fmt.texto;
   if (fmt.truncado) {
     pendencias.registrar(msg.grupoId, msg.remetenteId, {
-      tipo: 'mov_vermais', consultaId: item.id, hangarId: hangar.id, tipoMov: tipo, nomeFiltro,
+      tipo: 'mov_vermais', consultaId: item.id, hangarId: hangar.id, tipoMov: tipo, nomeFiltro, periodoLabel: per.label,
     });
     texto += `\n\n_Mostrei os primeiros ${LIMITE_MOV}. Responda *VER MAIS* para a lista completa._`;
   }
@@ -2181,7 +2258,10 @@ async function resolverMovimentacao(pendente, msg, aoReceber) {
   const config = carregarConfig();
   const hangar = config.hangares.find((h) => h.id === pendente.hangarId)
     || { id: pendente.hangarId, bolsaoTechparking: pendente.grupoBolsao };
-  return await executarMovimentacao(hangar, msg, escolha.tipo, escolha.nome || null, aoReceber);
+  const periodo = pendente.dataini
+    ? { dataini: pendente.dataini, dataend: pendente.dataend, label: pendente.periodoLabel || 'hoje' }
+    : periodoDoTexto('');
+  return await executarMovimentacao(hangar, msg, escolha.tipo, escolha.nome || null, aoReceber, periodo);
 }
 
 // "VER MAIS": relê o resultado completo da consulta (na fila, retido ~30 min) e
@@ -2205,7 +2285,7 @@ async function resolverVerMais(pendente, msg) {
   if (pendente.nomeFiltro) {
     resultado = { ...resultado, movimentos: movimentosDoNome(resultado.movimentos, pendente.nomeFiltro) };
   }
-  const fmt = formatarMovimentacao(resultado, hangar, pendente.tipoMov, pendente.nomeFiltro, 300);
+  const fmt = formatarMovimentacao(resultado, hangar, pendente.tipoMov, pendente.nomeFiltro, 300, pendente.periodoLabel || 'hoje');
   return {
     status: 'movimentacao', hangarId: pendente.hangarId, grupoId: msg.grupoId,
     mensagemWhatsapp: fmt.texto, notificarAdmin: false, responder: true, etapa: 'movimentacao',
@@ -2256,7 +2336,7 @@ async function responderNoGrupoAdmin(msg, aoReceber) {
       };
     }
     const nome = extrairNomeMovimentacao(msg.texto, hangar);
-    if (nome) return await executarMovimentacao(hangar, msg, 'credenciados', nome, aoReceber);
+    if (nome) return await executarMovimentacao(hangar, msg, 'credenciados', nome, aoReceber, periodoDoTexto(msg.texto));
     return menuMovimentacao(hangar, msg);
   }
 
@@ -2740,4 +2820,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { processar, avisarAdmin, escalar, resultadoDeErro, STATUS_QUE_ESCALAM };
+module.exports = { processar, avisarAdmin, escalar, resultadoDeErro, STATUS_QUE_ESCALAM, periodoDoTexto, extrairNomeMovimentacao, movimentosDoNome };
