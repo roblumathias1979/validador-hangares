@@ -66,7 +66,8 @@ async function main() {
   const r = await processar(texto(GRUPO, '1'), {});
   parar();
   conferir('responde a movimentação', r.status === 'movimentacao', `veio "${r.status}"`);
-  conferir('mostra entrada e saída com nome', /SOLOJET JOÃO/.test(r.mensagemWhatsapp) && /🟢/.test(r.mensagemWhatsapp) && /🔴/.test(r.mensagemWhatsapp), r.mensagemWhatsapp);
+  conferir('mostra entrada e saída com nome', /JOÃO/.test(r.mensagemWhatsapp) && /🟢/.test(r.mensagemWhatsapp) && /🔴/.test(r.mensagemWhatsapp), r.mensagemWhatsapp);
+  conferir('tira o prefixo SOLOJET do nome', !/SOLOJET JOÃO/.test(r.mensagemWhatsapp));
 
   console.log('\nFiltro por nome: mostra só o credenciado pedido');
   await processar(texto(GRUPO, 'entrada e saída'), {});
@@ -109,7 +110,7 @@ async function main() {
   conferir('oferece VER MAIS quando passa do limite', /VER MAIS/i.test(longo.mensagemWhatsapp));
   const verMais = await processar(texto(GRUPO, 'ver mais'), {});
   conferir('VER MAIS mostra a lista (sem novo corte)', verMais.status === 'movimentacao' && !/VER MAIS/i.test(verMais.mensagemWhatsapp), `veio "${verMais.status}"`);
-  conferir('VER MAIS inclui mais itens que a 1ª', (verMais.mensagemWhatsapp.match(/SOLOJET PESSOA/g) || []).length > (longo.mensagemWhatsapp.match(/SOLOJET PESSOA/g) || []).length);
+  conferir('VER MAIS inclui mais itens que a 1ª', (verMais.mensagemWhatsapp.match(/PESSOA/g) || []).length > (longo.mensagemWhatsapp.match(/PESSOA/g) || []).length);
 
   console.log('\nColetor mudo: avisa que não respondeu (não trava)');
   await processar(texto(GRUPO, 'movimentação'), {});

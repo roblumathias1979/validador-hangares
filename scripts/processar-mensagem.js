@@ -2023,6 +2023,22 @@ async function esperarConsulta(id) {
   return null;
 }
 
+// Tira o prefixo do hangar do começo do nome do credenciado — o cadastro grava
+// "SOLOJET ADRIANA...", "PLANE RITA...", e o título já diz o hangar, então o
+// prefixo é ruído. Remove só palavras iniciais que são do hangar; se nenhuma
+// casar (nome fora do padrão), devolve o nome como veio.
+function limparNomeCredenciado(nome, hangar) {
+  const n = String(nome || '').trim();
+  if (!n) return n;
+  const tokens = new Set();
+  for (const src of [hangar && hangar.bolsaoTechparking, hangar && hangar.hangar]) {
+    for (const w of normalizar(src || '').split(/[\s-]+/)) if (w.length >= 3) tokens.add(w);
+  }
+  const partes = n.split(/\s+/);
+  while (partes.length > 1 && tokens.has(normalizar(partes[0]))) partes.shift();
+  return partes.join(' ').trim() || n;
+}
+
 // Monta a mensagem SEPARANDO entradas e saídas (e "outros", no modo tudo).
 // Mostra até `limite` linhas no total; devolve { texto, truncado, total }.
 function formatarMovimentacao(resultado, hangar, tipo, nomeFiltro, limite = 40) {
@@ -2048,7 +2064,7 @@ function formatarMovimentacao(resultado, hangar, tipo, nomeFiltro, limite = 40) 
     partes.push('', `${icone} *${nome}*`);
     for (const m of lista) {
       if (orcamento <= 0) { truncado = true; break; }
-      partes.push(`${hhmm(m.datahora)} — ${m.nome || m.cartao || '—'}${comEvento ? ` (${m.evento})` : ''}`);
+      partes.push(`${hhmm(m.datahora)} — ${limparNomeCredenciado(m.nome, hangar) || m.cartao || '—'}${comEvento ? ` (${m.evento})` : ''}`);
       orcamento -= 1;
     }
   };
@@ -2088,7 +2104,7 @@ async function resolverMovimentacao(pendente, msg, aoReceber) {
       notificarAdmin: true, responder: true, etapa: 'movimentacao',
     };
   }
-  if (aoReceber) { try { await aoReceber(msg.grupoId, '🔎 Buscando a movimentação no sistema do aeroporto...'); } catch (e) { /* aviso é conforto */ } }
+  if (aoReceber) { try { await aoReceber(msg.grupoId, '🔎 Consultando pátio — entrada e saída...'); } catch (e) { /* aviso é conforto */ } }
   const resultado = await esperarConsulta(item.id);
   if (!resultado) {
     return {
