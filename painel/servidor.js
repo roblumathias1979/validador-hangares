@@ -197,6 +197,7 @@ const CAMPOS = {
   avisarPatioCheio: (v) => v === true || v === 'true',
   bolsaoTechparking: (v) => String(v || '').trim(),
   permiteValidarForaDoPrazo: (v) => v === true || v === 'true',
+  faturamentoDesligado: (v) => v === true || v === 'true',
   avisarVagasAbaixoDe: (v) => {
     if (v === '' || v === null) return null; // vazio = calcula 10% do total
     const n = Number(v);
@@ -229,6 +230,8 @@ function montarEstado(usuario = null) {
     // Ausente significa DESLIGADO: fora do prazo não se valida, e ligar é
     // decisão consciente de quem conhece a consequência.
     permiteValidarForaDoPrazo: h.permiteValidarForaDoPrazo === true,
+    // Ausente significa faturamento LIGADO.
+    faturamentoDesligado: h.faturamentoDesligado === true,
     avisarVagasAbaixoDe: h.avisarVagasAbaixoDe ?? null,
     // Lido do ARQUIVO, não de process.env. O painel é um processo longo: ele
     // carrega o .env ao subir e fica com aquela foto. Foi assim que o VOASP

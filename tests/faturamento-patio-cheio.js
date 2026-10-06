@@ -95,6 +95,15 @@ async function main() {
   conferir('trava direto', semFat.status === 'sem_vagas' && Boolean(bloqueados.estaBloqueado('CHEIO0000003')), `veio "${semFat.status}"`);
   process.env.FATURAMENTO_SIMULAR = 'false';
 
+  console.log('\nFaturamento desligado SÓ NESTE PÁTIO (faturamentoDesligado): trava direto');
+  const CFG = path.join(RAIZ, 'config', 'hangares.json');
+  const cfg = JSON.parse(fs.readFileSync(CFG, 'utf-8'));
+  cfg.hangares.find((h) => h.grupoWhatsappId === GRUPO).faturamentoDesligado = true;
+  fs.writeFileSync(CFG, JSON.stringify(cfg, null, 2));
+  ticketAtual = 'CHEIO0000004';
+  const patioSemFat = await processar(foto(), {});
+  conferir('não oferece faturar, trava direto', patioSemFat.status === 'sem_vagas' && Boolean(bloqueados.estaBloqueado('CHEIO0000004')), `veio "${patioSemFat.status}"`);
+
   console.log(`\n${falhas ? `${falhas} falha(s)` : 'tudo certo'}`);
 }
 

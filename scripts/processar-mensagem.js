@@ -287,6 +287,14 @@ async function validarPorContingencia(hangar, msg, pedido) {
   };
 }
 
+// Faturamento por pátio. Ausente significa LIGADO (o comportamento que já
+// existia); `faturamentoDesligado: true` tira deste pátio toda oferta de
+// cobrança — fora do prazo sem cota escala para a administração, e pátio
+// cheio trava direto, como sem faturamento.
+function faturaNestePatio(hangar) {
+  return hangar.faturamentoDesligado !== true;
+}
+
 // Roda validate-ticket.js e monta a resposta. `usarCota` vem true quando o
 // cliente respondeu SIM à pergunta sobre gastar uma validação fora do prazo.
 async function validar(hangar, msg, pedido, usarCota, faturamento = {}) {
@@ -320,7 +328,8 @@ async function validar(hangar, msg, pedido, usarCota, faturamento = {}) {
   // mesma conferência humana do bloqueio), sai o boleto e valida. Se o cliente
   // NÃO autorizar, aí sim trava para a administração decidir.
   if (validacao.status === 'sem_vagas' && !usarCota && !faturamento.autorizar) {
-    const faturamentoLigado = String(process.env.FATURAMENTO_SIMULAR || '').toLowerCase() !== 'true';
+    const faturamentoLigado = String(process.env.FATURAMENTO_SIMULAR || '').toLowerCase() !== 'true'
+      && faturaNestePatio(hangar);
     const horas = pedido.dataEmissaoIso ? Math.max(0, (Date.now() - Date.parse(pedido.dataEmissaoIso)) / 3600000) : 0;
     const valor = calcularValorPermanencia(horas);
     if (faturamentoLigado && valor > 0) {
@@ -1494,6 +1503,24 @@ async function conduzir(body, { aoReceber } = {}) {
         notificarAdmin: false,
         responder: true,
         etapa: 'decisao_cota_fora_prazo',
+      };
+    }
+    // Pátio com faturamento desligado: não oferece cobrança. Volta ao que era
+    // antes do faturamento existir — o cliente tem resposta e a administração
+    // é avisada para resolver à mão.
+    if (!faturaNestePatio(hangar)) {
+      return {
+        status: 'fora_do_prazo',
+        hangarId: hangar.id,
+        grupoId: msg.grupoId,
+        ticket: ocr.ticket,
+        horasDecorridas: prazo.horasDecorridas,
+        mensagem: `Ticket há ${prazo.horasDecorridas.toFixed(1)}h, acima de ${hangar.prazoValidacaoHoras}h, sem cota fora do prazo neste pátio (faturamento desligado).`,
+        mensagemWhatsapp: `⚠️ O ticket ${ocr.ticket} está fora do prazo e este pátio não tem cota disponível no momento. `
+          + 'Nossa equipe foi avisada e vai verificar.',
+        notificarAdmin: true,
+        responder: true,
+        etapa: 'conferencia_prazo',
       };
     }
     // Sem cota: oferece FATURAR. O boleto é real (Asaas produção) e só sai depois

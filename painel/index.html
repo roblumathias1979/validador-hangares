@@ -404,6 +404,10 @@ function desenhar() {
           Para dar validações gratuitas antes de cobrar, aumente a cota acima.</div>` : `<div class="dica" style="margin:-4px 0 6px 24px">
           Desligado: ticket fora do prazo é recusado e a administração avisada.</div>`}
         <div class="linha-check">
+          <input type="checkbox" id="${h.id}-semfat" data-campo="faturamentoDesligado" ${h.faturamentoDesligado?'checked':''}>
+          <label for="${h.id}-semfat" style="margin:0">Faturamento desligado neste pátio (nunca oferece cobrança)</label>
+        </div>
+        <div class="linha-check">
           <input type="checkbox" id="${h.id}-avisa" data-campo="avisarPatioCheio" ${h.avisarPatioCheio?'checked':''}>
           <label for="${h.id}-avisa" style="margin:0">Avisa o grupo quando o pátio está enchendo</label>
         </div>

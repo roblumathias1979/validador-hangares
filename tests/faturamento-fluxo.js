@@ -90,6 +90,19 @@ async function main() {
   conferir('não validou nada a mais', filaVal.listar().length === naoAntes);
   conferir('orienta o cliente ao totem', /totem/i.test(nao.avisarGrupoDeOrigem || ''));
 
+  console.log('\nPátio com faturamentoDesligado: sem cota, escala para a administração');
+  const CFG = path.join(RAIZ, 'config', 'hangares.json');
+  const cfg = JSON.parse(fs.readFileSync(CFG, 'utf-8'));
+  cfg.hangares.find((h) => h.grupoWhatsappId === GRUPO).faturamentoDesligado = true;
+  fs.writeFileSync(CFG, JSON.stringify(cfg, null, 2));
+  ticketAtual = '012809091234';
+  const filaAntes = filaFat.listar().length;
+  const semFat = await processar(foto(), {});
+  conferir('não oferece faturar', semFat.status === 'fora_do_prazo' && !/faturar/i.test(semFat.mensagemWhatsapp), `veio "${semFat.status}"`);
+  conferir('avisa a administração', semFat.notificarAdmin === true);
+  const depois = await processar(foto(), {});
+  conferir('foto seguinte não vira autorização', depois.status !== 'faturamento_aguardando_admin' && filaFat.listar().length === filaAntes, `veio "${depois.status}"`);
+
   console.log(`\n${falhas ? `${falhas} falha(s)` : 'tudo certo'}`);
 }
 
