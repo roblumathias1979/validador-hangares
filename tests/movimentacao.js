@@ -96,6 +96,21 @@ async function main() {
   parar2();
   conferir('responde a movimentação no admin', r2.status === 'movimentacao', `veio "${r2.status}"`);
 
+  console.log('\nLista longa: oferece VER MAIS e depois mostra tudo');
+  const MUITOS = [];
+  for (let i = 0; i < 50; i += 1) {
+    MUITOS.push({ datahora: `2026-10-06T${String(6 + (i % 12)).padStart(2, '0')}:${String(i % 60).padStart(2, '0')}:00`, evento: 'Entrada de credenciado', cartao: `c${i}`, nome: `SOLOJET PESSOA ${i}`, grupo: 'HANGAR SOLOJET' });
+  }
+  await processar(texto(GRUPO, 'entrada e saída'), {});
+  const pararM = simularColetor(MUITOS);
+  const longo = await processar(texto(GRUPO, '1'), {});
+  pararM();
+  conferir('separa em Entradas/Saídas com contagem', /Entradas/.test(longo.mensagemWhatsapp) && /entrada\(s\)/.test(longo.mensagemWhatsapp), longo.mensagemWhatsapp.slice(0, 80));
+  conferir('oferece VER MAIS quando passa do limite', /VER MAIS/i.test(longo.mensagemWhatsapp));
+  const verMais = await processar(texto(GRUPO, 'ver mais'), {});
+  conferir('VER MAIS mostra a lista (sem novo corte)', verMais.status === 'movimentacao' && !/VER MAIS/i.test(verMais.mensagemWhatsapp), `veio "${verMais.status}"`);
+  conferir('VER MAIS inclui mais itens que a 1ª', (verMais.mensagemWhatsapp.match(/SOLOJET PESSOA/g) || []).length > (longo.mensagemWhatsapp.match(/SOLOJET PESSOA/g) || []).length);
+
   console.log('\nColetor mudo: avisa que não respondeu (não trava)');
   await processar(texto(GRUPO, 'movimentação'), {});
   const semResp = await processar(texto(GRUPO, 'credenciados'), {}); // sem coletor dublê

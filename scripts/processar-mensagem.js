@@ -942,9 +942,13 @@ async function conduzir(body, { aoReceber } = {}) {
       };
     }
 
-    // Resposta ao menu de entrada/saída: 1 (credenciados) ou 2 (tudo).
+    // Resposta ao menu de entrada/saída: 1 (credenciados), 2 (tudo) ou nome.
     if (pendente.tipo === 'mov_escolha') {
       return await resolverMovimentacao(pendente, msg, aoReceber);
+    }
+    // "VER MAIS" da lista de movimentação.
+    if (pendente.tipo === 'mov_vermais') {
+      return await resolverVerMais(pendente, msg);
     }
 
     // O texto É a identificação: nome, carro ou placa, como a pessoa quiser.
@@ -2019,27 +2023,39 @@ async function esperarConsulta(id) {
   return null;
 }
 
-// Monta a mensagem a partir dos movimentos que o coletor devolveu.
-function formatarMovimentacao(resultado, hangar, tipo, nomeFiltro) {
+// Monta a mensagem SEPARANDO entradas e saídas (e "outros", no modo tudo).
+// Mostra até `limite` linhas no total; devolve { texto, truncado, total }.
+function formatarMovimentacao(resultado, hangar, tipo, nomeFiltro, limite = 40) {
   const hhmm = (iso) => { try { return new Date(iso).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' }); } catch (e) { return '--:--'; } };
   const assunto = nomeFiltro ? `entradas e saídas de *${nomeFiltro}*` : (tipo === 'tudo' ? 'movimentação' : 'entradas e saídas');
   const titulo = `🚪 *${hangar.hangar || hangar.id}* — ${assunto} de hoje`;
   const movs = (resultado && resultado.movimentos) || [];
   if (!movs.length) {
-    return `${titulo}\n\n_${nomeFiltro ? `Nenhuma movimentação de "${nomeFiltro}"` : 'Nenhum registro'} hoje até agora._`;
+    return { texto: `${titulo}\n\n_${nomeFiltro ? `Nenhuma movimentação de "${nomeFiltro}"` : 'Nenhum registro'} hoje até agora._`, truncado: false, total: 0 };
   }
-  const LIMITE = 60;
-  const mostra = movs.slice(0, LIMITE);
-  const icone = (ev) => {
-    const e = normalizar(ev || '');
-    if (/saida|saída/.test(e)) return '🔴';
-    if (/entrada/.test(e)) return '🟢';
-    return '•';
+  // Mais cedo primeiro, para ler a sequência do dia dentro de cada grupo.
+  const porHora = (a, b) => String(a.datahora).localeCompare(String(b.datahora));
+  const ev = (m) => normalizar(m.evento);
+  const entradas = movs.filter((m) => /entrada/.test(ev(m))).sort(porHora);
+  const saidas = movs.filter((m) => /saida/.test(ev(m))).sort(porHora);
+  const outros = movs.filter((m) => !/entrada|saida/.test(ev(m))).sort(porHora);
+
+  const partes = [titulo, `_${entradas.length} entrada(s) · ${saidas.length} saída(s)${outros.length ? ` · ${outros.length} outro(s)` : ''}_`];
+  let orcamento = limite;
+  let truncado = false;
+  const secao = (icone, nome, lista, comEvento) => {
+    if (!lista.length) return;
+    partes.push('', `${icone} *${nome}*`);
+    for (const m of lista) {
+      if (orcamento <= 0) { truncado = true; break; }
+      partes.push(`${hhmm(m.datahora)} — ${m.nome || m.cartao || '—'}${comEvento ? ` (${m.evento})` : ''}`);
+      orcamento -= 1;
+    }
   };
-  const linhas = mostra.map((m) => `${icone(m.evento)} ${hhmm(m.datahora)} — ${m.nome || m.cartao || '—'}${tipo === 'tudo' ? ` (${m.evento})` : ''}`);
-  let texto = `${titulo}\n\n${linhas.join('\n')}`;
-  if (movs.length > LIMITE) texto += `\n\n_… e mais ${movs.length - LIMITE}. Mostrando os ${LIMITE} mais recentes._`;
-  return texto;
+  secao('🟢', 'Entradas', entradas, false);
+  secao('🔴', 'Saídas', saidas, false);
+  if (tipo === 'tudo') secao('•', 'Outros', outros, true);
+  return { texto: partes.join('\n'), truncado, total: movs.length };
 }
 
 // Resolve a escolha do menu: enfileira a consulta ao coletor, espera e responde.
@@ -2095,10 +2111,50 @@ async function resolverMovimentacao(pendente, msg, aoReceber) {
     const alvo = normalizar(nomeFiltro);
     resultado.movimentos = (resultado.movimentos || []).filter((m) => normalizar(m.nome).includes(alvo));
   }
+  const LIMITE_MOV = 40;
+  const fmt = formatarMovimentacao(resultado, hangar, tipo, nomeFiltro, LIMITE_MOV);
+  let texto = fmt.texto;
+  if (fmt.truncado) {
+    // Guarda como continuar: o resultado completo fica na fila (retido ~30 min),
+    // e "ver mais" relê por id e mostra tudo.
+    pendencias.registrar(msg.grupoId, msg.remetenteId, {
+      tipo: 'mov_vermais', consultaId: item.id, hangarId: pendente.hangarId, tipoMov: tipo, nomeFiltro,
+    });
+    texto += `\n\n_Mostrei os primeiros ${LIMITE_MOV}. Responda *VER MAIS* para a lista completa._`;
+  }
   return {
     status: 'movimentacao', hangarId: pendente.hangarId, grupoId: msg.grupoId,
-    mensagemWhatsapp: formatarMovimentacao(resultado, hangar, tipo, nomeFiltro),
+    mensagemWhatsapp: texto,
     notificarAdmin: false, responder: true, etapa: 'movimentacao',
+  };
+}
+
+// "VER MAIS": relê o resultado completo da consulta (na fila, retido ~30 min) e
+// mostra tudo, ainda separado por entrada/saída.
+async function resolverVerMais(pendente, msg) {
+  pendencias.consumir(msg.grupoId, msg.remetenteId);
+  if (!/\b(ver mais|mais|tudo|completa|lista completa)\b/.test(normalizar(msg.texto || ''))) {
+    return { status: 'ignorado', motivo: 'não pediu ver mais', grupoId: msg.grupoId, responder: false };
+  }
+  const item = filaConsultas.consultar(pendente.consultaId);
+  if (!item || !item.resultado || !item.resultado.ok) {
+    return {
+      status: 'mov_expirou', grupoId: msg.grupoId,
+      mensagemWhatsapp: 'A lista expirou. Peça *entrada e saída* de novo para ver a atualizada.',
+      notificarAdmin: false, responder: true, etapa: 'movimentacao',
+    };
+  }
+  const config = carregarConfig();
+  const hangar = config.hangares.find((h) => h.id === pendente.hangarId) || { id: pendente.hangarId };
+  let resultado = item.resultado;
+  if (pendente.nomeFiltro) {
+    const alvo = normalizar(pendente.nomeFiltro);
+    resultado = { ...resultado, movimentos: (resultado.movimentos || []).filter((m) => normalizar(m.nome).includes(alvo)) };
+  }
+  const fmt = formatarMovimentacao(resultado, hangar, pendente.tipoMov, pendente.nomeFiltro, 300);
+  return {
+    status: 'movimentacao', hangarId: pendente.hangarId, grupoId: msg.grupoId,
+    mensagemWhatsapp: fmt.texto, notificarAdmin: false, responder: true, etapa: 'movimentacao',
   };
 }
 
@@ -2120,9 +2176,13 @@ async function responderNoGrupoAdmin(msg, aoReceber) {
   if (pend && String(pend.tipo || '').startsWith('broadcast_')) {
     return await continuarBroadcast(msg, pend, config);
   }
-  // Resposta ao menu de entrada/saída (credenciados ou tudo).
+  // Resposta ao menu de entrada/saída (credenciados, tudo ou nome).
   if (pend && pend.tipo === 'mov_escolha') {
     return await resolverMovimentacao(pend, msg, aoReceber);
+  }
+  // "VER MAIS" da lista de movimentação.
+  if (pend && pend.tipo === 'mov_vermais') {
+    return await resolverVerMais(pend, msg);
   }
   if (msg.tipo === 'texto' && interpretarComandoBroadcast(msg.texto)) {
     return iniciarBroadcast(msg, config);
