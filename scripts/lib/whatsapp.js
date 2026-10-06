@@ -221,6 +221,20 @@ function interpretarComandoContingencia(texto) {
 }
 
 /**
+ * Comando da administração para ligar/desligar o faturamento por pátio:
+ * "desligar faturamento", "ativar faturamento do Solojet". Devolve true
+ * (ligar), false (desligar) ou null (não é comando).
+ */
+function interpretarComandoFaturamento(texto) {
+  const t = (texto || '').trim();
+  if (!t || t.length > 120) return null;
+  if (!/\bfaturamentos?\b/i.test(t)) return null;
+  if (REGEX_DESLIGAR.test(t)) return false;
+  if (REGEX_LIGAR.test(t)) return true;
+  return null;
+}
+
+/**
  * Devolve `{ termo }` quando a mensagem pergunta se algo foi validado, e null
  * quando não é essa a pergunta. `termo` vazio significa que a pessoa perguntou
  * sem dizer de quem — quem chama decide o que fazer com isso.
@@ -422,4 +436,4 @@ function interpretarMensagem(body) {
   };
 }
 
-module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus, interpretarPedidoPatio, interpretarEscolhaPatio, interpretarConsultaValidacao, interpretarComandoIdentificacao, interpretarComandoContingencia, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoMovimentacao, normalizar };
+module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus, interpretarPedidoPatio, interpretarEscolhaPatio, interpretarConsultaValidacao, interpretarComandoIdentificacao, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoMovimentacao, normalizar };

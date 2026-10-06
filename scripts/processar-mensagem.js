@@ -32,7 +32,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env'), override: t
 const { carregarConfig, buscarHangarPorGrupo } = require('./lib/hangar');
 const { comTrava, comTravaAsync, lerJson, salvarAtomico } = require('./lib/trava-arquivo');
 const { destinosAdmin } = require('./lib/admins');
-const { interpretarMensagem, extrairPlaca, interpretarEscolhaPatio, interpretarComandoContingencia, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoMovimentacao, normalizar } = require('./lib/whatsapp');
+const { interpretarMensagem, extrairPlaca, interpretarEscolhaPatio, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoMovimentacao, normalizar } = require('./lib/whatsapp');
 // O cliente da Evolution vive em lib/evolution.js: o painel também precisa
 // mandar mensagem, e duas cópias do mesmo cliente divergiriam — inclusive no
 // `Connection: close`, que existe por um bug real de socket reaproveitado.
@@ -2572,6 +2572,8 @@ async function responderNoGrupoAdmin(msg, aoReceber) {
   if (pend && String(pend.tipo || '').startsWith('broadcast_')) {
     return await continuarBroadcast(msg, pend, config);
   }
+  const cmdFat = responderComandoFaturamento(msg, config);
+  if (cmdFat) return cmdFat;
   // Respostas dos fluxos de movimentação. Mas um PEDIDO NOVO ("entrada e saída…")
   // tem prioridade sobre uma pendência velha — senão uma oferta de PDF antiga
   // engoliria a nova consulta.
@@ -2657,6 +2659,110 @@ async function responderNoGrupoAdmin(msg, aoReceber) {
   }
 
   return await responderAutorizacaoPrivada(msg);
+}
+
+// Liga/desliga o faturamento por pátio pelo WhatsApp da administração (grupo
+// "Adm Bot" ou privado de admin). Mexe na mesma chave do painel,
+// `faturamentoDesligado`. O passo a passo é o do disparo: o comando, a escolha
+// dos pátios (TODOS, números ou nomes) e a confirmação SIM/NÃO — os dois
+// sentidos confirmam, porque o resumo mostra QUAIS pátios mudam, e ligar
+// significa boleto real.
+//
+// Devolve a resposta, ou null quando a mensagem não é deste assunto.
+function responderComandoFaturamento(msg, config) {
+  const pend = pendencias.buscar(msg.grupoId, msg.remetenteId);
+  const emAndamento = pend && String(pend.tipo || '').startsWith('fatcmd_');
+  const comando = msg.tipo === 'imagem' ? null : interpretarComandoFaturamento(msg.texto);
+  if (!emAndamento && comando === null) return null;
+
+  const resposta = (status, texto) => ({
+    status, grupoId: msg.grupoId, mensagemWhatsapp: texto,
+    notificarAdmin: false, responder: true, etapa: 'comando_faturamento',
+  });
+  const nome = (id) => { const h = config.hangares.find((x) => x.id === id); return h ? (h.hangar || id) : id; };
+  const estado = (id) => (config.hangares.find((x) => x.id === id) || {}).faturamentoDesligado === true ? 'desligado' : 'ligado';
+  const verbo = (ligar) => (ligar ? 'LIGAR' : 'DESLIGAR');
+
+  const pedirConfirmacao = (ligar, alvos, lista) => {
+    const mudam = alvos.filter((id) => (estado(id) === 'ligado') !== ligar);
+    if (!mudam.length) {
+      if (emAndamento) pendencias.consumir(msg.grupoId, msg.remetenteId);
+      return resposta('faturamento_sem_mudanca',
+        `O faturamento já está *${ligar ? 'ligado' : 'desligado'}* em ${alvos.length === lista.length ? 'todos os pátios' : alvos.map(nome).join(', ')}. Nada a mudar.`);
+    }
+    if (emAndamento) pendencias.consumir(msg.grupoId, msg.remetenteId);
+    pendencias.registrar(msg.grupoId, msg.remetenteId, { tipo: 'fatcmd_confirma', ligar, alvos: mudam });
+    return resposta('faturamento_confirmar',
+      `Vou *${verbo(ligar)}* o faturamento em ${mudam.length === lista.length ? `*todos os ${mudam.length} pátios*` : `*${mudam.length} pátio(s)*`}:\n\n`
+      + `${mudam.map((id) => `• ${nome(id)}`).join('\n')}\n\n`
+      + (ligar
+        ? 'Com o faturamento ligado, o bot passa a *oferecer cobrança* (ticket vencido sem cota e pátio sem vaga) — o boleto é real e só sai com o SIM da administração.\n\n'
+        : 'Com o faturamento desligado, o bot *não oferece cobrança*: ticket vencido sem cota vai para a administração e pátio sem vaga trava direto.\n\n')
+      + 'Confirma? Responda *SIM* ou *NÃO*.');
+  };
+
+  // Comando novo sempre recomeça, mesmo no meio de outro.
+  if (comando !== null) {
+    if (emAndamento) pendencias.consumir(msg.grupoId, msg.remetenteId);
+    const lista = hangaresComGrupo(config).map((h) => h.id);
+    if (!lista.length) return resposta('faturamento_sem_patios', 'Não há nenhum pátio em operação cadastrado.');
+    // Pátios já citados no comando ("desligar faturamento do VOASP", "...de
+    // todos") pulam a lista e vão direto à confirmação.
+    const citados = resolverAlvosBroadcast(String(msg.texto || '').replace(/\d+/g, ' '), lista, config);
+    if (citados.length) return pedirConfirmacao(comando, citados, lista);
+    pendencias.registrar(msg.grupoId, msg.remetenteId, { tipo: 'fatcmd_alvos', ligar: comando, lista });
+    return resposta('faturamento_escolher_patios',
+      `💰 *${verbo(comando)} faturamento*\n\nEm quais pátios? Responda *TODOS*, ou os números separados por vírgula (ex.: _1, 3, 5_):\n\n`
+      + lista.map((id, i) => `*${i + 1}* ${nome(id)} — ${estado(id) === 'ligado' ? '💰 ligado' : '⛔ desligado'}`).join('\n')
+      + '\n\n_Para desistir, responda CANCELAR._');
+  }
+
+  if (CANCELAR_BROADCAST.test(msg.texto || '')) {
+    pendencias.consumir(msg.grupoId, msg.remetenteId);
+    return resposta('faturamento_cancelado', 'Ok, nada mudou no faturamento.');
+  }
+
+  if (pend.tipo === 'fatcmd_alvos') {
+    const alvos = resolverAlvosBroadcast(msg.texto, pend.lista, config);
+    if (!alvos.length) {
+      return resposta('faturamento_patios_nao_entendido',
+        'Não reconheci os pátios. Responda *TODOS* ou os números da lista (ex.: _1, 3_). _CANCELAR para desistir._');
+    }
+    return pedirConfirmacao(pend.ligar, alvos, pend.lista);
+  }
+
+  // fatcmd_confirma
+  if (msg.resposta !== 'sim' && msg.resposta !== 'nao') {
+    return resposta('faturamento_confirma_nao_entendido', `Responda *SIM* para ${pend.ligar ? 'ligar' : 'desligar'} o faturamento ou *NÃO* para cancelar.`);
+  }
+  pendencias.consumir(msg.grupoId, msg.remetenteId);
+  if (msg.resposta === 'nao') return resposta('faturamento_cancelado', 'Ok, nada mudou no faturamento.');
+
+  // Relê o arquivo: entre a pergunta e o SIM o painel pode ter salvo algo.
+  const atual = carregarConfig();
+  const mudados = [];
+  for (const id of pend.alvos) {
+    const h = atual.hangares.find((x) => x.id === id);
+    if (!h) continue;
+    // Ligado é a AUSÊNCIA da chave — o padrão de todo pátio novo.
+    if (pend.ligar) delete h.faturamentoDesligado;
+    else h.faturamentoDesligado = true;
+    mudados.push(h.hangar || id);
+  }
+  const quem = msg.remetente || msg.grupoId;
+  try {
+    salvarEComitar(atual, `Faturamento ${pend.ligar ? 'LIGADO' : 'desligado'} em ${mudados.join(', ')} por ${quem} (WhatsApp)`, 'Bot do WhatsApp');
+  } catch (erro) {
+    return {
+      ...resposta('erro', '⚠️ Não consegui salvar a mudança do faturamento. Nada mudou — tente de novo.'),
+      mensagem: erro.message, notificarAdmin: true,
+    };
+  }
+  return {
+    ...resposta(pend.ligar ? 'faturamento_ligado' : 'faturamento_desligado',
+      `${pend.ligar ? '💰' : '⛔'} Faturamento *${pend.ligar ? 'ligado' : 'desligado'}* em:\n\n${mudados.map((n) => `• ${n}`).join('\n')}`),
+    mensagem: `Faturamento ${pend.ligar ? 'LIGADO' : 'desligado'} em ${mudados.join(', ')} por ${quem} via WhatsApp.`,
+  };
 }
 
 // Grava a contingência (liga/desliga) e monta a resposta. Preserva
@@ -2754,6 +2860,10 @@ async function responderAutorizacaoPrivada(msg) {
   if (!ehAdmin) {
     return { status: 'ignorado', motivo: 'privado de número que não é administração', grupoId: msg.grupoId, responder: false };
   }
+
+  // Faturamento por pátio (mesmo comando do grupo "Adm Bot").
+  const cmdFat = responderComandoFaturamento(msg, config);
+  if (cmdFat) return cmdFat;
 
   // O admin decide sobre DUAS coisas pelo privado: ticket bloqueado (pátio
   // cheio) e faturamento de ticket vencido. O número do ticket desempata; sem
