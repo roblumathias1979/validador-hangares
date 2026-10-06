@@ -85,6 +85,19 @@ async function main() {
   parar4();
   conferir('avisa que não achou', /Nenhuma movimenta/i.test(semNome2.mensagemWhatsapp), semNome2.mensagemWhatsapp);
 
+  console.log('\nPedido DIRETO por nome (sem menu): "histórico da maria"');
+  const parar5 = simularColetor(MOVS);
+  const direto = await processar(texto(GRUPO, 'histórico da maria'), {});
+  parar5();
+  conferir('vai direto à movimentação (pula o menu)', direto.status === 'movimentacao', `veio "${direto.status}"`);
+  conferir('mostra só a Maria', /MARIA/.test(direto.mensagemWhatsapp) && !/JOÃO/.test(direto.mensagemWhatsapp), direto.mensagemWhatsapp);
+
+  console.log('\nPedido direto por nome no admin: "entrada e saída do solojet joão"');
+  const parar6 = simularColetor(MOVS);
+  const diretoAdm = await processar(texto(ADMGRUPO, 'entrada e saída do solojet joão'), {});
+  parar6();
+  conferir('admin vai direto ao nome', diretoAdm.status === 'movimentacao' && /JOÃO/.test(diretoAdm.mensagemWhatsapp), `veio "${diretoAdm.status}"`);
+
   console.log('\nGrupo admin sem nome do hangar: pergunta qual');
   const semNome = await processar(texto(ADMGRUPO, 'entrada e saída'), {});
   conferir('pede o nome do pátio', semNome.status === 'mov_sem_hangar', `veio "${semNome.status}"`);

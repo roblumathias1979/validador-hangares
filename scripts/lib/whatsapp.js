@@ -159,7 +159,7 @@ function interpretarComandoIdentificacao(texto) {
 function interpretarPedidoMovimentacao(texto) {
   const t = normalizar(texto || '');
   if (!t || t.length > 140) return false;
-  if (/\b(movimenta[çc][aã]o|movimento)\b/.test(t)) return true;         // "ver movimentação do pátio"
+  if (/\b(movimenta[çc][aã]o|movimento|historico)\b/.test(t)) return true; // "movimentação", "histórico do João"
   if (/\bentrada[s]?\b[^.?!]{0,15}\bsaida[s]?\b/.test(t)) return true;    // "entrada e saída"
   if (/\bhorario[s]?\b[^.?!]{0,40}\b(credenciad|funcionari|entrada|saida|movimenta)/.test(t)) return true; // "horário dos credenciados"
   if (/\bquem\b[^.?!]{0,20}\b(entrou|saiu|entrou e saiu)\b/.test(t)) return true;

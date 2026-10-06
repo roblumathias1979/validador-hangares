@@ -772,8 +772,11 @@ async function conduzir(body, { aoReceber } = {}) {
   }
 
   // ---- entrada e saída (movimentação) dos credenciados DESTE hangar ----
-  // O grupo já é o hangar, então não precisa nomear: pergunta credenciados/tudo.
+  // O grupo já é o hangar. Se a pessoa já disse o NOME ("histórico do João"),
+  // vai direto a ele; senão, pergunta credenciados/tudo.
   if (msg.tipo === 'texto' && interpretarPedidoMovimentacao(msg.texto)) {
+    const nome = extrairNomeMovimentacao(msg.texto, hangar);
+    if (nome) return await executarMovimentacao(hangar, msg, 'credenciados', nome, aoReceber);
     return menuMovimentacao(hangar, msg);
   }
 
@@ -2077,7 +2080,85 @@ function formatarMovimentacao(resultado, hangar, tipo, nomeFiltro, limite = 40) 
   return { texto: partes.join('\n'), truncado, total: movs.length };
 }
 
-// Resolve a escolha do menu: enfileira a consulta ao coletor, espera e responde.
+// Palavras do PEDIDO (não são nome de credenciado). O que sobra depois de tirar
+// essas — e as palavras do hangar — é o nome a filtrar.
+const PALAVRAS_PEDIDO_MOV = new Set(['movimentacao', 'movimento', 'movimentacoes', 'historico',
+  'entrada', 'entradas', 'saida', 'saidas', 'quem', 'entrou', 'saiu', 'entraram', 'sairam',
+  'horario', 'horarios', 'credenciado', 'credenciados', 'funcionario', 'funcionarios',
+  'mensalista', 'mensalistas', 'hoje', 'patio', 'do', 'da', 'de', 'dos', 'das', 'o', 'a',
+  'os', 'as', 'e', 'ver', 'quero', 'saber', 'qual', 'quais', 'me', 'mostra', 'mostrar',
+  'lista', 'listar', 'no', 'na', 'pra', 'para']);
+
+// Tira do texto as palavras do pedido (e do hangar) — o que sobra é o nome do
+// credenciado, quando a pessoa pede direto ("histórico do João"). null se nada sobra.
+function extrairNomeMovimentacao(texto, hangar) {
+  const doHangar = new Set();
+  if (hangar) for (const src of [hangar.bolsaoTechparking, hangar.hangar]) {
+    for (const w of normalizar(src || '').split(/[\s-]+/)) if (w.length >= 3) doHangar.add(w);
+  }
+  const resto = String(texto || '').trim().split(/\s+/).filter((w) => {
+    const n = normalizar(w);
+    return n && !PALAVRAS_PEDIDO_MOV.has(n) && !doHangar.has(n);
+  });
+  const nome = resto.join(' ').trim();
+  return nome.length >= 2 ? nome : null;
+}
+
+// Enfileira a consulta ao coletor, espera, filtra por nome (se houver) e formata.
+// Usada tanto pelo menu (resolverMovimentacao) quanto pelo pedido direto por nome.
+async function executarMovimentacao(hangar, msg, tipo, nomeFiltro, aoReceber) {
+  const hoje = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' }); // YYYY-MM-DD
+  let item;
+  try {
+    item = filaConsultas.enfileirar({
+      tipo, grupoBolsao: hangar.bolsaoTechparking || null, hangarId: hangar.id, grupoId: msg.grupoId,
+      dataini: `${hoje} 00:00:00`, dataend: `${hoje} 23:59:59`,
+    });
+  } catch (erro) {
+    return {
+      status: 'erro', hangarId: hangar.id, grupoId: msg.grupoId, mensagem: erro.message,
+      mensagemWhatsapp: '⚠️ Não consegui montar a consulta agora. Nossa equipe foi avisada.',
+      notificarAdmin: true, responder: true, etapa: 'movimentacao',
+    };
+  }
+  if (aoReceber) { try { await aoReceber(msg.grupoId, '🔎 Consultando pátio — entrada e saída...'); } catch (e) { /* aviso é conforto */ } }
+  const resultado = await esperarConsulta(item.id);
+  if (!resultado) {
+    return {
+      status: 'mov_sem_resposta', hangarId: hangar.id, grupoId: msg.grupoId,
+      mensagemWhatsapp: '⚠️ O sistema do aeroporto não respondeu a tempo. Tente de novo em instantes; se persistir, nossa equipe verifica.',
+      notificarAdmin: true, responder: true, etapa: 'movimentacao',
+    };
+  }
+  if (!resultado.ok) {
+    return {
+      status: 'mov_erro', hangarId: hangar.id, grupoId: msg.grupoId,
+      mensagem: resultado.resposta || 'falha na consulta',
+      mensagemWhatsapp: '⚠️ Não consegui consultar a movimentação agora. Nossa equipe foi avisada.',
+      notificarAdmin: true, responder: true, etapa: 'movimentacao',
+    };
+  }
+  // Filtro por nome é aqui mesmo, sobre o que o coletor devolveu (o `nome` vem junto).
+  if (nomeFiltro) {
+    const alvo = normalizar(nomeFiltro);
+    resultado.movimentos = (resultado.movimentos || []).filter((m) => normalizar(m.nome).includes(alvo));
+  }
+  const LIMITE_MOV = 40;
+  const fmt = formatarMovimentacao(resultado, hangar, tipo, nomeFiltro, LIMITE_MOV);
+  let texto = fmt.texto;
+  if (fmt.truncado) {
+    pendencias.registrar(msg.grupoId, msg.remetenteId, {
+      tipo: 'mov_vermais', consultaId: item.id, hangarId: hangar.id, tipoMov: tipo, nomeFiltro,
+    });
+    texto += `\n\n_Mostrei os primeiros ${LIMITE_MOV}. Responda *VER MAIS* para a lista completa._`;
+  }
+  return {
+    status: 'movimentacao', hangarId: hangar.id, grupoId: msg.grupoId,
+    mensagemWhatsapp: texto, notificarAdmin: false, responder: true, etapa: 'movimentacao',
+  };
+}
+
+// Resposta ao menu: 1 (credenciados), 2 (tudo) ou um nome → executa a consulta.
 async function resolverMovimentacao(pendente, msg, aoReceber) {
   const escolha = escolhaMovimentacao(msg.texto);
   if (!escolha) {
@@ -2087,65 +2168,11 @@ async function resolverMovimentacao(pendente, msg, aoReceber) {
       notificarAdmin: false, responder: true, etapa: 'menu_movimentacao',
     };
   }
-  const tipo = escolha.tipo;
-  const nomeFiltro = escolha.nome || null;
   pendencias.consumir(msg.grupoId, msg.remetenteId);
   const config = carregarConfig();
-  const hangar = config.hangares.find((h) => h.id === pendente.hangarId) || { id: pendente.hangarId };
-  // Janela do dia em horário de São Paulo.
-  const hoje = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' }); // YYYY-MM-DD
-  let item;
-  try {
-    item = filaConsultas.enfileirar({
-      tipo, grupoBolsao: pendente.grupoBolsao, hangarId: pendente.hangarId, grupoId: msg.grupoId,
-      dataini: `${hoje} 00:00:00`, dataend: `${hoje} 23:59:59`,
-    });
-  } catch (erro) {
-    return {
-      status: 'erro', hangarId: pendente.hangarId, grupoId: msg.grupoId, mensagem: erro.message,
-      mensagemWhatsapp: '⚠️ Não consegui montar a consulta agora. Nossa equipe foi avisada.',
-      notificarAdmin: true, responder: true, etapa: 'movimentacao',
-    };
-  }
-  if (aoReceber) { try { await aoReceber(msg.grupoId, '🔎 Consultando pátio — entrada e saída...'); } catch (e) { /* aviso é conforto */ } }
-  const resultado = await esperarConsulta(item.id);
-  if (!resultado) {
-    return {
-      status: 'mov_sem_resposta', hangarId: pendente.hangarId, grupoId: msg.grupoId,
-      mensagemWhatsapp: '⚠️ O sistema do aeroporto não respondeu a tempo. Tente de novo em instantes; se persistir, nossa equipe verifica.',
-      notificarAdmin: true, responder: true, etapa: 'movimentacao',
-    };
-  }
-  if (!resultado.ok) {
-    return {
-      status: 'mov_erro', hangarId: pendente.hangarId, grupoId: msg.grupoId,
-      mensagem: resultado.resposta || 'falha na consulta',
-      mensagemWhatsapp: '⚠️ Não consegui consultar a movimentação agora. Nossa equipe foi avisada.',
-      notificarAdmin: true, responder: true, etapa: 'movimentacao',
-    };
-  }
-  // Filtro por nome é aqui mesmo, sobre o que o coletor devolveu (o `nome` vem
-  // junto) — não precisa consultar de novo nem mexer no coletor.
-  if (nomeFiltro) {
-    const alvo = normalizar(nomeFiltro);
-    resultado.movimentos = (resultado.movimentos || []).filter((m) => normalizar(m.nome).includes(alvo));
-  }
-  const LIMITE_MOV = 40;
-  const fmt = formatarMovimentacao(resultado, hangar, tipo, nomeFiltro, LIMITE_MOV);
-  let texto = fmt.texto;
-  if (fmt.truncado) {
-    // Guarda como continuar: o resultado completo fica na fila (retido ~30 min),
-    // e "ver mais" relê por id e mostra tudo.
-    pendencias.registrar(msg.grupoId, msg.remetenteId, {
-      tipo: 'mov_vermais', consultaId: item.id, hangarId: pendente.hangarId, tipoMov: tipo, nomeFiltro,
-    });
-    texto += `\n\n_Mostrei os primeiros ${LIMITE_MOV}. Responda *VER MAIS* para a lista completa._`;
-  }
-  return {
-    status: 'movimentacao', hangarId: pendente.hangarId, grupoId: msg.grupoId,
-    mensagemWhatsapp: texto,
-    notificarAdmin: false, responder: true, etapa: 'movimentacao',
-  };
+  const hangar = config.hangares.find((h) => h.id === pendente.hangarId)
+    || { id: pendente.hangarId, bolsaoTechparking: pendente.grupoBolsao };
+  return await executarMovimentacao(hangar, msg, escolha.tipo, escolha.nome || null, aoReceber);
 }
 
 // "VER MAIS": relê o resultado completo da consulta (na fila, retido ~30 min) e
@@ -2210,6 +2237,7 @@ async function responderNoGrupoAdmin(msg, aoReceber) {
   const hangar = msg.tipo === 'texto' ? acharHangarNoTexto(config, msg.texto) : null;
 
   // Entrada e saída (movimentação), nomeando o hangar: "entrada e saída do Solojet".
+  // Com um NOME junto ("entrada e saída do Solojet, João"), vai direto a ele.
   if (msg.tipo === 'texto' && interpretarPedidoMovimentacao(msg.texto)) {
     if (!hangar) {
       const nomes = config.hangares.filter((h) => (h.grupoWhatsappId || '').trim()).map((h) => h.hangar || h.id);
@@ -2219,6 +2247,8 @@ async function responderNoGrupoAdmin(msg, aoReceber) {
         notificarAdmin: false, responder: true, etapa: 'movimentacao',
       };
     }
+    const nome = extrairNomeMovimentacao(msg.texto, hangar);
+    if (nome) return await executarMovimentacao(hangar, msg, 'credenciados', nome, aoReceber);
     return menuMovimentacao(hangar, msg);
   }
 
