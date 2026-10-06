@@ -2042,7 +2042,10 @@ function limparNomeCredenciado(nome, hangar) {
 // Monta a mensagem SEPARANDO entradas e saídas (e "outros", no modo tudo).
 // Mostra até `limite` linhas no total; devolve { texto, truncado, total }.
 function formatarMovimentacao(resultado, hangar, tipo, nomeFiltro, limite = 40) {
-  const hhmm = (iso) => { try { return new Date(iso).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' }); } catch (e) { return '--:--'; } };
+  // A datahora do TECHPARKING já é horário LOCAL (ex.: "2026-10-06T11:15:23").
+  // Lemos o relógio direto da string — 24h, e sem o deslocamento de fuso que
+  // converter no servidor (UTC) causaria.
+  const hhmm = (iso) => { const m = String(iso || '').match(/T(\d{2}:\d{2})/); return m ? m[1] : '--:--'; };
   const assunto = nomeFiltro ? `entradas e saídas de *${nomeFiltro}*` : (tipo === 'tudo' ? 'movimentação' : 'entradas e saídas');
   const titulo = `🚪 *${hangar.hangar || hangar.id}* — ${assunto} de hoje`;
   const movs = (resultado && resultado.movimentos) || [];
@@ -2064,7 +2067,7 @@ function formatarMovimentacao(resultado, hangar, tipo, nomeFiltro, limite = 40) 
     partes.push('', `${icone} *${nome}*`);
     for (const m of lista) {
       if (orcamento <= 0) { truncado = true; break; }
-      partes.push(`${hhmm(m.datahora)} — ${limparNomeCredenciado(m.nome, hangar) || m.cartao || '—'}${comEvento ? ` (${m.evento})` : ''}`);
+      partes.push(`${icone} ${hhmm(m.datahora)} — ${limparNomeCredenciado(m.nome, hangar) || m.cartao || '—'}${comEvento ? ` (${m.evento})` : ''}`);
       orcamento -= 1;
     }
   };
