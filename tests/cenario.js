@@ -21,7 +21,7 @@ const path = require('path');
 
 const RAIZ = path.join(__dirname, '..');
 const CONFIG = 'config/hangares.json';
-const DADOS = ['data/validacoes.jsonl', 'data/pendencias.json', 'data/fotos-usadas.json', 'data/aviso-patio.json'];
+const DADOS = ['data/validacoes.jsonl', 'data/pendencias.json', 'data/fotos-usadas.json', 'data/aviso-patio.json', 'data/mensagens-vistas.json'];
 
 // Estado de um hangar "comum": sem pergunta nenhuma, sem cota, sem foto. É o
 // ponto de partida de quase todo teste, e declarar o contrário é explícito.

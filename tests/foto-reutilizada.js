@@ -17,6 +17,7 @@ const fs = require('fs');
 const path = require('path');
 
 process.env.EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY || 'teste';
+process.env.FATURAMENTO_SIMULAR = 'true'; // sem faturar, pátio cheio bloqueia direto (foco do teste)
 process.env.EVOLUTION_URL = 'http://127.0.0.1:9';
 process.env.EVOLUTION_INSTANCE = 'teste';
 

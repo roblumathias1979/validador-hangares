@@ -33,6 +33,7 @@ function enfileirar(pedido) {
       grupoId: pedido.grupoId || null,
       valor: pedido.valor ?? null,
       horasDecorridas: pedido.horasDecorridas ?? null,
+      motivo: pedido.motivo || null,            // 'patio_cheio' ou 'fora_do_prazo'
       fotoMsgId: pedido.fotoMsgId || null,      // referência da foto de autorização
       solicitadoPor: pedido.solicitadoPor || null,
       estado: 'aguardando_admin',

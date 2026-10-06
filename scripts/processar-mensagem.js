@@ -311,11 +311,34 @@ async function validar(hangar, msg, pedido, usarCota, faturamento = {}) {
     validacao.quedaValidPark = { motivo: validacao.status };
   }
 
-  // Pátio cheio: trava o ticket até a administração decidir.
+  // Pátio cheio.
   //
   // Se não há vaga, o carro daquele ticket provavelmente não está ali. Pode ser
   // honesto — a pessoa chegou e não achou lugar — mas é também o formato exato
-  // de uma fraude, e o sistema não sabe distinguir os dois. Para e chama gente.
+  // de uma fraude. Com o FATURAMENTO LIGADO, em vez de só travar, oferece
+  // *faturar e validar*: o cliente manda foto autorizando, o admin aprova (é a
+  // mesma conferência humana do bloqueio), sai o boleto e valida. Se o cliente
+  // NÃO autorizar, aí sim trava para a administração decidir.
+  if (validacao.status === 'sem_vagas' && !usarCota && !faturamento.autorizar) {
+    const faturamentoLigado = String(process.env.FATURAMENTO_SIMULAR || '').toLowerCase() !== 'true';
+    const horas = pedido.dataEmissaoIso ? Math.max(0, (Date.now() - Date.parse(pedido.dataEmissaoIso)) / 3600000) : 0;
+    const valor = calcularValorPermanencia(horas);
+    if (faturamentoLigado && valor > 0) {
+      pendencias.registrar(msg.grupoId, msg.remetenteId, {
+        ticket: pedido.ticket, hangarId: hangar.id, placa: pedido.placa,
+        horasDecorridas: horas, valor, vagasDisponiveis: validacao.vagasDisponiveis ?? null,
+        tipo: 'faturar_patio_cheio',
+      });
+      return {
+        status: 'patio_cheio_requer_autorizacao_faturamento', hangarId: hangar.id, grupoId: msg.grupoId, ticket: pedido.ticket, valor,
+        mensagem: `Pátio ${hangar.hangar || hangar.id} SEM VAGA. Oferecido faturar: R$ ${formatarReais(valor)} (ticket ${pedido.ticket}).`,
+        mensagemWhatsapp: `⚠️ O pátio está *sem vaga* agora.\n\n`
+          + `Dá para *faturar e validar* assim mesmo: R$ ${formatarReais(valor)}, boleto para o hangar.\n\n`
+          + 'Para autorizar, mande uma *FOTO* confirmando. Ou responda *NÃO* — aí o ticket fica bloqueado para a administração decidir.',
+        notificarAdmin: false, responder: true, etapa: 'oferta_faturamento_patio_cheio',
+      };
+    }
+  }
   if (validacao.status === 'sem_vagas') {
     try {
       bloqueados.bloquear(pedido.ticket, {
@@ -852,6 +875,40 @@ async function conduzir(body, { aoReceber } = {}) {
       };
     }
 
+    // Pátio cheio: cliente recusou faturar → TRAVA (a guarda antifraude de
+    // sempre). Foto = autorização, cai no caminho de faturamento (foto, abaixo).
+    if (pendente.tipo === 'faturar_patio_cheio') {
+      if (msg.resposta === 'nao') {
+        pendencias.descartar(msg.grupoId, msg.remetenteId);
+        try {
+          bloqueados.bloquear(pendente.ticket, {
+            hangarId: hangar.id, hangarNome: hangar.hangar || hangar.id,
+            grupoId: msg.grupoId, remetente: msg.remetente,
+            vagasDisponiveis: pendente.vagasDisponiveis ?? null,
+          });
+          return {
+            status: 'sem_vagas', hangarId: hangar.id, grupoId: msg.grupoId, ticket: pendente.ticket,
+            mensagemWhatsapp: bloqueados.mensagemParaCliente(pendente.ticket),
+            mensagem: `Cliente recusou faturar no pátio cheio. Ticket ${pendente.ticket} bloqueado.`,
+            notificarAdmin: true, responder: true, etapa: 'resposta',
+          };
+        } catch (erro) {
+          return {
+            status: 'sem_vagas', hangarId: hangar.id, grupoId: msg.grupoId, ticket: pendente.ticket,
+            mensagemWhatsapp: '⚠️ O pátio está sem vaga. Nossa equipe foi avisada.',
+            mensagem: `Falha ao bloquear ${pendente.ticket}: ${erro.message}`,
+            notificarAdmin: true, responder: true, etapa: 'resposta',
+          };
+        }
+      }
+      return {
+        status: 'faturamento_aguardando_foto', hangarId: hangar.id, grupoId: msg.grupoId, ticket: pendente.ticket,
+        mensagemWhatsapp: `Para faturar e validar o ticket ${pendente.ticket} (pátio cheio) preciso da *FOTO* de autorização. `
+          + 'Mande a foto, ou responda *NÃO* — aí o ticket fica bloqueado.',
+        notificarAdmin: false, responder: true, etapa: 'resposta',
+      };
+    }
+
     // Decisão do cliente sobre usar a cota fora do prazo.
     if (pendente.tipo === 'usar_cota_fora_prazo') {
       if (msg.resposta === 'nao') {
@@ -1218,17 +1275,19 @@ async function conduzir(body, { aoReceber } = {}) {
   // Foto de autorização do faturamento de ticket VENCIDO. Não emite nada aqui:
   // cria o pedido e manda para o admin. O boleto só sai no aval dele.
   const ofertaFat = pendencias.buscar(msg.grupoId, msg.remetenteId);
-  if (ofertaFat && ofertaFat.tipo === 'faturar_fora_prazo') {
+  if (ofertaFat && (ofertaFat.tipo === 'faturar_fora_prazo' || ofertaFat.tipo === 'faturar_patio_cheio')) {
     const pedido = pendencias.consumir(msg.grupoId, msg.remetenteId);
     if (!pedido) {
       return { status: 'ignorado', motivo: 'pendência já consumida por outra mensagem', grupoId: msg.grupoId, responder: false };
     }
+    const motivoFat = pedido.tipo === 'faturar_patio_cheio' ? 'patio_cheio' : 'fora_do_prazo';
     filaFaturamentos.enfileirar({
       ticket: pedido.ticket,
       hangarId: hangar.id,
       grupoId: msg.grupoId,
       valor: pedido.valor,
       horasDecorridas: pedido.horasDecorridas,
+      motivo: motivoFat,
       fotoMsgId: msg.messageId,
       solicitadoPor: msg.remetente,
     });
@@ -1240,7 +1299,7 @@ async function conduzir(body, { aoReceber } = {}) {
       valor: pedido.valor,
       // Vai ao ADMIN (notificarAdmin) com o que ele precisa para decidir.
       mensagem: `FATURAMENTO pedido — ticket ${pedido.ticket}, ${hangar.hangar || hangar.id}, R$ ${formatarReais(pedido.valor)}, `
-        + `cliente ${msg.remetente || '?'}, foto de autorização recebida.\n`
+        + `${motivoFat === 'patio_cheio' ? 'PÁTIO CHEIO' : 'fora do prazo'}, cliente ${msg.remetente || '?'}, foto de autorização recebida.\n`
         + `Responda aqui *SIM* para EMITIR O BOLETO e liberar, ou *NÃO* para recusar.`,
       mensagemWhatsapp: `Recebi sua autorização do ticket ${pedido.ticket}. `
         + 'Encaminhei à administração; assim que for aprovado, o boleto é emitido e o ticket liberado. Aviso aqui.',

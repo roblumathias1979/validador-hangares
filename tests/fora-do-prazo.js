@@ -74,7 +74,7 @@ console.log('\nNo fluxo: recusa ANTES de pedir a foto do veículo');
   process.env.EVOLUTION_INSTANCE = 'teste';
 
   const RAIZ = path.join(__dirname, '..');
-  const ESTADO = ['data/validacoes.jsonl', 'data/pendencias.json', 'data/fotos-usadas.json', 'config/hangares.json'];
+  const ESTADO = ['data/validacoes.jsonl', 'data/pendencias.json', 'data/fotos-usadas.json', 'data/mensagens-vistas.json', 'config/hangares.json'];
   const guardado = {};
   for (const a of ESTADO) {
     const f = path.join(RAIZ, a);
