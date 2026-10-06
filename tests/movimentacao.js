@@ -33,6 +33,15 @@ for (const a of EXTRA) { const p = path.join(RAIZ, a); guardado[a] = fs.existsSy
 process.on('exit', () => { for (const a of EXTRA) { const p = path.join(RAIZ, a); if (guardado[a] === null) { try { fs.unlinkSync(p); } catch (e) {} } else fs.writeFileSync(p, guardado[a]); } });
 for (const a of EXTRA) fs.writeFileSync(path.join(RAIZ, a), '{}');
 
+// Stubs ANTES do require do processar (ele desestrutura no topo): PDF (não abrir
+// Chromium) e envio de documento (capturar).
+const pdfLib = require(path.join(RAIZ, 'scripts', 'lib', 'pdf-movimentacao.js'));
+let pdfsGerados = 0;
+pdfLib.gerarPdfMovimentacao = async () => { pdfsGerados += 1; return Buffer.from('%PDF-fake').toString('base64'); };
+const evo = require(path.join(RAIZ, 'scripts', 'lib', 'evolution.js'));
+let documentosEnviados = [];
+evo.enviarDocumento = async (grupo, base64, opts) => { documentosEnviados.push({ grupo, base64, opts }); return { ok: true }; };
+
 const filaConsultas = require(path.join(RAIZ, 'scripts', 'lib', 'consultas-pendentes.js'));
 const { processar } = require(path.join(RAIZ, 'scripts', 'processar-mensagem.js'));
 
@@ -169,6 +178,24 @@ async function main() {
   conferir('pergunta o período', pedePer2.status === 'mov_pede_periodo');
   const menuPos = await processar(texto(GRUPO, 'dia 05/10'), {});
   conferir('vai ao menu com o período', menuPos.status === 'menu_movimentacao' && /05\/10/.test(menuPos.mensagemWhatsapp), `veio "${menuPos.status}"`);
+
+  console.log('\nPDF: oferta após a lista e geração');
+  pdfsGerados = 0; documentosEnviados = [];
+  await processar(texto(GRUPO, 'entrada e saída'), {});
+  const pararPdf = simularColetor(MOVS);
+  const lista = await processar(texto(GRUPO, '1'), {});
+  pararPdf();
+  conferir('oferece PDF após a lista', /PDF/.test(lista.mensagemWhatsapp), lista.mensagemWhatsapp);
+  const pdf1 = await processar(texto(GRUPO, 'pdf'), {});
+  conferir('gera o PDF e envia como documento', pdf1.status === 'movimentacao_pdf' && pdfsGerados === 1 && documentosEnviados.length === 1, `status "${pdf1.status}", pdfs ${pdfsGerados}, docs ${documentosEnviados.length}`);
+  conferir('documento é .pdf com legenda', /\.pdf$/.test(documentosEnviados[0].opts.nomeArquivo) && /Solojet/i.test(documentosEnviados[0].opts.legenda));
+
+  console.log('\nPDF direto no pedido: "histórico da maria em pdf"');
+  pdfsGerados = 0; documentosEnviados = [];
+  const pararPdf2 = simularColetor(MOVS);
+  const pdfDireto = await processar(texto(GRUPO, 'histórico da maria em pdf'), {});
+  pararPdf2();
+  conferir('vai direto ao PDF', pdfDireto.status === 'movimentacao_pdf' && pdfsGerados === 1 && documentosEnviados.length === 1, `status "${pdfDireto.status}"`);
 
   console.log('\nColetor mudo: avisa que não respondeu (não trava)');
   await processar(texto(GRUPO, 'movimentação'), {});

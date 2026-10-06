@@ -218,4 +218,26 @@ async function enviarImagem(grupoId, base64, { legenda = '', mimetype = 'image/j
   throw ultimoErro;
 }
 
-module.exports = { listarGrupos, criarGrupo, chamarEvolution, enviarTexto, enviarImagem };
+// Envia um DOCUMENTO (ex.: relatório em PDF) com legenda opcional. `base64` é o
+// conteúdo do arquivo. Mesma política de uma tentativa extra.
+async function enviarDocumento(grupoId, base64, { nomeArquivo = 'relatorio.pdf', mimetype = 'application/pdf', legenda = '' } = {}) {
+  let ultimoErro = null;
+  for (let tentativa = 1; tentativa <= 2; tentativa += 1) {
+    try {
+      return await chamarEvolution(`/message/sendMedia/${EVOLUTION_INSTANCE}`, {
+        number: grupoId,
+        mediatype: 'document',
+        mimetype,
+        media: base64,
+        caption: legenda || '',
+        fileName: nomeArquivo,
+      });
+    } catch (erro) {
+      ultimoErro = erro;
+      if (tentativa < 2) await new Promise((r) => setTimeout(r, 1000));
+    }
+  }
+  throw ultimoErro;
+}
+
+module.exports = { listarGrupos, criarGrupo, chamarEvolution, enviarTexto, enviarImagem, enviarDocumento };

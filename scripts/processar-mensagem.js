@@ -36,7 +36,8 @@ const { interpretarMensagem, extrairPlaca, interpretarEscolhaPatio, interpretarC
 // O cliente da Evolution vive em lib/evolution.js: o painel também precisa
 // mandar mensagem, e duas cópias do mesmo cliente divergiriam — inclusive no
 // `Connection: close`, que existe por um bug real de socket reaproveitado.
-const { chamarEvolution, enviarTexto, enviarImagem } = require('./lib/evolution');
+const { chamarEvolution, enviarTexto, enviarImagem, enviarDocumento } = require('./lib/evolution');
+const { gerarPdfMovimentacao } = require('./lib/pdf-movimentacao');
 const { avaliarLocal } = require('./lib/conferir-local');
 const pendencias = require('./lib/pendencias');
 const registro = require('./lib/registro');
@@ -778,7 +779,7 @@ async function conduzir(body, { aoReceber } = {}) {
     const periodo = periodoDoTexto(msg.texto);
     const nome = extrairNomeMovimentacao(msg.texto, hangar);
     if (pediuEscolherPeriodo(msg.texto, periodo)) return perguntarPeriodo(hangar, msg, nome);
-    if (nome) return await executarMovimentacao(hangar, msg, 'credenciados', nome, aoReceber, periodo);
+    if (nome) return await executarMovimentacao(hangar, msg, 'credenciados', nome, aoReceber, periodo, pedeRelatorioPdf(msg.texto) ? 'pdf' : 'texto');
     return menuMovimentacao(hangar, msg);
   }
 
@@ -951,9 +952,9 @@ async function conduzir(body, { aoReceber } = {}) {
     if (pendente.tipo === 'mov_escolha') {
       return await resolverMovimentacao(pendente, msg, aoReceber);
     }
-    // "VER MAIS" da lista de movimentação.
-    if (pendente.tipo === 'mov_vermais') {
-      return await resolverVerMais(pendente, msg);
+    // Depois da lista: "VER MAIS" ou "PDF".
+    if (pendente.tipo === 'mov_pos') {
+      return await resolverPosMovimentacao(pendente, msg, aoReceber);
     }
     // Período escolhido (resposta a "qual período?").
     if (pendente.tipo === 'mov_periodo') {
@@ -2177,7 +2178,13 @@ const PALAVRAS_PEDIDO_MOV = new Set(['movimentacao', 'movimento', 'movimentacoes
   'lista', 'listar', 'no', 'na', 'pra', 'para',
   // palavras de período (não são nome):
   'ontem', 'anteontem', 'dia', 'dias', 'semana', 'ultimos', 'ultimas', 'ultimo', 'ultima',
-  'ate', 'essa', 'esta', 'nessa', 'desta', 'entre', 'por', 'periodo', 'periodos', 'data', 'datas', 'escolher']);
+  'ate', 'essa', 'esta', 'nessa', 'desta', 'entre', 'por', 'periodo', 'periodos', 'data', 'datas', 'escolher',
+  'pdf', 'relatorio', 'relatorios', 'em']);
+
+// Pediu em PDF/relatório?
+function pedeRelatorioPdf(texto) {
+  return /\b(pdf|relatorio)\b/.test(normalizar(texto || ''));
+}
 
 // Tira do texto as palavras do pedido (e do hangar) — o que sobra é o nome do
 // credenciado, quando a pessoa pede direto ("histórico do João"). null se nada sobra.
@@ -2207,9 +2214,33 @@ function movimentosDoNome(movimentos, nomeFiltro) {
   });
 }
 
+// Gera o relatório em PDF (com o logo) e envia como documento no grupo.
+async function enviarRelatorioPdf(hangar, msg, tipo, nomeFiltro, periodoLabel, resultado) {
+  try {
+    const base64 = await gerarPdfMovimentacao({
+      hangar, tipo, nomeFiltro, periodoLabel,
+      movimentos: resultado.movimentos || [], limparNome: limparNomeCredenciado,
+    });
+    const alvo = nomeFiltro ? `-${normalizar(nomeFiltro).replace(/\s+/g, '-')}` : '';
+    const dia = (periodoLabel || 'hoje').replace(/[^\w]+/g, '-').slice(0, 40);
+    const nomeArquivo = `movimentacao-${hangar.id}${alvo}-${dia}.pdf`;
+    await enviarDocumento(msg.grupoId, base64, {
+      nomeArquivo,
+      legenda: `📄 ${hangar.hangar || hangar.id} — ${nomeFiltro ? `${nomeFiltro}, ` : ''}${periodoLabel || 'hoje'}`,
+    });
+    return { status: 'movimentacao_pdf', hangarId: hangar.id, grupoId: msg.grupoId, responder: false };
+  } catch (erro) {
+    return {
+      status: 'mov_pdf_erro', hangarId: hangar.id, grupoId: msg.grupoId, mensagem: erro.message,
+      mensagemWhatsapp: '⚠️ Não consegui gerar o PDF agora. Nossa equipe foi avisada.',
+      notificarAdmin: true, responder: true, etapa: 'movimentacao',
+    };
+  }
+}
+
 // Enfileira a consulta ao coletor, espera, filtra por nome (se houver) e formata.
-// Usada tanto pelo menu (resolverMovimentacao) quanto pelo pedido direto por nome.
-async function executarMovimentacao(hangar, msg, tipo, nomeFiltro, aoReceber, periodo) {
+// `formato` 'pdf' manda o relatório como documento; senão, texto no grupo.
+async function executarMovimentacao(hangar, msg, tipo, nomeFiltro, aoReceber, periodo, formato) {
   const per = periodo || periodoDoTexto('');
   let item;
   try {
@@ -2224,7 +2255,7 @@ async function executarMovimentacao(hangar, msg, tipo, nomeFiltro, aoReceber, pe
       notificarAdmin: true, responder: true, etapa: 'movimentacao',
     };
   }
-  if (aoReceber) { try { await aoReceber(msg.grupoId, '🔎 Consultando pátio — entrada e saída...'); } catch (e) { /* aviso é conforto */ } }
+  if (aoReceber) { try { await aoReceber(msg.grupoId, formato === 'pdf' ? '📄 Gerando o relatório em PDF...' : '🔎 Consultando pátio — entrada e saída...'); } catch (e) { /* aviso é conforto */ } }
   const resultado = await esperarConsulta(item.id);
   if (!resultado) {
     return {
@@ -2243,15 +2274,21 @@ async function executarMovimentacao(hangar, msg, tipo, nomeFiltro, aoReceber, pe
   }
   // Filtro por nome é aqui mesmo, sobre o que o coletor devolveu (o `nome` vem junto).
   if (nomeFiltro) resultado.movimentos = movimentosDoNome(resultado.movimentos, nomeFiltro);
+
+  // PDF: manda o relatório como documento, sem a lista de texto.
+  if (formato === 'pdf') return await enviarRelatorioPdf(hangar, msg, tipo, nomeFiltro, per.label, resultado);
+
   const LIMITE_MOV = 40;
   const fmt = formatarMovimentacao(resultado, hangar, tipo, nomeFiltro, LIMITE_MOV, per.label);
   let texto = fmt.texto;
-  if (fmt.truncado) {
-    pendencias.registrar(msg.grupoId, msg.remetenteId, {
-      tipo: 'mov_vermais', consultaId: item.id, hangarId: hangar.id, tipoMov: tipo, nomeFiltro, periodoLabel: per.label,
-    });
-    texto += `\n\n_Mostrei os primeiros ${LIMITE_MOV}. Responda *VER MAIS* para a lista completa._`;
-  }
+  // Follow-up: guarda a consulta (fica na fila ~30 min) para VER MAIS e/ou PDF.
+  pendencias.registrar(msg.grupoId, msg.remetenteId, {
+    tipo: 'mov_pos', consultaId: item.id, hangarId: hangar.id, tipoMov: tipo,
+    nomeFiltro, periodoLabel: per.label, truncado: fmt.truncado,
+  });
+  texto += fmt.truncado
+    ? `\n\n_Mostrei os primeiros ${LIMITE_MOV}. Responda *VER MAIS* para a lista completa, ou *PDF* para o relatório._`
+    : '\n\n_Responda *PDF* para receber em relatório._';
   return {
     status: 'movimentacao', hangarId: hangar.id, grupoId: msg.grupoId,
     mensagemWhatsapp: texto, notificarAdmin: false, responder: true, etapa: 'movimentacao',
@@ -2320,13 +2357,17 @@ async function resolverPeriodo(pendente, msg, aoReceber) {
   };
 }
 
-// "VER MAIS": relê o resultado completo da consulta (na fila, retido ~30 min) e
-// mostra tudo, ainda separado por entrada/saída.
-async function resolverVerMais(pendente, msg) {
-  pendencias.consumir(msg.grupoId, msg.remetenteId);
-  if (!/\b(ver mais|mais|tudo|completa|lista completa)\b/.test(normalizar(msg.texto || ''))) {
-    return { status: 'ignorado', motivo: 'não pediu ver mais', grupoId: msg.grupoId, responder: false };
+// Depois da lista: "VER MAIS" (lista completa) ou "PDF" (relatório). Relê o
+// resultado da consulta (na fila, retido ~30 min); não precisa consultar de novo.
+async function resolverPosMovimentacao(pendente, msg, aoReceber) {
+  const t = normalizar(msg.texto || '');
+  const querPdf = /\b(pdf|relatorio)\b/.test(t);
+  const querMais = pendente.truncado && /\b(ver mais|mais|completa|lista completa|tudo)\b/.test(t);
+  if (!querPdf && !querMais) {
+    pendencias.consumir(msg.grupoId, msg.remetenteId);
+    return { status: 'ignorado', motivo: 'não pediu ver mais nem pdf', grupoId: msg.grupoId, responder: false };
   }
+  pendencias.consumir(msg.grupoId, msg.remetenteId);
   const item = filaConsultas.consultar(pendente.consultaId);
   if (!item || !item.resultado || !item.resultado.ok) {
     return {
@@ -2341,10 +2382,20 @@ async function resolverVerMais(pendente, msg) {
   if (pendente.nomeFiltro) {
     resultado = { ...resultado, movimentos: movimentosDoNome(resultado.movimentos, pendente.nomeFiltro) };
   }
+  if (querPdf) {
+    if (aoReceber) { try { await aoReceber(msg.grupoId, '📄 Gerando o relatório em PDF...'); } catch (e) { /* conforto */ } }
+    return await enviarRelatorioPdf(hangar, msg, pendente.tipoMov, pendente.nomeFiltro, pendente.periodoLabel || 'hoje', resultado);
+  }
   const fmt = formatarMovimentacao(resultado, hangar, pendente.tipoMov, pendente.nomeFiltro, 300, pendente.periodoLabel || 'hoje');
+  // Depois do "ver mais", ainda deixa oferecer o PDF.
+  pendencias.registrar(msg.grupoId, msg.remetenteId, {
+    tipo: 'mov_pos', consultaId: pendente.consultaId, hangarId: hangar.id, tipoMov: pendente.tipoMov,
+    nomeFiltro: pendente.nomeFiltro, periodoLabel: pendente.periodoLabel, truncado: false,
+  });
   return {
     status: 'movimentacao', hangarId: pendente.hangarId, grupoId: msg.grupoId,
-    mensagemWhatsapp: fmt.texto, notificarAdmin: false, responder: true, etapa: 'movimentacao',
+    mensagemWhatsapp: `${fmt.texto}\n\n_Responda *PDF* para receber em relatório._`,
+    notificarAdmin: false, responder: true, etapa: 'movimentacao',
   };
 }
 
@@ -2366,16 +2417,17 @@ async function responderNoGrupoAdmin(msg, aoReceber) {
   if (pend && String(pend.tipo || '').startsWith('broadcast_')) {
     return await continuarBroadcast(msg, pend, config);
   }
-  // Resposta ao menu de entrada/saída (credenciados, tudo ou nome).
-  if (pend && pend.tipo === 'mov_escolha') {
+  // Respostas dos fluxos de movimentação. Mas um PEDIDO NOVO ("entrada e saída…")
+  // tem prioridade sobre uma pendência velha — senão uma oferta de PDF antiga
+  // engoliria a nova consulta.
+  const ehNovaMov = msg.tipo === 'texto' && interpretarPedidoMovimentacao(msg.texto);
+  if (!ehNovaMov && pend && pend.tipo === 'mov_escolha') {
     return await resolverMovimentacao(pend, msg, aoReceber);
   }
-  // "VER MAIS" da lista de movimentação.
-  if (pend && pend.tipo === 'mov_vermais') {
-    return await resolverVerMais(pend, msg);
+  if (!ehNovaMov && pend && pend.tipo === 'mov_pos' && /\b(pdf|relatorio|ver mais|mais|completa|tudo)\b/.test(normalizar(msg.texto || ''))) {
+    return await resolverPosMovimentacao(pend, msg, aoReceber);
   }
-  // Período escolhido (resposta a "qual período?").
-  if (pend && pend.tipo === 'mov_periodo') {
+  if (!ehNovaMov && pend && pend.tipo === 'mov_periodo') {
     return await resolverPeriodo(pend, msg, aoReceber);
   }
   if (msg.tipo === 'texto' && interpretarComandoBroadcast(msg.texto)) {
@@ -2398,7 +2450,7 @@ async function responderNoGrupoAdmin(msg, aoReceber) {
     const periodo = periodoDoTexto(msg.texto);
     const nome = extrairNomeMovimentacao(msg.texto, hangar);
     if (pediuEscolherPeriodo(msg.texto, periodo)) return perguntarPeriodo(hangar, msg, nome);
-    if (nome) return await executarMovimentacao(hangar, msg, 'credenciados', nome, aoReceber, periodo);
+    if (nome) return await executarMovimentacao(hangar, msg, 'credenciados', nome, aoReceber, periodo, pedeRelatorioPdf(msg.texto) ? 'pdf' : 'texto');
     return menuMovimentacao(hangar, msg);
   }
 
