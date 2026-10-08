@@ -87,7 +87,7 @@ function classificarAnthropic({ status, texto, erro }) {
   if (erro) return { ok: true, detalhe: `sem resposta da API agora (${erro}) — tratado como instabilidade passageira` };
   if (status >= 200 && status < 300) return { ok: true, detalhe: 'API respondendo (OCR com crédito)' };
   if (/credit balance is too low/i.test(texto || '')) {
-    return { ok: false, detalhe: 'créditos da API da Anthropic ESGOTADOS — o bot não consegue ler fotos de ticket. Recarregue em console.anthropic.com > Plans & Billing' };
+    return { ok: false, detalhe: 'créditos da API da Anthropic ESGOTADOS — o bot não consegue ler fotos de ticket. Recarregue em https://console.anthropic.com/settings/billing (Comprar créditos)' };
   }
   if (status === 401 || status === 403) {
     return { ok: false, detalhe: `chave da API da Anthropic recusada (HTTP ${status}) — o bot não consegue ler fotos de ticket` };
@@ -275,6 +275,9 @@ async function avisar(resultado) {
   const texto = [
     '🔴 Validador com problema',
     ...resultado.problemas.map((p) => `• ${p}`),
+    ...(resultado.problemas.some((p) => p.startsWith('anthropic:'))
+      ? ['', 'Responda *recarregar anthropic* aqui no grupo para receber o passo a passo.']
+      : []),
     '',
     'Verificado em ' + new Date(resultado.em).toLocaleString('pt-BR'),
   ].join('\n');

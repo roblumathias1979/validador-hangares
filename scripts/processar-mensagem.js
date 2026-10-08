@@ -32,7 +32,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env'), override: t
 const { carregarConfig, buscarHangarPorGrupo } = require('./lib/hangar');
 const { comTrava, comTravaAsync, lerJson, salvarAtomico } = require('./lib/trava-arquivo');
 const { destinosAdmin } = require('./lib/admins');
-const { interpretarMensagem, extrairPlaca, interpretarEscolhaPatio, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoMovimentacao, normalizar } = require('./lib/whatsapp');
+const { interpretarMensagem, extrairPlaca, interpretarEscolhaPatio, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoMovimentacao, normalizar } = require('./lib/whatsapp');
 // O cliente da Evolution vive em lib/evolution.js: o painel também precisa
 // mandar mensagem, e duas cópias do mesmo cliente divergiriam — inclusive no
 // `Connection: close`, que existe por um bug real de socket reaproveitado.
@@ -2059,6 +2059,45 @@ async function continuarBroadcast(msg, pend, config) {
 // Diagnóstico do sistema para o grupo admin: o que está de pé, o que caiu, e o
 // que dá para fazer. Junta o monitor de saúde (WhatsApp/n8n/disco fresco +
 // ValidPark da última sentinela), o coletor (idade do snapshot) e a contingência.
+// Onde a compra de créditos acontece. A Anthropic NÃO tem API para comprar
+// crédito: só o Console, no navegador, com o login da conta dona da chave. Então
+// o que o bot pode fazer pela administração é dizer se o problema é mesmo esse e
+// levar até a página certa.
+const LINK_RECARGA_ANTHROPIC = 'https://console.anthropic.com/settings/billing';
+
+async function responderRecargaAnthropic(msg, aoReceber) {
+  if (aoReceber) {
+    try { await aoReceber(msg.grupoId, '🔎 Conferindo os créditos da Anthropic...'); } catch (e) { /* aviso é conforto */ }
+  }
+
+  let estado;
+  try {
+    estado = await require('./monitor-saude').checarAnthropic();
+  } catch (e) {
+    estado = { ok: null, detalhe: `não consegui verificar agora (${String(e.message).slice(0, 60)})` };
+  }
+
+  const passos = [
+    `1. Abra ${LINK_RECARGA_ANTHROPIC}`,
+    '2. Entre com a conta que criou a chave do bot e clique em *Comprar créditos*.',
+    '3. Quando pagar, responda aqui *status do sistema* para eu conferir.',
+  ];
+  const nota = '_A compra só pode ser feita no Console da Anthropic, com o login da conta: não dá para pagar por aqui._';
+
+  const linhas = estado.ok === false
+    ? ['🔴 *Os créditos da Anthropic acabaram* — o bot não consegue ler as fotos dos tickets.', '', ...passos, '', nota]
+    : estado.ok === true
+      ? ['🟢 A API da Anthropic está respondendo e tem crédito — o bot está lendo as fotos normalmente.',
+        '', `Se quiser adicionar crédito ou ajustar a recarga automática: ${LINK_RECARGA_ANTHROPIC}`, '', nota]
+      : [`🟡 ${estado.detalhe}`, '', `Se o bot não estiver lendo as fotos, os créditos podem ter acabado. ${passos[0].slice(3)}`, '', nota];
+
+  return {
+    status: 'recarga_anthropic', grupoId: msg.grupoId,
+    mensagemWhatsapp: linhas.join('\n'),
+    notificarAdmin: false, responder: true, etapa: 'recarga_anthropic',
+  };
+}
+
 async function diagnosticarSistema() {
   const SAUDE = path.join(__dirname, '..', 'data', 'saude.json');
   const min = (iso) => Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
@@ -2074,6 +2113,7 @@ async function diagnosticarSistema() {
   if (checagens.whatsapp) { linhas.push(`${bolinha(checagens.whatsapp.ok)} WhatsApp: ${checagens.whatsapp.detalhe}`); if (!checagens.whatsapp.ok) problemas.push('whatsapp'); }
   if (checagens.n8n) { linhas.push(`${bolinha(checagens.n8n.ok)} Fluxo (n8n): ${checagens.n8n.detalhe}`); if (!checagens.n8n.ok) problemas.push('n8n'); }
   if (checagens.disco) { linhas.push(`${bolinha(checagens.disco.ok)} Disco: ${checagens.disco.detalhe}`); if (!checagens.disco.ok) problemas.push('disco'); }
+  if (checagens.anthropic) { linhas.push(`${bolinha(checagens.anthropic.ok)} Leitura de fotos (Anthropic): ${checagens.anthropic.detalhe}`); if (!checagens.anthropic.ok) problemas.push('anthropic'); }
 
   // ValidPark — da última passada da sentinela (checar aqui abriria o navegador
   // e travaria a resposta por até 45s).
@@ -2098,6 +2138,7 @@ async function diagnosticarSistema() {
   if (problemas.includes('whatsapp')) conselhos.push('🔧 WhatsApp desconectado — reconectar a sessão (escanear o QR). Enquanto isso o bot não recebe nem responde. Chamar o suporte técnico.');
   if (problemas.includes('n8n')) conselhos.push('🔧 O fluxo (n8n) não respondeu — precisa de suporte técnico no servidor.');
   if (problemas.includes('disco')) conselhos.push('🔧 Pouco espaço em disco no servidor — chamar o suporte técnico antes que trave.');
+  if (problemas.includes('anthropic')) conselhos.push('👉 O bot não está conseguindo ler as fotos (créditos ou chave da Anthropic). Responda *recarregar anthropic* e eu mostro o passo a passo. (dá para resolver aqui mesmo)');
   if (problemas.includes('validpark') && !cont) conselhos.push('👉 O ValidPark está fora. Responda *ligar contingência* para validar pelo aeroporto enquanto ele não volta. (dá para resolver aqui mesmo)');
   if (problemas.includes('validpark') && cont) conselhos.push('✅ O ValidPark está fora, mas a *contingência está ligada* — as validações seguem pelo aeroporto. Desligue quando ele voltar.');
   if (problemas.includes('coletor')) conselhos.push('🔧 O coletor do aeroporto não está enviando dados — e a contingência também depende dele. Verificar o serviço *coletor-aeroporto* na máquina do aeroporto (AnyDesk) ou chamar o suporte.');
@@ -2632,6 +2673,12 @@ async function responderNoGrupoAdmin(msg, aoReceber) {
     if (pediuEscolherPeriodo(msg.texto, periodo)) return perguntarPeriodo(hangar, msg, nome);
     if (nome) return await executarMovimentacao(hangar, msg, 'credenciados', nome, aoReceber, periodo, pedeRelatorioPdf(msg.texto) ? 'pdf' : 'texto');
     return menuMovimentacao(hangar, msg);
+  }
+
+  // Recarga dos créditos da Anthropic. Antes do diagnóstico: "o bot não lê as
+  // fotos, recarregar anthropic" é um pedido de ação, não uma pergunta de status.
+  if (msg.tipo === 'texto' && interpretarPedidoRecargaAnthropic(msg.texto)) {
+    return await responderRecargaAnthropic(msg, aoReceber);
   }
 
   // Diagnóstico: "por que não está funcionando?", "status do sistema". Antes do

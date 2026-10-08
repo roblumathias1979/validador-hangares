@@ -160,7 +160,7 @@ function classificarErroApi(erro) {
   const msg = String((erro && erro.message) || '');
   const status = erro && erro.statusHttp;
   if (/credit balance is too low/i.test(msg)) {
-    return { causa: 'sem_credito', detalhe: 'os créditos da API da Anthropic acabaram — recarregar em console.anthropic.com > Plans & Billing' };
+    return { causa: 'sem_credito', detalhe: 'os créditos da API da Anthropic acabaram — recarregar em https://console.anthropic.com/settings/billing (Comprar créditos)' };
   }
   if (status === 401 || status === 403 || /ANTHROPIC_API_KEY não configurada/i.test(msg)) {
     return { causa: 'chave_recusada', detalhe: 'a chave da API da Anthropic (ANTHROPIC_API_KEY) foi recusada ou não está configurada' };

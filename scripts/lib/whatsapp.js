@@ -187,6 +187,26 @@ function interpretarPedidoDiagnostico(texto) {
 }
 
 /**
+ * Pedido da administração para RECARREGAR os créditos da API da Anthropic
+ * ("recarregar anthropic", "recarga antrophic", "saldo da anthropic", "recarregar
+ * créditos"). Os créditos acabaram em 08/10/2026 e o bot ficou sem ler fotos: a
+ * administração precisa de um caminho curto até o lugar onde a compra se faz.
+ *
+ * Exige o ASSUNTO (Anthropic/Claude/OCR/API/IA) junto da AÇÃO, para que "saldo do
+ * caixa" ou "créditos do João" no grupo da administração não disparem isto. O
+ * nome é aceito nas grafias que as pessoas de fato digitam ("antrophic").
+ * Devolve true/false.
+ */
+function interpretarPedidoRecargaAnthropic(texto) {
+  const t = normalizar(texto || '');
+  if (!t || t.length > 120) return false;
+  if (/\brecarreg\w*\b[^.?!]{0,12}\bcreditos?\b/.test(t)) return true;
+  const assunto = /\b(anthropic|antropic|antrophic|anthropik|claude|ocr|api|ia)\b/;
+  const acao = /\b(recarreg\w*|recarga|comprar|adicionar|saldo|creditos?)\b/;
+  return assunto.test(t) && acao.test(t);
+}
+
+/**
  * Comando da administração para DISPARAR uma mensagem aos grupos ("mandar
  * mensagem para grupos", "avisar os grupos", "comunicado"). Devolve true/false.
  *
@@ -436,4 +456,4 @@ function interpretarMensagem(body) {
   };
 }
 
-module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus, interpretarPedidoPatio, interpretarEscolhaPatio, interpretarConsultaValidacao, interpretarComandoIdentificacao, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoMovimentacao, normalizar };
+module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus, interpretarPedidoPatio, interpretarEscolhaPatio, interpretarConsultaValidacao, interpretarComandoIdentificacao, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoMovimentacao, normalizar };
