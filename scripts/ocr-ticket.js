@@ -133,15 +133,57 @@ function chamarClaude({ mediaType, dados, prompt, referencias: refs = [] }) {
           if (res.statusCode >= 200 && res.statusCode < 300) {
             resolve(json);
           } else {
-            reject(new Error(`Anthropic retornou erro (status ${res.statusCode}): ${json.error && json.error.message || JSON.stringify(json)}`));
+            const erroHttp = new Error(`Anthropic retornou erro (status ${res.statusCode}): ${json.error && json.error.message || JSON.stringify(json)}`);
+            erroHttp.statusHttp = res.statusCode;
+            reject(erroHttp);
           }
         });
       }
     );
-    req.on('error', reject);
+    req.on('error', (e) => { e.rede = true; reject(e); });
     req.write(corpo);
     req.end();
   });
+}
+
+/**
+ * Erros da API que NÃO são culpa da foto. Até 08/10/2026 todos viravam uma
+ * exceção solta: os créditos da Anthropic acabaram e o bot respondeu "Recebi
+ * seu ticket, já estou verificando..." e nunca mais disse nada — nem ao cliente,
+ * nem à administração. Cliente convidado a reenviar a foto não resolve nada
+ * quando quem está quebrado é o serviço; e a administração precisa da CAUSA
+ * real (recarregar crédito é uma ação, "erro" não é).
+ *
+ * Devolve null para o que não reconhece — esses continuam subindo como exceção.
+ */
+function classificarErroApi(erro) {
+  const msg = String((erro && erro.message) || '');
+  const status = erro && erro.statusHttp;
+  if (/credit balance is too low/i.test(msg)) {
+    return { causa: 'sem_credito', detalhe: 'os créditos da API da Anthropic acabaram — recarregar em console.anthropic.com > Plans & Billing' };
+  }
+  if (status === 401 || status === 403 || /ANTHROPIC_API_KEY não configurada/i.test(msg)) {
+    return { causa: 'chave_recusada', detalhe: 'a chave da API da Anthropic (ANTHROPIC_API_KEY) foi recusada ou não está configurada' };
+  }
+  if (status === 429 || status === 529 || (status >= 500 && status < 600) || (erro && erro.rede)) {
+    return { causa: 'instabilidade', detalhe: `a API da Anthropic está instável (${status || 'sem conexão'})` };
+  }
+  return null;
+}
+
+function resultadoApiIndisponivel(erro) {
+  const c = classificarErroApi(erro);
+  if (!c) return null;
+  const passageira = c.causa === 'instabilidade';
+  return {
+    status: 'ocr_indisponivel',
+    causa: c.causa,
+    mensagem: `Não consegui ler a foto: ${c.detalhe}.`,
+    mensagemWhatsapp: passageira
+      ? '⚠️ O serviço que lê as fotos está instável neste momento — o problema não é a sua foto. Tente reenviar em alguns minutos.'
+      : '⚠️ Estou com um problema técnico para ler as fotos de ticket neste momento — o problema não é a sua foto.',
+    notificarAdmin: true,
+  };
 }
 
 // A resposta do modelo às vezes vem cercada de ```json ... ``` mesmo quando
@@ -263,7 +305,14 @@ async function lerTicket(origem) {
     ? referencias.imagensParaConferencia(entrada.hangar.id)
     : [];
   const extraLocal = blocoPromptLocal(entrada.hangar || null, refs.length > 0);
-  const resposta = await chamarClaude({ ...imagem, prompt: PROMPT + extraLocal, referencias: refs });
+  let resposta;
+  try {
+    resposta = await chamarClaude({ ...imagem, prompt: PROMPT + extraLocal, referencias: refs });
+  } catch (erro) {
+    const indisponivel = resultadoApiIndisponivel(erro);
+    if (indisponivel) return indisponivel;
+    throw erro;
+  }
 
   const textoResposta = (resposta.content || []).map((b) => b.text || '').join('');
   let extraido;
@@ -348,12 +397,19 @@ async function lerLocal({ base64, mediaType, hangar }) {
   const prompt = promptSomenteLocal(hangar, refs.length > 0);
   if (!prompt) return { status: 'sem_referencia', local: null };
 
-  const resposta = await chamarClaude({
-    mediaType: mediaType || 'image/jpeg',
-    dados: base64,
-    prompt,
-    referencias: refs,
-  });
+  let resposta;
+  try {
+    resposta = await chamarClaude({
+      mediaType: mediaType || 'image/jpeg',
+      dados: base64,
+      prompt,
+      referencias: refs,
+    });
+  } catch (erro) {
+    const indisponivel = resultadoApiIndisponivel(erro);
+    if (indisponivel) return indisponivel;
+    throw erro;
+  }
   const texto = (resposta.content || []).map((b) => b.text || '').join('');
   let extraido;
   try {
@@ -430,4 +486,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { lerTicket, lerLocal, paraIso, extrairJson, conferirTicketComData };
+module.exports = { lerTicket, lerLocal, paraIso, extrairJson, conferirTicketComData, classificarErroApi, resultadoApiIndisponivel };

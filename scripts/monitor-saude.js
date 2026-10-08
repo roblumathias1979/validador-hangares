@@ -20,6 +20,7 @@
 
 const fs = require('fs');
 const http = require('http');
+const https = require('https');
 const path = require('path');
 
 const RAIZ = path.join(__dirname, '..');
@@ -69,6 +70,72 @@ function pedir(url, cabecalhos = {}, metodo = 'GET', corpo = null) {
   });
 }
 
+/**
+ * Decide o que a resposta da API da Anthropic diz sobre a saúde do OCR.
+ *
+ * Em 08/10/2026 os créditos acabaram e o bot passou a engolir todas as fotos de
+ * ticket: respondia "Recebi seu ticket, já estou verificando..." e silenciava.
+ * O monitor dava tudo verde, porque não olhava a API — a descoberta veio de um
+ * cliente reclamando, de novo.
+ *
+ * Só conta como PROBLEMA o que exige ação humana: crédito esgotado e chave
+ * recusada. Instabilidade passageira (429, 5xx, rede) não alarma — o OCR tenta de
+ * novo na próxima foto, e acordar alguém por um soluço de 30s faria o aviso
+ * perder credibilidade.
+ */
+function classificarAnthropic({ status, texto, erro }) {
+  if (erro) return { ok: true, detalhe: `sem resposta da API agora (${erro}) — tratado como instabilidade passageira` };
+  if (status >= 200 && status < 300) return { ok: true, detalhe: 'API respondendo (OCR com crédito)' };
+  if (/credit balance is too low/i.test(texto || '')) {
+    return { ok: false, detalhe: 'créditos da API da Anthropic ESGOTADOS — o bot não consegue ler fotos de ticket. Recarregue em console.anthropic.com > Plans & Billing' };
+  }
+  if (status === 401 || status === 403) {
+    return { ok: false, detalhe: `chave da API da Anthropic recusada (HTTP ${status}) — o bot não consegue ler fotos de ticket` };
+  }
+  return { ok: true, detalhe: `API respondeu HTTP ${status} — tratado como instabilidade passageira` };
+}
+
+// Chamada mínima (1 token de saída, modelo mais barato): o saldo e a chave são
+// checados igual, a um custo desprezível mesmo a cada 5 minutos.
+function chamarAnthropic(chave) {
+  return new Promise((resolve) => {
+    const corpo = JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 1,
+      messages: [{ role: 'user', content: 'ok' }],
+    });
+    const req = https.request(
+      {
+        hostname: 'api.anthropic.com',
+        path: '/v1/messages',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': chave,
+          'anthropic-version': '2023-06-01',
+          'Content-Length': Buffer.byteLength(corpo),
+        },
+        timeout: 15000,
+      },
+      (res) => {
+        let texto = '';
+        res.on('data', (c) => (texto += c));
+        res.on('end', () => resolve({ status: res.statusCode, texto }));
+      }
+    );
+    req.on('error', (e) => resolve({ erro: e.message }));
+    req.on('timeout', () => { req.destroy(); resolve({ erro: 'timeout' }); });
+    req.write(corpo);
+    req.end();
+  });
+}
+
+async function checarAnthropic(chamar = chamarAnthropic) {
+  const chave = process.env.ANTHROPIC_API_KEY;
+  if (!chave) return { ok: false, detalhe: 'ANTHROPIC_API_KEY não configurada — o bot não consegue ler fotos de ticket' };
+  return classificarAnthropic(await chamar(chave));
+}
+
 async function verificar() {
   const checagens = {};
 
@@ -110,6 +177,10 @@ async function verificar() {
   } catch (e) {
     checagens.disco = { ok: false, detalhe: `não consegui medir: ${e.message}` };
   }
+
+  // 4. API do OCR: sem crédito (ou com chave recusada) o bot recebe a foto e
+  //    não consegue ler — silêncio total para o cliente.
+  checagens.anthropic = await checarAnthropic();
 
   const problemas = Object.entries(checagens).filter(([, c]) => !c.ok);
   return {
@@ -270,4 +341,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { verificar, checarValidpark, acompanharValidpark };
+module.exports = { verificar, checarValidpark, acompanharValidpark, classificarAnthropic, checarAnthropic };

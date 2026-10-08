@@ -456,6 +456,7 @@ const STATUS_QUE_ESCALAM = new Set([
   'fora_do_prazo',          // passou das horas do hangar; resolve-se à mão
   'erro_validacao',         // recusa que não soubemos classificar
   'ocr_numero_suspeito',    // número e data discordam E o site não confirma
+  'ocr_indisponivel',       // API do OCR recusou (sem crédito, chave, queda): o cliente não tem o que fazer
   'valor_invalido',         // horas/dias acima do limite do slider
   'indeterminado',          // clicou em validar e o site não confirmou nada
   'erro',                   // exceção no meio do caminho
@@ -1223,6 +1224,25 @@ async function conduzir(body, { aoReceber } = {}) {
     // Esta foto NÃO passa pelo OCR: não há ticket nela, e o número já veio da
     // primeira. Só o local é conferido.
     const r = await lerLocal({ base64: imagemVeiculo.base64, mediaType: imagemVeiculo.mediaType, hangar });
+
+    // A API recusou (sem crédito, chave, queda). Não é a foto do cliente: o
+    // pedido volta para a fila de pendências para ele reenviar SÓ a foto do
+    // carro quando o serviço voltar, e a administração é avisada com a causa.
+    if (r.status === 'ocr_indisponivel') {
+      pendencias.registrar(msg.grupoId, msg.remetenteId, pedido);
+      return {
+        status: 'ocr_indisponivel',
+        hangarId: hangar.id,
+        grupoId: msg.grupoId,
+        ticket: pedido.ticket,
+        mensagem: r.mensagem,
+        mensagemWhatsapp: r.mensagemWhatsapp,
+        notificarAdmin: true,
+        responder: true,
+        etapa: 'conferencia_local',
+      };
+    }
+
     const local = avaliarLocal(hangar, r.local, r.localMotivo);
     const infoLocal = { local: local.local, localMotivo: local.motivo || null, cenario: r.cenario || null };
 
@@ -1391,9 +1411,11 @@ async function conduzir(body, { aoReceber } = {}) {
       status: ocr.status,
       hangarId: hangar.id,
       grupoId: msg.grupoId,
+      mensagem: ocr.mensagem,
       mensagemWhatsapp: ocr.mensagemWhatsapp,
       notificarAdmin: ocr.notificarAdmin === true,
       responder: true,
+      etapa: 'leitura_ticket',
       ocr,
     };
   }
@@ -3143,8 +3165,9 @@ function resultadoDeErro(erro, payloadBase64) {
     const body = JSON.parse(Buffer.from(payloadBase64, 'base64').toString('utf-8'));
     const grupoId = body && body.data && body.data.key && body.data.key.remoteJid;
     if (grupoId && String(grupoId).endsWith('@g.us')) {
-      buscarHangarPorGrupo(carregarConfig(), grupoId); // lança se não for nosso
+      const hangarDoGrupo = buscarHangarPorGrupo(carregarConfig(), grupoId); // lança se não for nosso
       resultado.grupoId = grupoId;
+      resultado.hangarId = hangarDoGrupo.id;
       resultado.responder = true;
     }
   } catch (e) {
@@ -3178,6 +3201,18 @@ async function main() {
     });
   } catch (erro) {
     resultado = resultadoDeErro(erro, payloadBase64);
+
+    // Até 08/10/2026 este caminho só devolvia o json: a exceção não ficava no
+    // histórico do painel e a administração não era avisada — dizia "nossa
+    // equipe foi avisada" sem que ninguém tivesse sido. Os dois são
+    // acessórios e nunca podem derrubar a resposta ao cliente.
+    registro.registrar(resultado);
+    if (enviar && resultado.grupoId) {
+      try {
+        const hangarDoErro = buscarHangarPorGrupo(carregarConfig(), resultado.grupoId);
+        await avisarAdmin(hangarDoErro, resultado, (destino, texto) => enviarTexto(destino, texto));
+      } catch (e) { /* aviso à administração é acessório */ }
+    }
   }
 
   if (enviar && resultado.responder && resultado.grupoId && resultado.mensagemWhatsapp) {
