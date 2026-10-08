@@ -118,6 +118,12 @@ function chamarClaude({ mediaType, dados }) {
       // teto de tokens da RESPOSTA. Mesmo bug já documentado em
       // ocr-ticket.js (validador de hangares) com a conferência de local.
       max_tokens: 8192,
+      // Confirmado em produção (06/10/2026, Hotel Nacional Inn, foto com dois
+      // recibos de maquininha sobrepostos): a API devolvia stop_reason=
+      // max_tokens com 8192 tokens de saída e ZERO caracteres de texto — o
+      // orçamento inteiro foi gasto em raciocínio interno e o JSON nem
+      // começou. A tarefa é transcrição estruturada, não precisa pensar.
+      thinking: { type: 'disabled' },
       messages: [
         {
           role: 'user',
