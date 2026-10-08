@@ -196,7 +196,8 @@ async function lerFechamento({ base64, mediaType }) {
   } catch (erro) {
     return {
       status: 'ocr_falhou',
-      mensagem: `Não consegui interpretar a resposta do modelo (${textoResposta.length} caracteres). `
+      mensagem: `Não consegui interpretar a resposta do modelo (${textoResposta.length} caracteres, `
+        + `stop_reason=${resposta.stop_reason || '?'}, tokens de saída=${(resposta.usage || {}).output_tokens ?? '?'}). `
         + `Início: ${textoResposta.slice(0, 120)} ... Fim: ${textoResposta.slice(-120)}`,
       mensagemWhatsapp: '⚠️ Não conseguimos ler essa foto do fechamento. Pode reenviar, tentando deixar os valores bem visíveis?',
       notificarAdmin: true,
