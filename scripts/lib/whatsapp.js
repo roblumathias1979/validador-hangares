@@ -209,6 +209,24 @@ function interpretarPedidoRecargaAnthropic(texto) {
 }
 
 /**
+ * Pedido da administração para o bot TENTAR CONSERTAR o validador sozinho:
+ * "consertar", "conserta o validador", "arruma isso", "reiniciar o sistema",
+ * "resolver o problema". Diferente de "recarregar sistema" (que é a recarga de
+ * crédito) e do diagnóstico ("por que não funciona", que só olha). Devolve
+ * true/false. Só frase curta, para não disparar com conversa.
+ */
+function interpretarPedidoConserto(texto) {
+  const t = normalizar(texto || '');
+  if (!t || t.length > 80) return false;
+  if (/\brecarreg\w+/.test(t)) return false; // isso é recarga de crédito, não conserto
+  const verbo = /\b(consert\w+|arrum\w+|reinici\w+)\b/;
+  const alvo = /\b(validador|sistema|bot|problema|isso|tudo|servidor|servico|servi[çc]os?)\b/;
+  if (verbo.test(t) && (t.split(/\s+/).length <= 2 || alvo.test(t))) return true;
+  if (/\bresolv\w+\b/.test(t) && alvo.test(t)) return true;
+  return false;
+}
+
+/**
  * Comando da administração para DISPARAR uma mensagem aos grupos ("mandar
  * mensagem para grupos", "avisar os grupos", "comunicado"). Devolve true/false.
  *
@@ -458,4 +476,4 @@ function interpretarMensagem(body) {
   };
 }
 
-module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus, interpretarPedidoPatio, interpretarEscolhaPatio, interpretarConsultaValidacao, interpretarComandoIdentificacao, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoMovimentacao, normalizar };
+module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus, interpretarPedidoPatio, interpretarEscolhaPatio, interpretarConsultaValidacao, interpretarComandoIdentificacao, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoMovimentacao, normalizar };

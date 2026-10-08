@@ -32,7 +32,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env'), override: t
 const { carregarConfig, buscarHangarPorGrupo } = require('./lib/hangar');
 const { comTrava, comTravaAsync, lerJson, salvarAtomico } = require('./lib/trava-arquivo');
 const { destinosAdmin } = require('./lib/admins');
-const { interpretarMensagem, extrairPlaca, interpretarEscolhaPatio, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoMovimentacao, normalizar } = require('./lib/whatsapp');
+const { interpretarMensagem, extrairPlaca, interpretarEscolhaPatio, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoMovimentacao, normalizar } = require('./lib/whatsapp');
 // O cliente da Evolution vive em lib/evolution.js: o painel também precisa
 // mandar mensagem, e duas cópias do mesmo cliente divergiriam — inclusive no
 // `Connection: close`, que existe por um bug real de socket reaproveitado.
@@ -2126,6 +2126,66 @@ async function responderRecargaAnthropic(msg, aoReceber) {
   };
 }
 
+// O comando "consertar": diagnostica e AGE nos problemas que têm conserto
+// seguro e reversível (reiniciar serviço, liberar disco, ligar contingência).
+// O que depende de gente (crédito, celular, coletor do aeroporto) ele não
+// tenta de araque — diz o que é. Nada aqui edita código nem valida ticket.
+async function executarConserto(msg, aoReceber) {
+  if (aoReceber) { try { await aoReceber(msg.grupoId, '🔧 Verificando e tentando consertar...'); } catch (e) { /* aviso é conforto */ } }
+  const autoConserto = require('./lib/auto-conserto');
+  const SAUDE = path.join(__dirname, '..', 'data', 'saude.json');
+
+  // Levanta os problemas — mesmas fontes do diagnóstico.
+  const problemas = [];
+  let checagens = {};
+  try { checagens = (await require('./monitor-saude').verificar()).checagens || {}; } catch (e) { /* segue com o que der */ }
+  if (checagens.whatsapp && !checagens.whatsapp.ok) problemas.push('whatsapp');
+  if (checagens.n8n && !checagens.n8n.ok) problemas.push('n8n');
+  if (checagens.disco && !checagens.disco.ok) problemas.push('disco');
+  if (checagens.anthropic && !checagens.anthropic.ok) problemas.push('anthropic');
+  const saude = lerJson(SAUDE, null);
+  if (saude && saude.validpark && saude.validpark.ok === false) problemas.push('validpark');
+  const snap = snapshotTechparking.ler();
+  if (snap.fresca !== true) problemas.push('coletor');
+
+  const config = carregarConfig();
+  const contLigada = (config.contingenciaValidPark || {}).ativo === true;
+
+  if (!problemas.length) {
+    return { status: 'conserto', grupoId: msg.grupoId, mensagemWhatsapp: '✅ Está tudo no ar — não há nada para consertar agora.', notificarAdmin: false, responder: true, etapa: 'conserto' };
+  }
+
+  const plano = autoConserto.acoesPara(problemas, { contingenciaLigada: contLigada });
+
+  // Executa as ações automáticas (seguras).
+  const feitos = [];
+  for (const a of plano.automaticas) {
+    if (a.tipo === 'reiniciar') {
+      const r = autoConserto.reiniciarServico(a.alvo);
+      feitos.push(`${r.ok ? '✅' : '⚠️'} ${a.rotulo}: ${r.detalhe}`);
+    } else if (a.tipo === 'liberar_disco') {
+      const r = autoConserto.liberarDisco();
+      feitos.push(`${r.ok ? '✅' : '⚠️'} ${a.rotulo}: ${r.detalhe}`);
+    } else if (a.tipo === 'ligar_contingencia') {
+      const r = aplicarContingencia(true, 'conserto automático', msg.grupoId);
+      feitos.push(r && r.status === 'erro' ? `⚠️ ${a.rotulo}: não consegui` : `✅ ${a.rotulo}`);
+    }
+  }
+
+  // Reverifica para mostrar como ficou.
+  let aindaRuim = [];
+  try { const c2 = (await require('./monitor-saude').verificar()).checagens || {}; aindaRuim = Object.entries(c2).filter(([, v]) => !v.ok).map(([k]) => k); } catch (e) { /* ignora */ }
+
+  const linhas = ['🔧 *Conserto do validador*', ''];
+  if (feitos.length) linhas.push('*Fiz agora:*', ...feitos, '');
+  if (plano.manuais.length) linhas.push('*Precisa de você / suporte:*', ...plano.manuais, '');
+  linhas.push(aindaRuim.length
+    ? `Ainda com problema: ${aindaRuim.join(', ')}.`
+    : '✅ Serviços de volta ao ar.');
+
+  return { status: 'conserto', grupoId: msg.grupoId, mensagemWhatsapp: linhas.join('\n'), notificarAdmin: false, responder: true, etapa: 'conserto' };
+}
+
 async function diagnosticarSistema() {
   const SAUDE = path.join(__dirname, '..', 'data', 'saude.json');
   const min = (iso) => Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
@@ -2707,6 +2767,12 @@ async function responderNoGrupoAdmin(msg, aoReceber) {
   // fotos, recarregar sistema" é um pedido de ação, não uma pergunta de status.
   if (msg.tipo === 'texto' && interpretarPedidoRecargaAnthropic(msg.texto)) {
     return await responderRecargaAnthropic(msg, aoReceber);
+  }
+
+  // Conserto: "consertar", "arruma o validador". Age nos problemas seguros.
+  // Antes do diagnóstico (que só olha) e com hangar nenhum nomeado.
+  if (msg.tipo === 'texto' && !hangar && interpretarPedidoConserto(msg.texto)) {
+    return await executarConserto(msg, aoReceber);
   }
 
   // Diagnóstico: "por que não está funcionando?", "status do sistema". Antes do
