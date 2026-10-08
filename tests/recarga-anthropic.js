@@ -64,26 +64,26 @@ const conferir = (nome, ok, detalhe) => { if (ok) return console.log(`  ok   ${n
 
 async function main() {
   console.log('O parser reconhece o pedido:');
-  for (const t of ['recarregar anthropic', 'Recarga antrophic', 'recarregar a antropic', 'saldo da anthropic',
+  for (const t of ['recarregar sistema', 'Recarregar o sistema', 'recarregar anthropic', 'Recarga antrophic', 'recarregar a antropic', 'saldo da anthropic',
     'comprar créditos da anthropic', 'recarregar créditos', 'recarregar os créditos do claude', 'adicionar crédito na api']) {
     conferir(`"${t}"`, interpretarPedidoRecargaAnthropic(t) === true);
   }
 
   console.log('\nE não dispara com conversa comum do grupo:');
   for (const t of ['saldo do caixa do Solojet', 'os créditos do João acabaram', 'como está o pátio do Solojet', 'recarregar o celular',
-    'status do sistema', 'por que não está funcionando?', 'ligar contingência', 'entrada e saída do Alljet']) {
+    'status do sistema', 'o sistema está lento', 'por que não está funcionando?', 'ligar contingência', 'entrada e saída do Alljet']) {
     conferir(`"${t}"`, interpretarPedidoRecargaAnthropic(t) === false);
   }
 
   console.log('\nO diagnóstico não rouba o pedido (a recarga vem antes):');
-  const colisao = 'o bot não funciona, recarregar anthropic';
+  const colisao = 'o bot não funciona, recarregar sistema';
   conferir('o diagnóstico também casaria com a frase', interpretarPedidoDiagnostico(colisao) === true);
   const rc = await processar(texto(colisao), {});
   conferir('mas quem responde é a recarga', rc.status === 'recarga_anthropic', `veio "${rc.status}"`);
 
   console.log('\nSem crédito:');
   anthropic = { ok: false, detalhe: 'créditos esgotados' };
-  const r = await processar(texto('recarregar anthropic'), {});
+  const r = await processar(texto('recarregar sistema'), {});
   conferir('status recarga_anthropic', r.status === 'recarga_anthropic', `veio "${r.status}"`);
   conferir('responde no grupo de administração', r.responder === true && r.grupoId === ADMGRUPO);
   conferir('diz que os créditos acabaram', /créditos da Anthropic acabaram/.test(r.mensagemWhatsapp || ''));
@@ -111,11 +111,11 @@ async function main() {
   anthropic = { ok: false, detalhe: 'créditos esgotados' };
   const s1 = await processar(texto('status do sistema'), {});
   conferir('linha da Anthropic em vermelho', /🔴 Leitura de fotos \(Anthropic\)/.test(s1.mensagemWhatsapp || ''), s1.mensagemWhatsapp);
-  conferir('aponta o comando para recarregar', /recarregar anthropic/.test(s1.mensagemWhatsapp || ''));
+  conferir('aponta o comando para recarregar', /recarregar sistema/.test(s1.mensagemWhatsapp || ''));
   anthropic = { ok: true, detalhe: 'API respondendo' };
   const s2 = await processar(texto('status do sistema'), {});
   conferir('linha da Anthropic em verde', /🟢 Leitura de fotos \(Anthropic\)/.test(s2.mensagemWhatsapp || ''));
-  conferir('com tudo no ar, não manda recarregar', !/recarregar anthropic/.test(s2.mensagemWhatsapp || ''));
+  conferir('com tudo no ar, não manda recarregar', !/recarregar sistema/.test(s2.mensagemWhatsapp || ''));
 
   console.log(`\n${falhas ? `${falhas} falha(s)` : 'tudo certo'}`);
 }

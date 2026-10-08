@@ -2138,7 +2138,7 @@ async function diagnosticarSistema() {
   if (problemas.includes('whatsapp')) conselhos.push('🔧 WhatsApp desconectado — reconectar a sessão (escanear o QR). Enquanto isso o bot não recebe nem responde. Chamar o suporte técnico.');
   if (problemas.includes('n8n')) conselhos.push('🔧 O fluxo (n8n) não respondeu — precisa de suporte técnico no servidor.');
   if (problemas.includes('disco')) conselhos.push('🔧 Pouco espaço em disco no servidor — chamar o suporte técnico antes que trave.');
-  if (problemas.includes('anthropic')) conselhos.push('👉 O bot não está conseguindo ler as fotos (créditos ou chave da Anthropic). Responda *recarregar anthropic* e eu mostro o passo a passo. (dá para resolver aqui mesmo)');
+  if (problemas.includes('anthropic')) conselhos.push('👉 O bot não está conseguindo ler as fotos (créditos ou chave da Anthropic). Responda *recarregar sistema* e eu mostro o passo a passo. (dá para resolver aqui mesmo)');
   if (problemas.includes('validpark') && !cont) conselhos.push('👉 O ValidPark está fora. Responda *ligar contingência* para validar pelo aeroporto enquanto ele não volta. (dá para resolver aqui mesmo)');
   if (problemas.includes('validpark') && cont) conselhos.push('✅ O ValidPark está fora, mas a *contingência está ligada* — as validações seguem pelo aeroporto. Desligue quando ele voltar.');
   if (problemas.includes('coletor')) conselhos.push('🔧 O coletor do aeroporto não está enviando dados — e a contingência também depende dele. Verificar o serviço *coletor-aeroporto* na máquina do aeroporto (AnyDesk) ou chamar o suporte.');
@@ -2676,7 +2676,7 @@ async function responderNoGrupoAdmin(msg, aoReceber) {
   }
 
   // Recarga dos créditos da Anthropic. Antes do diagnóstico: "o bot não lê as
-  // fotos, recarregar anthropic" é um pedido de ação, não uma pergunta de status.
+  // fotos, recarregar sistema" é um pedido de ação, não uma pergunta de status.
   if (msg.tipo === 'texto' && interpretarPedidoRecargaAnthropic(msg.texto)) {
     return await responderRecargaAnthropic(msg, aoReceber);
   }

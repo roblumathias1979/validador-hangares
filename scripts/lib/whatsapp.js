@@ -187,9 +187,10 @@ function interpretarPedidoDiagnostico(texto) {
 }
 
 /**
- * Pedido da administração para RECARREGAR os créditos da API da Anthropic
- * ("recarregar anthropic", "recarga antrophic", "saldo da anthropic", "recarregar
- * créditos"). Os créditos acabaram em 08/10/2026 e o bot ficou sem ler fotos: a
+ * Pedido da administração para RECARREGAR os créditos da API da Anthropic. A
+ * frase que a administração usa é "recarregar sistema" (escolha do usuário em
+ * 08/10/2026); "recarregar anthropic", "recarga antrophic", "saldo da anthropic" e
+ * "recarregar créditos" continuam valendo. Os créditos acabaram em 08/10/2026 e o bot ficou sem ler fotos: a
  * administração precisa de um caminho curto até o lugar onde a compra se faz.
  *
  * Exige o ASSUNTO (Anthropic/Claude/OCR/API/IA) junto da AÇÃO, para que "saldo do
@@ -201,6 +202,7 @@ function interpretarPedidoRecargaAnthropic(texto) {
   const t = normalizar(texto || '');
   if (!t || t.length > 120) return false;
   if (/\brecarreg\w*\b[^.?!]{0,12}\bcreditos?\b/.test(t)) return true;
+  if (/\brecarreg\w*\b[^.?!]{0,12}\bsistema\b/.test(t)) return true;
   const assunto = /\b(anthropic|antropic|antrophic|anthropik|claude|ocr|api|ia)\b/;
   const acao = /\b(recarreg\w*|recarga|comprar|adicionar|saldo|creditos?)\b/;
   return assunto.test(t) && acao.test(t);

@@ -276,7 +276,7 @@ async function avisar(resultado) {
     '🔴 Validador com problema',
     ...resultado.problemas.map((p) => `• ${p}`),
     ...(resultado.problemas.some((p) => p.startsWith('anthropic:'))
-      ? ['', 'Responda *recarregar anthropic* aqui no grupo para receber o passo a passo.']
+      ? ['', 'Responda *recarregar sistema* aqui no grupo para receber o passo a passo.']
       : []),
     '',
     'Verificado em ' + new Date(resultado.em).toLocaleString('pt-BR'),
