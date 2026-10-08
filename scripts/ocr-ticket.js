@@ -36,6 +36,12 @@ const { extrairPlaca } = require('./lib/whatsapp');
 const referencias = require('./lib/referencias');
 
 const MODELO = 'claude-sonnet-5';
+// Modelo barato tentado PRIMEIRO no ticket simples (sem conferência de local).
+// ~15-18x mais barato que o Sonnet e, nas fotos boas, lê idêntico; quando NÃO
+// lê com certeza, lerTicket cai no MODELO (Sonnet). A/B em 08/10/2026 com 4
+// tickets reais: o Haiku acertou as fotos boas e só falhou na de cabeça pra
+// baixo — e falhou do lado SEGURO (devolveu "não li", nunca leu errado).
+const MODELO_RAPIDO = 'claude-haiku-5-5';
 
 const REGEX_TICKET = /^\d{12}$/;
 
@@ -308,86 +314,115 @@ async function lerTicket(origem) {
     ? referencias.imagensParaConferencia(entrada.hangar.id)
     : [];
   const extraLocal = blocoPromptLocal(entrada.hangar || null, refs.length > 0);
-  let resposta;
-  try {
-    resposta = await chamarClaude({ ...imagem, prompt: PROMPT + extraLocal, referencias: refs });
-  } catch (erro) {
-    const indisponivel = resultadoApiIndisponivel(erro);
-    if (indisponivel) return indisponivel;
-    throw erro;
-  }
+  const promptCompleto = PROMPT + extraLocal;
 
-  const textoResposta = (resposta.content || []).map((b) => b.text || '').join('');
-  let extraido;
-  try {
-    extraido = extrairJson(textoResposta);
-  } catch (erro) {
+  // Uma leitura com UM modelo. Toda a lógica de confiança/conferência/local é a
+  // mesma para os dois, por isso fica aqui dentro e o laço abaixo só escolhe o
+  // modelo e decide se precisa tentar o próximo.
+  async function interpretar(modelo) {
+    let resposta;
+    try {
+      resposta = await chamarClaude({ ...imagem, prompt: promptCompleto, referencias: refs, modelo });
+    } catch (erro) {
+      const indisponivel = resultadoApiIndisponivel(erro);
+      if (indisponivel) return indisponivel;
+      throw erro;
+    }
+
+    const textoResposta = (resposta.content || []).map((b) => b.text || '').join('');
+    let extraido;
+    try {
+      extraido = extrairJson(textoResposta);
+    } catch (erro) {
+      return {
+        status: 'ocr_falhou',
+        // Mostra o INÍCIO e o FIM: resposta cortada por limite de tokens só se
+        // denuncia no fim, e antes só o começo aparecia — o que fez a causa real
+        // (max_tokens baixo demais) passar despercebida em 16/09/2026.
+        mensagem: `Não consegui interpretar a resposta do modelo (${textoResposta.length} caracteres). `
+          + `Início: ${textoResposta.slice(0, 120)} ... Fim: ${textoResposta.slice(-120)}`,
+        mensagemWhatsapp: '⚠️ Não conseguimos ler essa foto do ticket. Pode reenviar, tentando deixar o número e a data bem visíveis?',
+        notificarAdmin: true,
+      };
+    }
+
+    const ticket = (extraido.ticket || '').trim();
+    const dataEmissaoIso = paraIso(extraido.dataEmissaoDDMMAAHHMMSS);
+    const confiancaAlta = extraido.confianca === 'alta';
+    const ticketValido = REGEX_TICKET.test(ticket);
+
+    if (!confiancaAlta || !ticketValido || !dataEmissaoIso) {
+      // "Não há ticket nesta foto" e "o ticket está ilegível" pedem respostas
+      // opostas, e até 16/09/2026 as duas recebiam "reenvie mais de perto". Quem
+      // mandou foto de carro fora de hora era convidado a mandar OUTRA foto de
+      // carro, mais perto — e repetia o erro. `temTicket` separa os dois casos.
+      const semTicket = extraido.temTicket === false;
+      return {
+        status: semTicket ? 'sem_ticket_na_foto' : 'ocr_confianca_baixa',
+        mensagem: extraido.motivo || 'Confiança baixa ou campos incompletos.',
+        ticketLido: ticket || null,
+        dataEmissaoLida: extraido.dataEmissaoDDMMAAHHMMSS || null,
+        temTicket: extraido.temTicket !== false,
+        mensagemWhatsapp: semTicket
+          ? 'Não vi nenhum ticket nessa foto. Para validar, mande primeiro a *foto do ticket* — '
+            + 'depois que eu confirmar que ele pode ser validado, eu peço a foto do veículo.'
+          : '⚠️ Não consegui ler o ticket com certeza nessa foto. Pode reenviar mais de perto, com o número e a data bem visíveis?',
+        notificarAdmin: false,
+      };
+    }
+
+    // Conferência entre o número e a data impressa. NÃO bloqueia mais.
+    //
+    // A regra nasceu de 12 tickets que seguiam `01 | DDMM | HHMMSS`, e valia
+    // neles. Em 18/09/2026 apareceu um que não segue: `011111000259`, impresso
+    // às 18/09/26 17:42:51, perfeitamente legível na foto. O OCR leu número e
+    // data corretos, a conferência acusou divergência, e o cliente foi recusado
+    // três vezes num ticket bom — confirmado depois pelo próprio ValidPark, que
+    // conhecia o número.
+    //
+    // Nem todo ticket carrega a data dentro do número, e não há como saber pelo
+    // número qual é qual. Uma regra que não vale sempre não pode ser bloqueio.
+    //
+    // O veredito segue no resultado: quem chama usa a divergência como MOTIVO
+    // PARA CONFERIR NO SITE, que é verificação de verdade — ver
+    // processar-mensagem.js. Trocamos um palpite sobre o formato do número por
+    // uma pergunta à fonte que sabe a resposta.
+    const conferencia = conferirTicketComData(ticket, extraido.dataEmissaoDDMMAAHHMMSS);
+
     return {
-      status: 'ocr_falhou',
-      // Mostra o INÍCIO e o FIM: resposta cortada por limite de tokens só se
-      // denuncia no fim, e antes só o começo aparecia — o que fez a causa real
-      // (max_tokens baixo demais) passar despercebida em 16/09/2026.
-      mensagem: `Não consegui interpretar a resposta do modelo (${textoResposta.length} caracteres). `
-        + `Início: ${textoResposta.slice(0, 120)} ... Fim: ${textoResposta.slice(-120)}`,
-      mensagemWhatsapp: '⚠️ Não conseguimos ler essa foto do ticket. Pode reenviar, tentando deixar o número e a data bem visíveis?',
-      notificarAdmin: true,
+      status: 'ocr_ok',
+      ticket,
+      dataEmissaoIso,
+      conferencia,
+      modelo,
+      // Só vêm preenchidos quando o hangar exige a foto com o veículo; quem
+      // decide o que fazer com eles é avaliarLocal(), em conferir-local.js.
+      cenario: extraido.cenario || null,
+      local: extraido.local || null,
+      localMotivo: extraido.localMotivo || null,
     };
   }
 
-  const ticket = (extraido.ticket || '').trim();
-  const dataEmissaoIso = paraIso(extraido.dataEmissaoDDMMAAHHMMSS);
-  const confiancaAlta = extraido.confianca === 'alta';
-  const ticketValido = REGEX_TICKET.test(ticket);
+  // Híbrido para ficar barato sem perder robustez: tenta o Haiku (barato)
+  // primeiro e, se ele NÃO ler com certeza, cai no Sonnet. Mas quando o hangar
+  // exige conferência de local (antifraude do AIBM), vai direto no Sonnet: a
+  // comparação carro×foto de referência é raciocínio de visão que o Haiku ainda
+  // não faz com segurança, e ali não dá para arriscar.
+  const exigeLocal = Boolean(entrada.hangar && entrada.hangar.exigeFotoVeiculoNoLocal);
+  const modelos = exigeLocal ? [MODELO] : [MODELO_RAPIDO, MODELO];
 
-  if (!confiancaAlta || !ticketValido || !dataEmissaoIso) {
-    // "Não há ticket nesta foto" e "o ticket está ilegível" pedem respostas
-    // opostas, e até 16/09/2026 as duas recebiam "reenvie mais de perto". Quem
-    // mandou foto de carro fora de hora era convidado a mandar OUTRA foto de
-    // carro, mais perto — e repetia o erro. `temTicket` separa os dois casos.
-    const semTicket = extraido.temTicket === false;
-    return {
-      status: semTicket ? 'sem_ticket_na_foto' : 'ocr_confianca_baixa',
-      mensagem: extraido.motivo || 'Confiança baixa ou campos incompletos.',
-      ticketLido: ticket || null,
-      dataEmissaoLida: extraido.dataEmissaoDDMMAAHHMMSS || null,
-      temTicket: extraido.temTicket !== false,
-      mensagemWhatsapp: semTicket
-        ? 'Não vi nenhum ticket nessa foto. Para validar, mande primeiro a *foto do ticket* — '
-          + 'depois que eu confirmar que ele pode ser validado, eu peço a foto do veículo.'
-        : '⚠️ Não consegui ler o ticket com certeza nessa foto. Pode reenviar mais de perto, com o número e a data bem visíveis?',
-      notificarAdmin: false,
-    };
+  let resultado;
+  for (const modelo of modelos) {
+    resultado = await interpretar(modelo);
+    // Leu com certeza: pronto.
+    if (resultado.status === 'ocr_ok') return resultado;
+    // Problema de SERVIÇO (sem crédito, chave, queda): a mesma conta e a mesma
+    // chave valem para os dois modelos — não adianta tentar o outro.
+    if (resultado.status === 'ocr_indisponivel') return resultado;
+    // Qualquer outra coisa (não leu, confiança baixa, achou que não tinha
+    // ticket) é "foto difícil": vale tentar o próximo modelo da lista.
   }
-
-  // Conferência entre o número e a data impressa. NÃO bloqueia mais.
-  //
-  // A regra nasceu de 12 tickets que seguiam `01 | DDMM | HHMMSS`, e valia
-  // neles. Em 18/09/2026 apareceu um que não segue: `011111000259`, impresso
-  // às 18/09/26 17:42:51, perfeitamente legível na foto. O OCR leu número e
-  // data corretos, a conferência acusou divergência, e o cliente foi recusado
-  // três vezes num ticket bom — confirmado depois pelo próprio ValidPark, que
-  // conhecia o número.
-  //
-  // Nem todo ticket carrega a data dentro do número, e não há como saber pelo
-  // número qual é qual. Uma regra que não vale sempre não pode ser bloqueio.
-  //
-  // O veredito segue no resultado: quem chama usa a divergência como MOTIVO
-  // PARA CONFERIR NO SITE, que é verificação de verdade — ver
-  // processar-mensagem.js. Trocamos um palpite sobre o formato do número por
-  // uma pergunta à fonte que sabe a resposta.
-  const conferencia = conferirTicketComData(ticket, extraido.dataEmissaoDDMMAAHHMMSS);
-
-  return {
-    status: 'ocr_ok',
-    ticket,
-    dataEmissaoIso,
-    conferencia,
-    // Só vêm preenchidos quando o hangar exige a foto com o veículo; quem
-    // decide o que fazer com eles é avaliarLocal(), em conferir-local.js.
-    cenario: extraido.cenario || null,
-    local: extraido.local || null,
-    localMotivo: extraido.localMotivo || null,
-  };
+  return resultado; // o último (não-ok): mantém a mensagem certa ao cliente
 }
 
 /**
