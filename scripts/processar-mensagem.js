@@ -32,7 +32,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env'), override: t
 const { carregarConfig, buscarHangarPorGrupo } = require('./lib/hangar');
 const { comTrava, comTravaAsync, lerJson, salvarAtomico } = require('./lib/trava-arquivo');
 const { destinosAdmin } = require('./lib/admins');
-const { interpretarMensagem, extrairPlaca, interpretarEscolhaPatio, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoMovimentacao, normalizar } = require('./lib/whatsapp');
+const { interpretarMensagem, extrairPlaca, interpretarEscolhaPatio, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar } = require('./lib/whatsapp');
 // O cliente da Evolution vive em lib/evolution.js: o painel também precisa
 // mandar mensagem, e duas cópias do mesmo cliente divergiriam — inclusive no
 // `Connection: close`, que existe por um bug real de socket reaproveitado.
@@ -2180,10 +2180,66 @@ async function executarConserto(msg, aoReceber) {
   if (feitos.length) linhas.push('*Fiz agora:*', ...feitos, '');
   if (plano.manuais.length) linhas.push('*Precisa de você / suporte:*', ...plano.manuais, '');
   linhas.push(aindaRuim.length
-    ? `Ainda com problema: ${aindaRuim.join(', ')}.`
+    ? `Ainda com problema: ${aindaRuim.join(', ')}.\nSe não for crédito/celular, mande *investigar* que eu junto os logs para a correção.`
     : '✅ Serviços de volta ao ar.');
 
   return { status: 'conserto', grupoId: msg.grupoId, mensagemWhatsapp: linhas.join('\n'), notificarAdmin: false, responder: true, etapa: 'conserto' };
+}
+
+// Jeito A da investigação de código: o bot NÃO edita nem corrige — ele JUNTA o
+// diagnóstico (problemas + versão no ar + logs de erro dos serviços) num pacote
+// e entrega para você levar a uma sessão do Claude, onde a IA acha a causa e
+// abre um PR para você aprovar. A IA roda FORA da conta do bot: não gasta o
+// crédito do OCR e funciona mesmo com o crédito zerado.
+async function investigarProblema(msg, aoReceber) {
+  if (aoReceber) { try { await aoReceber(msg.grupoId, '🔎 Juntando os logs para a investigação...'); } catch (e) { /* conforto */ } }
+  const autoConserto = require('./lib/auto-conserto');
+  const SAUDE = path.join(__dirname, '..', 'data', 'saude.json');
+
+  const problemas = [];
+  let checagens = {};
+  try { checagens = (await require('./monitor-saude').verificar()).checagens || {}; } catch (e) { /* segue */ }
+  if (checagens.whatsapp && !checagens.whatsapp.ok) problemas.push('whatsapp');
+  if (checagens.n8n && !checagens.n8n.ok) problemas.push('n8n');
+  if (checagens.disco && !checagens.disco.ok) problemas.push('disco');
+  if (checagens.anthropic && !checagens.anthropic.ok) problemas.push('anthropic');
+  const saude = lerJson(SAUDE, null);
+  if (saude && saude.validpark && saude.validpark.ok === false) problemas.push('validpark');
+  const snap = snapshotTechparking.ler();
+  if (snap.fresca !== true) problemas.push('coletor');
+
+  const linhas = ['🔎 *Investigação do validador*', ''];
+  if (!problemas.length) {
+    linhas.push('✅ Nenhum erro ativo agora — não há o que investigar. Se um cliente relatou falha pontual, peça para reenviar o ticket.');
+    return { status: 'investigacao', grupoId: msg.grupoId, mensagemWhatsapp: linhas.join('\n'), notificarAdmin: false, responder: true, etapa: 'investigacao' };
+  }
+
+  linhas.push(`Problemas agora: *${problemas.join(', ')}*`, '');
+  const ver = autoConserto.rodar('git', ['-C', path.join(__dirname, '..'), 'log', '-1', '--format=%h %s']);
+  if (ver.ok) linhas.push(`Versão no ar: ${ver.saida}`, '');
+
+  // Logs só ajudam nos problemas de SERVIÇO/código. Crédito, celular, ValidPark
+  // e coletor têm causa conhecida e caminho próprio — aqui só pegamos os logs
+  // que uma investigação de código usaria.
+  const servicos = { n8n: 'n8n.service', painel: 'painel-validador.service' };
+  for (const p of problemas) {
+    if (servicos[p]) {
+      const log = (autoConserto.logsRecentes(servicos[p], 12) || '').split('\n').slice(-8).join('\n').slice(0, 1000);
+      linhas.push(`*${p}* — últimos avisos:`, '```', log || '(sem avisos recentes)', '```', '');
+    }
+  }
+  for (const p of problemas) {
+    if (p === 'anthropic') linhas.push('• anthropic: crédito/chave — responda *recarregar sistema* (não é bug de código).');
+    if (p === 'whatsapp') linhas.push('• whatsapp: sessão do celular — reconectar (QR).');
+    if (p === 'validpark') linhas.push('• validpark: site fora — *ligar contingência* ou *consertar*.');
+    if (p === 'coletor') linhas.push('• coletor: servidor do aeroporto (AnyDesk).');
+  }
+
+  linhas.push('', '📎 *Para a correção de código:* abra o Claude Code e diga *investigar o validador* — a IA lê estes logs no servidor, acha a causa e abre um PR para você aprovar. (roda fora da conta do bot: não gasta o crédito do OCR.)');
+
+  let txt = linhas.join('\n');
+  if (txt.length > 3500) txt = `${txt.slice(0, 3500)}\n…`;
+  return { status: 'investigacao', grupoId: msg.grupoId, mensagemWhatsapp: txt, notificarAdmin: false, responder: true, etapa: 'investigacao' };
 }
 
 async function diagnosticarSistema() {
@@ -2773,6 +2829,12 @@ async function responderNoGrupoAdmin(msg, aoReceber) {
   // Antes do diagnóstico (que só olha) e com hangar nenhum nomeado.
   if (msg.tipo === 'texto' && !hangar && interpretarPedidoConserto(msg.texto)) {
     return await executarConserto(msg, aoReceber);
+  }
+
+  // Investigação: "investigar", "ver os logs". Junta o pacote para a sessão do
+  // Claude (Jeito A). Antes do diagnóstico-status.
+  if (msg.tipo === 'texto' && !hangar && interpretarPedidoInvestigar(msg.texto)) {
+    return await investigarProblema(msg, aoReceber);
   }
 
   // Diagnóstico: "por que não está funcionando?", "status do sistema". Antes do

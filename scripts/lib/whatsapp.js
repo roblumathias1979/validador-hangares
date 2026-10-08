@@ -227,6 +227,21 @@ function interpretarPedidoConserto(texto) {
 }
 
 /**
+ * Pedido da administração para o bot JUNTAR O DIAGNÓSTICO para investigação de
+ * código: "investigar", "investiga o problema", "ver os logs", "o que deu
+ * errado". Diferente do conserto (que age) e do diagnóstico-status (que resume):
+ * aqui ele reúne os logs de erro para levar a uma sessão do Claude. true/false.
+ */
+function interpretarPedidoInvestigar(texto) {
+  const t = normalizar(texto || '');
+  if (!t || t.length > 80) return false;
+  if (/\binvestig\w+/.test(t)) return true;
+  if (/\b(ver|pegar|juntar|mostrar|puxar)\b[^.?!]{0,12}\blogs?\b/.test(t)) return true;
+  if (/\bo que deu errado\b/.test(t)) return true;
+  return false;
+}
+
+/**
  * Comando da administração para DISPARAR uma mensagem aos grupos ("mandar
  * mensagem para grupos", "avisar os grupos", "comunicado"). Devolve true/false.
  *
@@ -476,4 +491,4 @@ function interpretarMensagem(body) {
   };
 }
 
-module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus, interpretarPedidoPatio, interpretarEscolhaPatio, interpretarConsultaValidacao, interpretarComandoIdentificacao, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoMovimentacao, normalizar };
+module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus, interpretarPedidoPatio, interpretarEscolhaPatio, interpretarConsultaValidacao, interpretarComandoIdentificacao, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar };
