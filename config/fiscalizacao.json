@@ -12,7 +12,7 @@
   "_ticketFantasmaDias": "Ticket com tolerância vencida há mais que isto não conta na lotação: o TECHPARKING não registra a saída de todo veículo, e em 29/09/2026 havia tickets de 2025 ainda \"no pátio\".",
   "ticketFantasmaDias": 7,
   "_modeloLeitura": "Modelo que lê as placas nos quadros da câmera. É a chamada mais frequente do sistema (uma a cada poucos segundos de ronda), então o custo por hora depende desta escolha.",
-  "modeloLeitura": "claude-haiku-4-5",
+  "modeloLeitura": "claude-haiku-5-5",
   "_intervaloMinimoLeituraMs": "Freio de custo: intervalo mínimo entre dois quadros do mesmo fiscal, e teto de quadros por dia para o sistema inteiro.",
   "intervaloMinimoLeituraMs": 1500,
   "maxLeiturasPorDia": 6000,

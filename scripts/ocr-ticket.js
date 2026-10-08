@@ -72,7 +72,7 @@ function lerImagemBase64(caminho) {
   return { mediaType, dados };
 }
 
-function chamarClaude({ mediaType, dados, prompt, referencias: refs = [] }) {
+function chamarClaude({ mediaType, dados, prompt, referencias: refs = [], modelo }) {
   return new Promise((resolve, reject) => {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
@@ -81,7 +81,10 @@ function chamarClaude({ mediaType, dados, prompt, referencias: refs = [] }) {
     }
 
     const corpo = JSON.stringify({
-      model: MODELO,
+      // `modelo` é opcional e existe para o comparador de custo (scripts/
+      // comparar-ocr.js) medir o mesmo prompt em modelos diferentes. Em
+      // produção ninguém passa, e cai no MODELO de sempre.
+      model: modelo || MODELO,
       // 500 bastava quando a resposta tinha 4 campos curtos. Com a conferência
       // de local ligada, o modelo passou a devolver também `cenario` e
       // `localMotivo`, que são descrições em TEXTO LIVRE — a resposta estourava
@@ -486,4 +489,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { lerTicket, lerLocal, paraIso, extrairJson, conferirTicketComData, classificarErroApi, resultadoApiIndisponivel };
+module.exports = { lerTicket, lerLocal, paraIso, extrairJson, conferirTicketComData, classificarErroApi, resultadoApiIndisponivel, chamarClaude, PROMPT, MODELO };
