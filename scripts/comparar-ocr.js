@@ -47,7 +47,7 @@ function dinheiro(usd) {
 
 async function rodarUm(modelo, imagem) {
   const t0 = Date.now();
-  const resposta = await chamarClaude({ ...imagem, prompt: PROMPT, modelo });
+  const resposta = await chamarClaude({ ...imagem, prompt: PROMPT, modelo, contabilizar: false });
   const ms = Date.now() - t0;
   const texto = (resposta.content || []).map((b) => b.text || '').join('');
   let lido = {};

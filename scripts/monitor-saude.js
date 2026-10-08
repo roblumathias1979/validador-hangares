@@ -264,6 +264,38 @@ async function acompanharValidpark(anterior, atual, vpInjetado) {
   atual.validpark = { ok: vp.ok, detalhe: vp.detalhe, ref: vp.ref, em: atual.em, foraDesde, ultimoAvisoEm };
 }
 
+// Saldo ESTIMADO dos créditos da Anthropic, vigiado à parte do saudavel geral
+// (como o ValidPark). Só vigia quando a administração informou quanto carregou
+// ("recarreguei US$ X"). Avisa quando o saldo cruza para baixo do limite e a
+// cada REAVISO_MS enquanto seguir baixo.
+async function acompanharCreditos(anterior, atual) {
+  const creditos = require('./lib/creditos-anthropic');
+  const e = creditos.estado();
+  const ant = (anterior && anterior.creditos) || null;
+  const usd = (v) => `US$ ${Number(v || 0).toFixed(2)}`;
+  let ultimoAvisoEm = (ant && ant.ultimoAvisoEm) || null;
+
+  if (e.saldoUsd == null) { // sem crédito informado: nada a alarmar, mas guarda o gasto
+    atual.creditos = { saldoUsd: null, gastoUsd: e.gastoUsd, em: atual.em, ultimoAvisoEm };
+    return;
+  }
+
+  const baixo = e.saldoUsd <= e.alertaUsd;
+  const eraOk = !ant || ant.saldoUsd == null || ant.saldoUsd > e.alertaUsd;
+  const faz6h = baixo && ultimoAvisoEm && (Date.now() - new Date(ultimoAvisoEm).getTime() > REAVISO_MS);
+
+  if (baixo && (eraOk || faz6h)) {
+    const dias = e.diasRestantes != null ? ` (dura ~${Math.floor(e.diasRestantes)} dia(s) no ritmo atual)` : '';
+    const r = await enviarAdmins(
+      `🟡 *Crédito da Anthropic baixo* — saldo estimado ${usd(e.saldoUsd)}${dias}.\n\n`
+      + 'Para a leitura de fotos não parar, recarregue e me diga *recarreguei US$ <valor>*. '
+      + 'Responda *recarregar sistema* para o passo a passo.'
+    );
+    if (r.avisado) ultimoAvisoEm = atual.em;
+  }
+  atual.creditos = { saldoUsd: e.saldoUsd, gastoUsd: e.gastoUsd, creditoUsd: e.creditoUsd, em: atual.em, ultimoAvisoEm };
+}
+
 // Tentativa de aviso. Pode falhar justamente quando mais importa — se o que
 // caiu foi o WhatsApp, não há como avisar por ele. O registro em disco é a via
 // que sempre funciona.
@@ -333,6 +365,13 @@ async function main() {
     atual.validparkErro = String(e.message).slice(0, 120);
   }
 
+  // Saldo estimado da Anthropic, também à parte — nunca derruba o monitor.
+  try {
+    await acompanharCreditos(anterior, atual);
+  } catch (e) {
+    atual.creditosErro = String(e.message).slice(0, 120);
+  }
+
   salvarAtomico(ARQUIVO, atual);
   console.log(JSON.stringify(atual));
 }
@@ -344,4 +383,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { verificar, checarValidpark, acompanharValidpark, classificarAnthropic, checarAnthropic };
+module.exports = { verificar, checarValidpark, acompanharValidpark, acompanharCreditos, classificarAnthropic, checarAnthropic };

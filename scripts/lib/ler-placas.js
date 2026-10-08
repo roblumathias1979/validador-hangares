@@ -90,6 +90,9 @@ async function lerPlacas(base64, { modelo = 'claude-opus-5-5' } = {}) {
     }],
   });
 
+  // Soma o custo desta leitura ao medidor de saldo (nunca derruba a ronda).
+  try { require('./creditos-anthropic').registrarUso({ modelo, usage: resposta.usage }); } catch (e) { /* medir é secundário */ }
+
   if (resposta.stop_reason === 'refusal') return { placas: [], descartadas: [], recusado: true };
 
   const texto = resposta.content.filter((b) => b.type === 'text').map((b) => b.text).join('');

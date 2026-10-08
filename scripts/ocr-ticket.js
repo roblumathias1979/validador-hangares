@@ -78,7 +78,7 @@ function lerImagemBase64(caminho) {
   return { mediaType, dados };
 }
 
-function chamarClaude({ mediaType, dados, prompt, referencias: refs = [], modelo }) {
+function chamarClaude({ mediaType, dados, prompt, referencias: refs = [], modelo, contabilizar = true }) {
   return new Promise((resolve, reject) => {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
@@ -140,6 +140,11 @@ function chamarClaude({ mediaType, dados, prompt, referencias: refs = [], modelo
             return;
           }
           if (res.statusCode >= 200 && res.statusCode < 300) {
+            // Soma o custo desta chamada ao medidor de saldo (nunca derruba o
+            // OCR se falhar). O comparador de A/B passa contabilizar:false.
+            if (contabilizar) {
+              try { require('./lib/creditos-anthropic').registrarUso({ modelo: modelo || MODELO, usage: json.usage }); } catch (e) { /* medir é secundário */ }
+            }
             resolve(json);
           } else {
             const erroHttp = new Error(`Anthropic retornou erro (status ${res.statusCode}): ${json.error && json.error.message || JSON.stringify(json)}`);

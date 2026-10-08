@@ -2070,30 +2070,58 @@ async function responderRecargaAnthropic(msg, aoReceber) {
     try { await aoReceber(msg.grupoId, '🔎 Conferindo os créditos da Anthropic...'); } catch (e) { /* aviso é conforto */ }
   }
 
-  let estado;
-  try {
-    estado = await require('./monitor-saude').checarAnthropic();
-  } catch (e) {
-    estado = { ok: null, detalhe: `não consegui verificar agora (${String(e.message).slice(0, 60)})` };
+  const creditos = require('./lib/creditos-anthropic');
+  const usd = (v) => `US$ ${Number(v || 0).toFixed(2)}`;
+
+  // "recarreguei US$ 50": a administração diz quanto carregou → zera o contador
+  // e passa a estimar o saldo a partir daí.
+  let anotado = null;
+  const valorInformado = creditos.valorRecargaDoTexto(msg.texto);
+  if (valorInformado != null) {
+    try { creditos.definirCredito(valorInformado); anotado = valorInformado; } catch (e) { /* valor inválido: ignora */ }
   }
+
+  let saude;
+  try {
+    saude = await require('./monitor-saude').checarAnthropic();
+  } catch (e) {
+    saude = { ok: null, detalhe: `não consegui verificar agora (${String(e.message).slice(0, 60)})` };
+  }
+
+  const m = creditos.estado();
+
+  // Bloco do SALDO ESTIMADO — o que a administração pediu para ver.
+  const saldo = [];
+  if (anotado != null) saldo.push(`✅ Anotado: você carregou *${usd(anotado)}*. Vou estimar o saldo a partir de agora.`, '');
+  if (m.creditoUsd != null) {
+    saldo.push(`💳 *Saldo estimado: ${usd(m.saldoUsd)}*`);
+    saldo.push(`_de ${usd(m.creditoUsd)} carregados; gasto ${usd(m.gastoUsd)}${m.recarregadoEm ? ` desde ${new Date(m.recarregadoEm).toLocaleDateString('pt-BR')}` : ''}._`);
+    if (m.diasRestantes != null) saldo.push(`Nesse ritmo, dura mais ~${Math.floor(m.diasRestantes)} dia(s).`);
+    saldo.push('_Estimativa: a Anthropic não informa o saldo por fora do Console._');
+  } else {
+    saldo.push(`📊 Gasto medido até agora: *${usd(m.gastoUsd)}*${m.chamadas ? ` em ${m.chamadas} leitura(s)` : ''}.`);
+    saldo.push('_Ainda não sei quanto você carregou. Me diga *recarreguei US$ 50* (o valor que você comprou) que passo a mostrar o saldo estimado._');
+  }
+  saldo.push('');
 
   const passos = [
     `1. Abra ${LINK_RECARGA_ANTHROPIC}`,
     '2. Entre com a conta que criou a chave do bot e clique em *Comprar créditos*.',
-    '3. Quando pagar, responda aqui *status do sistema* para eu conferir.',
+    '3. Quando pagar, me diga *recarreguei US$ <valor>* (ou *status do sistema* para eu conferir).',
   ];
   const nota = '_A compra só pode ser feita no Console da Anthropic, com o login da conta: não dá para pagar por aqui._';
 
-  const linhas = estado.ok === false
+  const statusLinhas = saude.ok === false
     ? ['🔴 *Os créditos da Anthropic acabaram* — o bot não consegue ler as fotos dos tickets.', '', ...passos, '', nota]
-    : estado.ok === true
-      ? ['🟢 A API da Anthropic está respondendo e tem crédito — o bot está lendo as fotos normalmente.',
-        '', `Se quiser adicionar crédito ou ajustar a recarga automática: ${LINK_RECARGA_ANTHROPIC}`, '', nota]
-      : [`🟡 ${estado.detalhe}`, '', `Se o bot não estiver lendo as fotos, os créditos podem ter acabado. ${passos[0].slice(3)}`, '', nota];
+    : saude.ok === true
+      ? ['🟢 A API está respondendo e tem crédito — o bot está lendo as fotos normalmente.',
+        '', `Para adicionar crédito: ${LINK_RECARGA_ANTHROPIC}`, '', nota]
+      : [`🟡 ${saude.detalhe}`, '', `Se o bot não estiver lendo as fotos, os créditos podem ter acabado. ${passos[0].slice(3)}`, '', nota];
 
   return {
     status: 'recarga_anthropic', grupoId: msg.grupoId,
-    mensagemWhatsapp: linhas.join('\n'),
+    mensagemWhatsapp: [...saldo, ...statusLinhas].join('\n'),
+    saldoUsd: m.saldoUsd, creditoAnotado: anotado,
     notificarAdmin: false, responder: true, etapa: 'recarga_anthropic',
   };
 }
