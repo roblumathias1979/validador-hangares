@@ -165,15 +165,15 @@ async function verificar() {
     ? { ok: true, detalhe: 'respondendo' }
     : { ok: false, detalhe: `não respondeu (${n.erro || n.status})` };
 
-  // 3. Disco: o Chromium precisa de espaço para abrir, e ficar sem disco
-  //    quebra tudo de formas confusas.
+  // 3. Disco e memória da máquina. Limites com FOLGA (disco: 85% ou menos de
+  //    2 GB livres; memória disponível: menos de 300 MB) — o limite antigo
+  //    (1 GB livre) só avisava quando já era tarde. O Chromium precisa de espaço
+  //    e de memória para abrir, e ficar sem qualquer um quebra tudo de forma confusa.
   try {
-    const { execFileSync } = require('child_process');
-    const saida = execFileSync('df', ['-Pk', RAIZ], { encoding: 'utf-8' }).trim().split('\n').pop().split(/\s+/);
-    const livreGb = Number(saida[3]) / 1024 / 1024;
-    checagens.disco = livreGb > 1
-      ? { ok: true, detalhe: `${livreGb.toFixed(1)} GB livres` }
-      : { ok: false, detalhe: `só ${livreGb.toFixed(1)} GB livres` };
+    const si = require('./lib/servidor-info');
+    const info = si.ler();
+    checagens.disco = si.checarDisco(info);
+    checagens.memoria = si.checarMemoria(info);
   } catch (e) {
     checagens.disco = { ok: false, detalhe: `não consegui medir: ${e.message}` };
   }
@@ -296,6 +296,49 @@ async function acompanharCreditos(anterior, atual) {
   atual.creditos = { saldoUsd: e.saldoUsd, gastoUsd: e.gastoUsd, creditoUsd: e.creditoUsd, em: atual.em, ultimoAvisoEm };
 }
 
+// Crédito da AWS: o plano gratuito cobre o servidor com crédito, e o crédito (ou
+// o prazo) ACABA — aí a conta pode ser suspensa e o servidor sai do ar. A AWS não
+// deixa o bot ler o saldo, então ele vigia o que a administração informou
+// ("crédito aws 79,52 até 03/03/2027"). Anda devagar, por isso o aviso não é de
+// 6 em 6 horas como o da Anthropic: avisa ao ENTRAR em alerta e depois 1 vez por
+// dia enquanto durar. Sem saldo informado, ou com a informação velha (>30 dias),
+// lembra a cada 7 dias — não dá para vigiar o que ninguém informou.
+const REAVISO_CREDITO_AWS_MS = 24 * 3600 * 1000;
+const LEMBRETE_CREDITO_AWS_MS = 7 * 24 * 3600 * 1000;
+
+async function acompanharCreditoAws(anterior, atual, enviar = enviarAdmins) {
+  const aws = require('./lib/creditos-aws');
+  const e = aws.estado();
+  const a = aws.avaliar(e);
+  const ant = (anterior && anterior.creditoAws) || {};
+  let ultimoAvisoEm = ant.ultimoAvisoEm || null;
+  const passou = (ms) => !ultimoAvisoEm || Date.now() - new Date(ultimoAvisoEm).getTime() > ms;
+
+  let texto = null;
+  if (!e) {
+    if (passou(LEMBRETE_CREDITO_AWS_MS)) {
+      texto = '☁️ *Crédito da AWS não informado* — não consigo vigiar quando ele acaba.\n\n'
+        + 'Copie do painel da AWS e mande aqui: *crédito aws 79,52 até 03/03/2027* (saldo e data final).';
+    }
+  } else if (a.problema) {
+    if (!ant.alerta || passou(REAVISO_CREDITO_AWS_MS)) {
+      texto = `🔴 *Crédito da AWS acabando*\n\n${a.texto}\n\n`
+        + 'Quando o crédito ou o prazo do plano gratuito termina, a conta pode ser suspensa e o servidor sair do ar. '
+        + 'Veja o painel de cobrança da AWS (Billing) e decida o plano — o suporte técnico ajuda. '
+        + 'Depois de ver o painel, atualize aqui: *crédito aws <saldo> até <data>*.';
+    }
+  } else if (e.diasDesdeInformado > 30 && passou(LEMBRETE_CREDITO_AWS_MS)) {
+    texto = `☁️ O crédito da AWS foi informado há ${e.diasDesdeInformado} dias (${a.texto.replace('Crédito AWS: ', '')}). `
+      + 'Confira o painel e atualize: *crédito aws <saldo> até <data>*.';
+  }
+
+  if (texto) {
+    const r = await enviar(texto);
+    if (r && r.avisado) ultimoAvisoEm = atual.em;
+  }
+  atual.creditoAws = { alerta: a.problema, saldoUsd: e ? e.saldoUsd : null, diasAteVencer: e ? e.diasAteVencer : null, em: atual.em, ultimoAvisoEm };
+}
+
 // Tentativa de aviso. Pode falhar justamente quando mais importa — se o que
 // caiu foi o WhatsApp, não há como avisar por ele. O registro em disco é a via
 // que sempre funciona.
@@ -372,6 +415,13 @@ async function main() {
     atual.creditosErro = String(e.message).slice(0, 120);
   }
 
+  // Crédito da AWS (vence): vigia à parte, também sem derrubar o monitor.
+  try {
+    await acompanharCreditoAws(anterior, atual);
+  } catch (e) {
+    atual.creditoAwsErro = String(e.message).slice(0, 120);
+  }
+
   salvarAtomico(ARQUIVO, atual);
   console.log(JSON.stringify(atual));
 }
@@ -383,4 +433,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { verificar, checarValidpark, acompanharValidpark, acompanharCreditos, classificarAnthropic, checarAnthropic };
+module.exports = { verificar, checarValidpark, acompanharValidpark, acompanharCreditos, acompanharCreditoAws, classificarAnthropic, checarAnthropic };

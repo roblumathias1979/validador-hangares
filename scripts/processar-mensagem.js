@@ -32,7 +32,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env'), override: t
 const { carregarConfig, buscarHangarPorGrupo } = require('./lib/hangar');
 const { comTrava, comTravaAsync, lerJson, salvarAtomico } = require('./lib/trava-arquivo');
 const { destinosAdmin } = require('./lib/admins');
-const { interpretarMensagem, extrairPlaca, interpretarEscolhaPatio, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoReiniciar, interpretarPedidoAtualizar, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar } = require('./lib/whatsapp');
+const { interpretarMensagem, extrairPlaca, interpretarEscolhaPatio, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoReiniciar, interpretarPedidoAtualizar, interpretarCreditoAws, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar } = require('./lib/whatsapp');
 // O cliente da Evolution vive em lib/evolution.js: o painel também precisa
 // mandar mensagem, e duas cópias do mesmo cliente divergiriam — inclusive no
 // `Connection: close`, que existe por um bug real de socket reaproveitado.
@@ -2199,6 +2199,26 @@ function responderReiniciar(msg, pend) {
   return executar('servidor');
 }
 
+// Informa/mostra o crédito da AWS. A AWS não deixa o bot ler o saldo sem dar
+// permissão de cobrança à máquina; então a administração copia do painel.
+function responderCreditoAws(msg, ca) {
+  const creditosAws = require('./lib/creditos-aws');
+  const resposta = (status, texto) => ({
+    status, grupoId: msg.grupoId, mensagemWhatsapp: texto,
+    notificarAdmin: false, responder: true, etapa: 'credito_aws',
+  });
+  if (ca.consulta) {
+    const a = creditosAws.avaliar(creditosAws.estado());
+    return resposta('credito_aws_consulta', `☁️ ${a.cor} ${a.texto}\n\n_Para atualizar, copie do painel da AWS: *crédito aws 79,52 até 03/03/2027*._`);
+  }
+  try { creditosAws.definir(ca.usd, ca.ate); } catch (e) {
+    return resposta('credito_aws_erro', 'Não entendi o valor. Exemplo: *crédito aws 79,52 até 03/03/2027*.');
+  }
+  const a = creditosAws.avaliar(creditosAws.estado());
+  return resposta('credito_aws_anotado', `✅ Anotado.\n\n${a.cor} ${a.texto}\n\n_Quando atualizar de novo, eu passo a estimar o ritmo de gasto._`
+    + (ca.ate ? '' : '\n_Dica: inclua a data final do painel (ex.: *até 03/03/2027*) para eu contar os dias._'));
+}
+
 // O comando "atualizar servidor": 1) PROCURAR (só lê e mostra o que há) ou
 // 2) INSTALAR (apt upgrade, com SIM). A instalação roda numa unidade systemd
 // própria — o Docker e o n8n reiniciam no meio e matariam um script filho — e
@@ -2288,6 +2308,7 @@ async function executarConserto(msg, aoReceber) {
   if (checagens.whatsapp && !checagens.whatsapp.ok) problemas.push('whatsapp');
   if (checagens.n8n && !checagens.n8n.ok) problemas.push('n8n');
   if (checagens.disco && !checagens.disco.ok) problemas.push('disco');
+  if (checagens.memoria && !checagens.memoria.ok) problemas.push('memoria');
   if (checagens.anthropic && !checagens.anthropic.ok) problemas.push('anthropic');
   const saude = lerJson(SAUDE, null);
   if (saude && saude.validpark && saude.validpark.ok === false) problemas.push('validpark');
@@ -2348,6 +2369,7 @@ async function investigarProblema(msg, aoReceber) {
   if (checagens.whatsapp && !checagens.whatsapp.ok) problemas.push('whatsapp');
   if (checagens.n8n && !checagens.n8n.ok) problemas.push('n8n');
   if (checagens.disco && !checagens.disco.ok) problemas.push('disco');
+  if (checagens.memoria && !checagens.memoria.ok) problemas.push('memoria');
   if (checagens.anthropic && !checagens.anthropic.ok) problemas.push('anthropic');
   const saude = lerJson(SAUDE, null);
   if (saude && saude.validpark && saude.validpark.ok === false) problemas.push('validpark');
@@ -2402,7 +2424,8 @@ async function diagnosticarSistema() {
   catch (e) { linhas.push('⚠️ Não consegui rodar a verificação agora.'); }
   if (checagens.whatsapp) { linhas.push(`${bolinha(checagens.whatsapp.ok)} WhatsApp: ${checagens.whatsapp.detalhe}`); if (!checagens.whatsapp.ok) problemas.push('whatsapp'); }
   if (checagens.n8n) { linhas.push(`${bolinha(checagens.n8n.ok)} Fluxo (n8n): ${checagens.n8n.detalhe}`); if (!checagens.n8n.ok) problemas.push('n8n'); }
-  if (checagens.disco) { linhas.push(`${bolinha(checagens.disco.ok)} Disco: ${checagens.disco.detalhe}`); if (!checagens.disco.ok) problemas.push('disco'); }
+  if (checagens.disco && !checagens.disco.ok) problemas.push('disco'); // o disco aparece no bloco "Servidor", abaixo
+  if (checagens.memoria && !checagens.memoria.ok) problemas.push('memoria');
   if (checagens.anthropic) { linhas.push(`${bolinha(checagens.anthropic.ok)} Leitura de fotos (Anthropic): ${checagens.anthropic.detalhe}`); if (!checagens.anthropic.ok) problemas.push('anthropic'); }
 
   // ValidPark — da última passada da sentinela (checar aqui abriria o navegador
@@ -2422,6 +2445,36 @@ async function diagnosticarSistema() {
   const cont = (carregarConfig().contingenciaValidPark || {}).ativo === true;
   linhas.push(`${cont ? '🟡' : '⚪'} Contingência: ${cont ? 'LIGADA (validando pelo aeroporto)' : 'desligada'}`);
 
+  // Servidor: memória, swap, disco, carga, tempo ligado, reinício pendente.
+  linhas.push('', '🖥️ *Servidor*');
+  try { linhas.push(...require('./lib/servidor-info').avaliar(require('./lib/servidor-info').ler()).linhas); }
+  catch (e) { linhas.push('⚪ Não consegui ler o servidor agora.'); }
+
+  // Backup: o último snapshot do disco (consulta à AWS; sem permissão, diz isso).
+  try {
+    const b = require('./lib/backup-aws').avaliar(require('./lib/backup-aws').ultimoSnapshot(require('./lib/auto-conserto').rodar));
+    linhas.push(`${b.cor} ${b.texto}`);
+    if (b.problema) problemas.push('backup');
+  } catch (e) { linhas.push('⚪ Backup: não consegui consultar'); }
+
+  // Créditos: Anthropic (estimado pelo gasto medido) e AWS (informado pela administração).
+  linhas.push('', '💳 *Créditos*');
+  try {
+    const m = require('./lib/creditos-anthropic').estado();
+    if (m.creditoUsd != null) {
+      const baixo = m.saldoUsd <= m.alertaUsd;
+      linhas.push(`${baixo ? '🔴' : '🟢'} Anthropic: saldo estimado US$ ${m.saldoUsd.toFixed(2).replace('.', ',')}${m.diasRestantes != null ? `, dura ~${Math.floor(m.diasRestantes)} dia(s)` : ''}`);
+      if (baixo) problemas.push('creditos');
+    } else {
+      linhas.push('⚪ Anthropic: saldo não informado — diga *recarreguei US$ 50* (o valor que carregou)');
+    }
+  } catch (e) { linhas.push('⚪ Anthropic: não consegui ler o saldo'); }
+  try {
+    const a = require('./lib/creditos-aws').avaliar(require('./lib/creditos-aws').estado());
+    linhas.push(`${a.cor} ${a.texto}`);
+    if (a.problema) problemas.push('creditos_aws');
+  } catch (e) { linhas.push('⚪ Crédito AWS: não consegui ler'); }
+
   // O que fazer.
   linhas.push('', '*O que dá para fazer*');
   const conselhos = [];
@@ -2432,6 +2485,10 @@ async function diagnosticarSistema() {
   if (problemas.includes('validpark') && !cont) conselhos.push('👉 O ValidPark está fora. Responda *ligar contingência* para validar pelo aeroporto enquanto ele não volta. (dá para resolver aqui mesmo)');
   if (problemas.includes('validpark') && cont) conselhos.push('✅ O ValidPark está fora, mas a *contingência está ligada* — as validações seguem pelo aeroporto. Desligue quando ele voltar.');
   if (problemas.includes('coletor')) conselhos.push('🔧 O coletor do aeroporto não está enviando dados — e a contingência também depende dele. Verificar o serviço *coletor-aeroporto* na máquina do aeroporto (AnyDesk) ou chamar o suporte.');
+  if (problemas.includes('memoria')) conselhos.push('🟡 Memória do servidor baixa — se persistir, mande *reiniciar sistema* → *1*; se voltar a acontecer, vale subir o servidor de tamanho.');
+  if (problemas.includes('backup')) conselhos.push('🔴 O backup diário do disco parou — chamar o suporte técnico para ver a política de snapshots na AWS (Lifecycle Manager).');
+  if (problemas.includes('creditos')) conselhos.push('💳 Crédito da Anthropic baixo — mande *recarregar sistema* para ver como adicionar.');
+  if (problemas.includes('creditos_aws')) conselhos.push('☁️ Crédito da AWS perto do fim ou do vencimento — ao acabar o plano gratuito o servidor pode ser suspenso. Veja o painel de cobrança da AWS e decida o plano (suporte técnico).');
   if (!problemas.length) conselhos.push('✅ Está tudo no ar. Se um cliente relatou falha, pode ter sido pontual — peça para reenviar o ticket. Se persistir, me mande o ticket que eu verifico.');
   linhas.push(...conselhos);
 
@@ -2971,6 +3028,12 @@ async function responderNoGrupoAdmin(msg, aoReceber) {
     if (pediuEscolherPeriodo(msg.texto, periodo)) return perguntarPeriodo(hangar, msg, nome);
     if (nome) return await executarMovimentacao(hangar, msg, 'credenciados', nome, aoReceber, periodo, pedeRelatorioPdf(msg.texto) ? 'pdf' : 'texto');
     return menuMovimentacao(hangar, msg);
+  }
+
+  // Crédito da AWS: "crédito aws 79,52 até 03/03/2027" informa; "crédito aws" mostra.
+  if (msg.tipo === 'texto') {
+    const ca = interpretarCreditoAws(msg.texto);
+    if (ca) return responderCreditoAws(msg, ca);
   }
 
   // Recarga dos créditos da Anthropic. Antes do diagnóstico: "o bot não lê as

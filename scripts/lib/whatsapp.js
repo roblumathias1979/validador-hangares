@@ -255,6 +255,28 @@ function interpretarPedidoAtualizar(texto) {
 }
 
 /**
+ * Comando da administração para INFORMAR (ou ver) o crédito da AWS:
+ * "crédito aws 79,52 até 03/03/2027", "saldo aws 79.52", "crédito aws" (só ver).
+ * Exige "aws" E "crédito/saldo". Devolve {usd, ate} (ate = YYYY-MM-DD ou null),
+ * {consulta:true} sem valor, ou null quando não é deste assunto.
+ */
+function interpretarCreditoAws(texto) {
+  const t = normalizar(texto || '').replace(',', '.');
+  if (!t || t.length > 90) return null;
+  if (!/\b(aws|amazon)\b/.test(t) || !/\b(credito|creditos|saldo)\b/.test(t)) return null;
+  let ate = null;
+  const sem = t.replace(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/, (_, d, m, a) => {
+    const ano = a.length === 2 ? `20${a}` : a;
+    const dd = Number(d); const mm = Number(m);
+    if (dd >= 1 && dd <= 31 && mm >= 1 && mm <= 12) ate = `${ano}-${String(mm).padStart(2, '0')}-${String(dd).padStart(2, '0')}`;
+    return ' ';
+  });
+  const m = sem.match(/(\d+(?:\.\d+)?)/);
+  if (!m) return { consulta: true };
+  return { usd: Number(m[1]), ate };
+}
+
+/**
  * Pedido da administração para o bot JUNTAR O DIAGNÓSTICO para investigação de
  * código: "investigar", "investiga o problema", "ver os logs", "o que deu
  * errado". Diferente do conserto (que age) e do diagnóstico-status (que resume):
@@ -519,4 +541,4 @@ function interpretarMensagem(body) {
   };
 }
 
-module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus, interpretarPedidoPatio, interpretarEscolhaPatio, interpretarConsultaValidacao, interpretarComandoIdentificacao, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoReiniciar, interpretarPedidoAtualizar, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar };
+module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus, interpretarPedidoPatio, interpretarEscolhaPatio, interpretarConsultaValidacao, interpretarComandoIdentificacao, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoReiniciar, interpretarPedidoAtualizar, interpretarCreditoAws, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar };

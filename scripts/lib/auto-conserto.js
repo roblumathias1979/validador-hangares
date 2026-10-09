@@ -76,6 +76,7 @@ function acoesPara(problemas, { contingenciaLigada = false } = {}) {
   if (tem('validpark') && !contingenciaLigada) automaticas.push({ tipo: 'ligar_contingencia', rotulo: 'ligar a contingência (validar pelo aeroporto)' });
 
   if (tem('validpark') && contingenciaLigada) manuais.push('ℹ️ ValidPark fora, mas a *contingência já está ligada* — validações seguem pelo aeroporto. Desligue quando ele voltar.');
+  if (tem('memoria')) manuais.push('🟡 Memória do servidor baixa. Se persistir, mande *reiniciar sistema* → *1*; se voltar a acontecer, vale subir o servidor de tamanho (suporte técnico).');
   if (tem('anthropic')) manuais.push('👉 Leitura de fotos parada (crédito/chave da Anthropic). Responda *recarregar sistema* — e, se recarregou, *recarreguei US$ <valor>*. (isso eu não compro sozinho)');
   if (tem('whatsapp')) manuais.push('🔧 Sessão do WhatsApp caída — precisa reconectar o celular (QR). O suporte técnico resolve. (se você recebeu esta mensagem, a sessão voltou)');
   if (tem('coletor')) manuais.push('🔧 Coletor do aeroporto sem enviar dados — é no servidor do aeroporto (AnyDesk) ou suporte técnico.');

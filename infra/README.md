@@ -182,3 +182,60 @@ df -h /                                 # confere o espaço
 
 NÃO apague `~/.cache/ms-playwright` (o Chromium do Playwright mora ali) nem
 `~/validador-hangares/n8n/data` (o banco do n8n, com o workflow).
+
+---
+
+## Status do sistema: servidor, backup e créditos
+
+O *status do sistema* (grupo de administração) traz, além do que já tinha:
+
+- **Servidor:** memória, swap, disco (em %), carga, tempo ligado e se há
+  reinício pendente. Limites com folga: disco vermelho a partir de **85%** ou
+  menos de **2 GB** livres; memória vermelha abaixo de **300 MB** disponíveis.
+  O monitor (a cada 5 min) usa os mesmos limites e avisa sozinho.
+- **Último backup:** a data do último snapshot do disco. Verde até ~30 h,
+  amarelo até ~50 h, vermelho depois (a política diária parou).
+- **Créditos:** o saldo estimado da Anthropic e o **crédito da AWS**.
+
+### Crédito da AWS
+
+A AWS não deixa o bot ler o saldo sem dar permissão de cobrança à máquina; por
+isso a administração informa o que o painel mostra, no grupo:
+
+```
+crédito aws 79,52 até 03/03/2027
+```
+
+O bot guarda, conta os dias até vencer e, com duas leituras, estima o ritmo de
+gasto. O monitor **avisa sozinho** quando o crédito está acabando — saldo de
+US$ 10 ou menos, 30 dias ou menos para vencer, ou menos de 30 dias de saldo no
+ritmo atual — ao entrar em alerta e depois 1 vez por dia. Sem informação (ou com
+mais de 30 dias), lembra a cada 7 dias. *crédito aws* sozinho mostra o que está
+anotado. Atualize sempre que olhar o painel (Billing → Credits).
+
+Quando o crédito ou o prazo do plano gratuito acaba, a conta pode ser suspensa e
+o servidor sair do ar: a decisão do plano (pago ou não) é do dono da conta, no
+painel de cobrança da AWS.
+
+### Ver o último backup no status (opcional, só leitura)
+
+Sem isto a linha mostra "Backup: não consegui consultar", e o resto funciona. Para
+ligar, o servidor precisa de uma **permissão de leitura** dos snapshots (nada de
+criar nem apagar), dada pela *role* da instância — sem chave guardada no servidor:
+
+1. AWS → **IAM** → *Policies* → *Create policy* → aba **JSON**:
+   ```json
+   {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"ec2:DescribeSnapshots","Resource":"*"}]}
+   ```
+   Nome: `validador-le-snapshots`.
+2. **IAM** → *Roles* → *Create role* → *AWS service* → **EC2** → anexe a policy
+   acima → nome `validador-servidor`.
+3. **EC2** → *Instances* → a instância → **Actions** → **Security** →
+   **Modify IAM role** → escolha `validador-servidor` → *Update IAM role*.
+4. No servidor, instale a CLI e teste:
+   ```bash
+   sudo snap install aws-cli --classic
+   aws ec2 describe-snapshots --owner-ids self --region us-east-2 --query 'length(Snapshots)'
+   ```
+   Deve imprimir um número (quantos snapshots existem). Se der erro de permissão,
+   a role ainda não pegou: espere 1 minuto e repita.
