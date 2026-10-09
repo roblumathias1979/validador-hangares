@@ -45,10 +45,10 @@ async function main() {
   }
 
   const ruins = Object.entries(checagens).filter(([, v]) => v && v.ok === false).map(([k]) => k);
-  const oQue = pedido.tipo === 'servidor' ? 'servidor' : 'serviços';
+  const oQue = pedido.tipo === 'servidor' ? 'do servidor' : 'dos serviços';
   const texto = ruins.length
-    ? `⚠️ Reinício dos ${oQue} concluído, mas ainda com problema em: ${ruins.join(', ')}.\nMande *consertar* ou *investigar*.`
-    : `✅ Voltei! Reinício dos ${oQue} concluído e tudo no ar.`;
+    ? `⚠️ Reinício ${oQue} concluído, mas ainda com problema em: ${ruins.join(', ')}.\nMande *consertar* ou *investigar*.`
+    : `✅ Voltei! Reinício ${oQue} concluído e tudo no ar.`;
 
   try {
     await enviarTexto(pedido.grupoId, texto);
