@@ -1319,7 +1319,7 @@ async function conduzir(body, { aoReceber } = {}) {
       return { status: 'ignorado', motivo: 'pendência já consumida por outra mensagem', grupoId: msg.grupoId, responder: false };
     }
     const motivoFat = pedido.tipo === 'faturar_patio_cheio' ? 'patio_cheio' : 'fora_do_prazo';
-    filaFaturamentos.enfileirar({
+    const fatPedido = filaFaturamentos.enfileirar({
       ticket: pedido.ticket,
       hangarId: hangar.id,
       grupoId: msg.grupoId,
@@ -1341,7 +1341,8 @@ async function conduzir(body, { aoReceber } = {}) {
         + `Responda aqui *SIM* para EMITIR O BOLETO e liberar, ou *NÃO* para recusar.`,
       mensagemWhatsapp: `Recebi sua autorização do ticket ${pedido.ticket}. `
         + 'Encaminhei à administração; assim que for aprovado, o boleto é emitido e o ticket liberado. Aviso aqui.',
-      notificarAdmin: true,
+      // Pedido repetido do mesmo ticket não incomoda o admin de novo.
+      notificarAdmin: !fatPedido.jaExistia,
       responder: true,
       etapa: 'faturamento_aguardando_admin',
     };
@@ -3325,7 +3326,7 @@ async function responderAutorizacaoPrivada(msg) {
   // ele, se só um tipo espera, age nele; se os dois esperam, pede o número.
   const fatCitado = msg.ticketCitado ? filaFaturamentos.aguardandoPorTicket(msg.ticketCitado) : null;
   const bloqCitado = msg.ticketCitado ? bloqueados.estaBloqueado(msg.ticketCitado) : null;
-  const fats = filaFaturamentos.listar().filter((f) => f.estado === 'aguardando_admin');
+  const fats = filaFaturamentos.aguardandoUnicos(); // pedidos repetidos do mesmo ticket contam como um
   const blocks = bloqueados.listar({ apenasAtivos: true });
 
   if (msg.resposta !== 'sim' && msg.resposta !== 'nao') {
@@ -3428,6 +3429,18 @@ async function aprovarOuRecusarFaturamento(fat, aprovado, quem, config, adminGru
       grupoDeOrigem: fat.grupoId,
       mensagemWhatsapp: `🚫 Faturamento do ticket *${fat.ticket}* recusado. Avisei o grupo.`,
       avisarGrupoDeOrigem: `🚫 O faturamento do ticket ${fat.ticket} não foi autorizado. Para pagar, use o totem de autopagamento no terminal do aeroporto.`,
+      notificarAdmin: false, responder: true, etapa: 'autorizacao_privada',
+    };
+  }
+
+  // Defesa contra cobrar DUAS vezes: se este ticket já tem boleto real emitido
+  // (por outro pedido), não emite outro — só fecha este.
+  const jaCobrado = filaFaturamentos.jaFaturado(fat.ticket);
+  if (jaCobrado) {
+    filaFaturamentos.decidir(fat.id, { aprovado: false, quem, resultado: { duplicadoDe: jaCobrado.id, motivo: 'ticket já faturado' } });
+    return {
+      status: 'faturamento_ja_emitido', grupoId: adminGrupoId, ticket: fat.ticket,
+      mensagemWhatsapp: `ℹ️ O ticket *${fat.ticket}* já tem boleto emitido (${new Date(jaCobrado.decididoEm).toLocaleDateString('pt-BR')}). Não emiti outro.`,
       notificarAdmin: false, responder: true, etapa: 'autorizacao_privada',
     };
   }
