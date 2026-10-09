@@ -149,3 +149,36 @@ AWS). Uma vez configurado, tira um snapshot por dia sozinho:
 Custo: centavos por mês (o snapshot guarda só o que mudou).
 Restaurar: EC2 → Snapshots → o snapshot → *Create volume*, e trocar o volume da
 instância (instância parada). Guarde esse passo a passo antes de precisar dele.
+
+## Aviso mensal de atualização pendente
+
+No dia 1 de cada mês, 09:00 em Brasília, o servidor confere se há atualização
+para instalar (ou reinício pendente) e avisa os grupos de administração. Sem
+pendência, não manda nada. Quem instala continua sendo o comando *atualizar
+servidor*. `Persistent=true`: se o servidor estava desligado no horário, avisa
+assim que ligar.
+
+```bash
+cd ~/validador-hangares/infra
+sudo cp avisar-atualizacoes.service avisar-atualizacoes.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now avisar-atualizacoes.timer
+systemctl list-timers avisar-atualizacoes.timer --no-pager   # mostra a próxima execução
+```
+
+Para testar na hora (só manda mensagem se houver pendência):
+`sudo systemctl start avisar-atualizacoes.service` e `journalctl -u avisar-atualizacoes -n 5 --no-pager`.
+
+## Limpeza de cache do disco (manual, de tempos em tempos)
+
+A instalação pelo bot já roda `apt-get clean` no fim. O que sobra para limpar à mão:
+
+```bash
+sudo npm cache clean --force            # cache do npm do root (~1,3 GB); baixa de novo se precisar
+sudo journalctl --vacuum-size=100M      # logs antigos do sistema (o n8n em nível debug enche isto)
+sudo apt-get clean                      # pacotes baixados (~300 MB)
+df -h /                                 # confere o espaço
+```
+
+NÃO apague `~/.cache/ms-playwright` (o Chromium do Playwright mora ali) nem
+`~/validador-hangares/n8n/data` (o banco do n8n, com o workflow).

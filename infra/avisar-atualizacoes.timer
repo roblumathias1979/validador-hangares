@@ -1,0 +1,11 @@
+[Unit]
+Description=Aviso mensal de atualizacao pendente no servidor
+
+[Timer]
+# Dia 1 de cada mes, 12:00 UTC = 09:00 em Brasilia (horario de gente acordada).
+OnCalendar=*-*-01 12:00:00
+# Se o servidor estava desligado no horario, avisa assim que ligar.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

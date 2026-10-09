@@ -67,6 +67,13 @@ const txt = atualizacoes.relatorio(r);
 conferir('relatório cita liberação gradual', /liberação gradual/.test(txt) && /openssh-server/.test(txt));
 conferir('relatório sem nada a instalar', /Nada para instalar/.test(atualizacoes.relatorio(atualizacoes.resumir([], [], false))));
 
+console.log('\n2b) Aviso mensal');
+conferir('com pacotes a instalar: avisa e aponta o comando', /Aviso mensal/.test(atualizacoes.mensagemAvisoMensal(r)) && /atualizar servidor/.test(atualizacoes.mensagemAvisoMensal(r)));
+conferir('só reinício pendente: avisa', atualizacoes.mensagemAvisoMensal(atualizacoes.resumir([], [], true)) !== null);
+conferir('sem pendência: NÃO manda nada', atualizacoes.mensagemAvisoMensal(atualizacoes.resumir([], [], false)) === null);
+conferir('só liberação gradual (nada instalável): NÃO manda', atualizacoes.mensagemAvisoMensal(atualizacoes.resumir(lista, [], false)) === null);
+conferir('erro ao consultar: NÃO manda', atualizacoes.mensagemAvisoMensal({ erro: 'x' }) === null);
+
 console.log('\n3) Fluxo no grupo admin');
 (async () => {
   const agendados = [];

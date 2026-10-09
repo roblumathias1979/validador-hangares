@@ -94,4 +94,15 @@ function relatorio(r) {
   return linhas.join('\n');
 }
 
-module.exports = { parseListaAtualizaveis, parseSimulacao, resumir, verificar, relatorio, SENSIVEIS };
+/**
+ * Texto do aviso mensal — ou null quando não há nada a dizer (sem atualização
+ * para instalar e sem reinício pendente): aviso que repete "tudo certo" todo
+ * mês vira ruído, e ruído ensina o grupo a ignorar o aviso que importa.
+ */
+function mensagemAvisoMensal(r) {
+  if (!r || r.erro) return null;
+  if (!r.instalaveis && !r.reinicioPendente) return null;
+  return `🗓️ *Aviso mensal do servidor*\n\n${relatorio(r)}\n\nPara instalar, mande *atualizar servidor* → *2*. Faça num horário calmo.`;
+}
+
+module.exports = { mensagemAvisoMensal, parseListaAtualizaveis, parseSimulacao, resumir, verificar, relatorio, SENSIVEIS };
