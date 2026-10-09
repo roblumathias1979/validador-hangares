@@ -71,7 +71,13 @@ try {
   console.log('\nDesde quando cada um está no pátio');
   conferir('mostra o tempo decorrido', /3h\)/.test(m), m);
   // Quem está há dias precisa da DATA: só a hora faria parecer que chegou hoje.
-  conferir('quem chegou hoje mostra só a hora', /\(desde \d{2}:\d{2}, 3h\)/.test(m), m);
+  // "3h atrás" só é "hoje" (em São Paulo) depois das 03:00 da manhã. Nas três
+  // primeiras horas do dia ele é de ontem, e mostrar a DATA é o certo — foi o
+  // que derrubou este teste de madrugada, sem nada de errado no código.
+  const SP = { timeZone: 'America/Sao_Paulo' };
+  const chegouHoje = new Date(Date.now() - 3 * 3600 * 1000).toLocaleDateString('pt-BR', SP) === new Date().toLocaleDateString('pt-BR', SP);
+  conferir(chegouHoje ? 'quem chegou hoje mostra só a hora' : 'quem chegou antes da meia-noite mostra a data',
+    chegouHoje ? /\(desde \d{2}:\d{2}, 3h\)/.test(m) : /\(desde \d{2}\/\d{2}\/\d{4} \d{2}:\d{2}, 3h\)/.test(m), m);
   conferir('quem está há dias mostra a data', /\(desde \d{2}\/\d{2}\/\d{4} \d{2}:\d{2}, 5d\)/.test(m), m);
 
   console.log('\nFoto velha: diz que está velha em vez de mostrar');
