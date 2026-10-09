@@ -1,0 +1,8 @@
+[Unit]
+Description=Reinicia o servidor (comando "reiniciar sistema" opcao 2)
+
+[Service]
+Type=oneshot
+# Espera o bot responder ao grupo antes de derrubar a maquina.
+ExecStart=/bin/sleep 8
+ExecStart=/usr/bin/systemctl reboot

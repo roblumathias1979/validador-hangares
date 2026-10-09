@@ -1,0 +1,13 @@
+[Unit]
+Description=Reinicia os servicos do Validador (comando "reiniciar sistema" opcao 1)
+
+[Service]
+Type=oneshot
+# Espera o bot responder ao grupo antes de derrubar o n8n.
+ExecStartPre=/bin/sleep 8
+# O "-" ignora falha: se um falhar, os outros ainda sao reiniciados.
+ExecStart=-/usr/bin/docker compose --project-directory /home/ubuntu/evolution restart
+ExecStart=-/usr/bin/systemctl restart painel-validador.service
+ExecStart=-/usr/bin/systemctl restart n8n.service
+# Avisa "voltei" no grupo que pediu (roda como ubuntu, nao como root).
+ExecStart=-/usr/sbin/runuser -u ubuntu -- /usr/bin/node /home/ubuntu/validador-hangares/scripts/avisar-religado.js

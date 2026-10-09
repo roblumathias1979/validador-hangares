@@ -9,6 +9,11 @@ n8n/data/
 logs/*.log
 .DS_Store
 *.pem
+# Copias e rascunhos do .env (senhas e chaves) — nunca versionar.
+.env.*
+!.env.example
+n8n/data-n8n2-backup/
+fechamento-caixa/painel-caixa.log
 # Exceção: raízes PÚBLICAS da Let's Encrypt, que o coletor precisa baixar do
 # GitHub para rodar na máquina do aeroporto. A regra acima existe para chaves
 # privadas; este arquivo não é segredo — é o que qualquer navegador já confia.

@@ -30,10 +30,10 @@ let falhas = 0;
 const conferir = (nome, ok, detalhe) => { if (ok) return console.log(`  ok   ${nome}`); falhas += 1; console.log(`  FALHA ${nome}${detalhe ? ` — ${detalhe}` : ''}`); };
 
 console.log('1) Parser');
-for (const t of ['consertar', 'conserta o validador', 'arruma isso', 'reiniciar o sistema', 'resolver o problema', 'tenta consertar o bot']) {
+for (const t of ['consertar', 'conserta o validador', 'arruma isso', 'resolver o problema', 'tenta consertar o bot']) {
   conferir(`"${t}"`, interpretarPedidoConserto(t) === true);
 }
-for (const t of ['recarregar sistema', 'status do sistema', 'por que não está funcionando?', 'entrada e saída do Solojet', 'bom dia pessoal']) {
+for (const t of ['reiniciar o sistema', 'recarregar sistema', 'status do sistema', 'por que não está funcionando?', 'entrada e saída do Solojet', 'bom dia pessoal']) {
   conferir(`"${t}" NÃO é conserto`, interpretarPedidoConserto(t) === false);
 }
 

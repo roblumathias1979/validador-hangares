@@ -32,7 +32,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env'), override: t
 const { carregarConfig, buscarHangarPorGrupo } = require('./lib/hangar');
 const { comTrava, comTravaAsync, lerJson, salvarAtomico } = require('./lib/trava-arquivo');
 const { destinosAdmin } = require('./lib/admins');
-const { interpretarMensagem, extrairPlaca, interpretarEscolhaPatio, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar } = require('./lib/whatsapp');
+const { interpretarMensagem, extrairPlaca, interpretarEscolhaPatio, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoReiniciar, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar } = require('./lib/whatsapp');
 // O cliente da Evolution vive em lib/evolution.js: o painel também precisa
 // mandar mensagem, e duas cópias do mesmo cliente divergiriam — inclusive no
 // `Connection: close`, que existe por um bug real de socket reaproveitado.
@@ -2126,6 +2126,79 @@ async function responderRecargaAnthropic(msg, aoReceber) {
   };
 }
 
+// O comando "reiniciar sistema": abre um menu — 1) só os serviços (n8n, painel,
+// Evolution; a máquina segue ligada) ou 2) o servidor inteiro. A opção 2 ainda
+// pede SIM, porque derruba tudo por alguns minutos. A pendência é por pessoa e
+// expira em 5 min, como as demais. O reinício em si é agendado e roda DEPOIS da
+// resposta (ver agendarReinicio); o aviso "voltei" sai de scripts/avisar-religado.js.
+const REINICIO_PEDIDO = path.join(__dirname, '..', 'data', 'reinicio-pedido.json');
+
+function responderReiniciar(msg, pend) {
+  const resposta = (status, texto) => ({
+    status, grupoId: msg.grupoId, mensagemWhatsapp: texto,
+    notificarAdmin: false, responder: true, etapa: 'reiniciar',
+  });
+  const t = normalizar(msg.texto || '');
+
+  if (!pend) {
+    pendencias.registrar(msg.grupoId, msg.remetenteId, { tipo: 'reiniciar_escolha' });
+    return resposta('reiniciar_menu',
+      '🔄 *Reiniciar sistema* — o que você quer reiniciar?\n\n'
+      + '*1* — Somente os *serviços* (n8n, painel e WhatsApp). A máquina continua ligada; leva cerca de 1 minuto.\n'
+      + '*2* — O *servidor* inteiro. Leva 2 a 3 minutos e aplica atualizações de sistema que estejam pendentes.\n\n'
+      + 'Responda *1* ou *2*. _Para desistir, responda CANCELAR._');
+  }
+
+  if (CANCELAR_BROADCAST.test(msg.texto || '')) {
+    pendencias.consumir(msg.grupoId, msg.remetenteId);
+    return resposta('reiniciar_cancelado', 'Ok, nada foi reiniciado.');
+  }
+
+  const executar = (tipo) => {
+    const autoConserto = require('./lib/auto-conserto');
+    try {
+      salvarAtomico(REINICIO_PEDIDO, { grupoId: msg.grupoId, tipo, quem: msg.remetente || null, em: Date.now() });
+    } catch (e) { /* o aviso "voltei" é conforto; o reinício não depende dele */ }
+    const r = autoConserto.agendarReinicio(tipo);
+    if (!r.ok) {
+      try { require('fs').unlinkSync(REINICIO_PEDIDO); } catch (e) { /* já não existe */ }
+      return {
+        ...resposta('reiniciar_erro', `⚠️ Não consegui reiniciar: ${r.detalhe}.\nProvável causa: o servidor ainda não liberou esse comando para o bot. O suporte técnico resolve (infra/README.md).`),
+        mensagem: `Reinício (${tipo}) falhou: ${r.detalhe}`, notificarAdmin: true,
+      };
+    }
+    return {
+      ...resposta(tipo === 'servidor' ? 'reiniciando_servidor' : 'reiniciando_servicos',
+        tipo === 'servidor'
+          ? '🔄 Reiniciando o *servidor* agora. O bot fica fora por 2 a 3 minutos e eu aviso aqui quando voltar.'
+          : '🔄 Reiniciando os *serviços* agora. O bot fica fora por cerca de 1 minuto e eu aviso aqui quando voltar.'),
+      mensagem: `Reinício (${tipo}) pedido por ${msg.remetente || msg.grupoId} via WhatsApp.`,
+    };
+  };
+
+  if (pend.tipo === 'reiniciar_escolha') {
+    if (/^\s*1\s*$/.test(t) || /^(so |somente |apenas )?servicos?$/.test(t)) {
+      pendencias.consumir(msg.grupoId, msg.remetenteId);
+      return executar('servicos');
+    }
+    if (/^\s*2\s*$/.test(t) || /^(reiniciar )?(o )?servidor$/.test(t)) {
+      pendencias.consumir(msg.grupoId, msg.remetenteId);
+      pendencias.registrar(msg.grupoId, msg.remetenteId, { tipo: 'reiniciar_confirma' });
+      return resposta('reiniciar_confirmar',
+        '⚠️ Vou *reiniciar o servidor inteiro*: o bot, o painel e o WhatsApp ficam fora por 2 a 3 minutos.\n\nConfirma? Responda *SIM* ou *NÃO*.');
+    }
+    return resposta('reiniciar_nao_entendido', 'Não entendi. Responda *1* (somente serviços) ou *2* (servidor). _CANCELAR para desistir._');
+  }
+
+  // reiniciar_confirma
+  if (msg.resposta !== 'sim' && msg.resposta !== 'nao') {
+    return resposta('reiniciar_confirma_nao_entendido', 'Responda *SIM* para reiniciar o servidor ou *NÃO* para cancelar.');
+  }
+  pendencias.consumir(msg.grupoId, msg.remetenteId);
+  if (msg.resposta === 'nao') return resposta('reiniciar_cancelado', 'Ok, nada foi reiniciado.');
+  return executar('servidor');
+}
+
 // O comando "consertar": diagnostica e AGE nos problemas que têm conserto
 // seguro e reversível (reiniciar serviço, liberar disco, ligar contingência).
 // O que depende de gente (crédito, celular, coletor do aeroporto) ele não
@@ -2779,6 +2852,10 @@ async function responderNoGrupoAdmin(msg, aoReceber) {
   if (pend && String(pend.tipo || '').startsWith('broadcast_')) {
     return await continuarBroadcast(msg, pend, config);
   }
+  if (pend && String(pend.tipo || '').startsWith('reiniciar_')
+      && !(msg.tipo === 'texto' && interpretarPedidoReiniciar(msg.texto))) {
+    return responderReiniciar(msg, pend);
+  }
   const cmdFat = responderComandoFaturamento(msg, config);
   if (cmdFat) return cmdFat;
   // Respostas dos fluxos de movimentação. Mas um PEDIDO NOVO ("entrada e saída…")
@@ -2823,6 +2900,13 @@ async function responderNoGrupoAdmin(msg, aoReceber) {
   // fotos, recarregar sistema" é um pedido de ação, não uma pergunta de status.
   if (msg.tipo === 'texto' && interpretarPedidoRecargaAnthropic(msg.texto)) {
     return await responderRecargaAnthropic(msg, aoReceber);
+  }
+
+  // Reiniciar: "reiniciar sistema" abre o menu (serviços × servidor). Antes do
+  // conserto, que só reinicia o que caiu.
+  if (msg.tipo === 'texto' && !hangar && interpretarPedidoReiniciar(msg.texto)) {
+    pendencias.consumir(msg.grupoId, msg.remetenteId);
+    return responderReiniciar(msg, null);
   }
 
   // Conserto: "consertar", "arruma o validador". Age nos problemas seguros.

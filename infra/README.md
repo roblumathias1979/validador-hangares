@@ -67,3 +67,36 @@ cd /home/ubuntu/evolution
 sudo docker compose up -d
 sudo docker compose ps
 ```
+
+---
+
+## Comando "reiniciar sistema" (WhatsApp da administração)
+
+O grupo de administração manda *reiniciar sistema* e o bot pergunta: *1* só os
+serviços (n8n, painel, Evolution) ou *2* o servidor inteiro (esta pede SIM).
+O bot não reinicia nada sozinho: ele só dispara uma unidade systemd, que espera
+8 s (para a resposta sair antes) e roda fora do processo do n8n.
+
+**Instalar no servidor (uma vez):**
+
+```bash
+cd ~/validador-hangares/infra
+sudo cp reiniciar-servicos.service reiniciar-servidor.service avisar-religado.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable avisar-religado.service
+
+# Libera SÓ estes dois comandos exatos para o usuário do bot:
+sudo visudo -f /etc/sudoers.d/validador-reiniciar
+```
+
+Conteúdo do `/etc/sudoers.d/validador-reiniciar` (uma linha só):
+
+```
+ubuntu ALL=(root) NOPASSWD: /usr/bin/systemctl start --no-block reiniciar-servicos.service, /usr/bin/systemctl start --no-block reiniciar-servidor.service
+```
+
+Antes de depender disto, confira o caminho do compose da Evolution em
+`reiniciar-servicos.service` (`/home/ubuntu/evolution`) e teste a opção 1 num
+horário calmo. O aviso "voltei" só sai quando o reinício foi pedido pelo
+comando (`data/reinicio-pedido.json`); reinício que ninguém pediu fica com o
+`monitor-saude`.

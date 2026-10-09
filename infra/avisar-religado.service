@@ -1,0 +1,15 @@
+[Unit]
+Description=Avisa no WhatsApp que o servidor voltou (so se o reinicio foi pedido pelo comando)
+After=network-online.target docker.service n8n.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/validador-hangares
+# Da tempo da Evolution e do n8n subirem; o script ainda espera o WhatsApp responder.
+ExecStartPre=/bin/sleep 45
+ExecStart=/usr/bin/node /home/ubuntu/validador-hangares/scripts/avisar-religado.js
+
+[Install]
+WantedBy=multi-user.target

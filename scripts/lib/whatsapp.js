@@ -219,11 +219,24 @@ function interpretarPedidoConserto(texto) {
   const t = normalizar(texto || '');
   if (!t || t.length > 80) return false;
   if (/\brecarreg\w+/.test(t)) return false; // isso é recarga de crédito, não conserto
-  const verbo = /\b(consert\w+|arrum\w+|reinici\w+)\b/;
+  const verbo = /\b(consert\w+|arrum\w+)\b/; // "reiniciar" tem comando próprio (interpretarPedidoReiniciar)
   const alvo = /\b(validador|sistema|bot|problema|isso|tudo|servidor|servico|servi[çc]os?)\b/;
   if (verbo.test(t) && (t.split(/\s+/).length <= 2 || alvo.test(t))) return true;
   if (/\bresolv\w+\b/.test(t) && alvo.test(t)) return true;
   return false;
+}
+
+/**
+ * Pedido da administração para REINICIAR: "reiniciar sistema", "reiniciar o
+ * servidor", "reboot". Abre um menu (só serviços × servidor inteiro) — é
+ * diferente do conserto, que só reinicia o que caiu. true/false.
+ */
+function interpretarPedidoReiniciar(texto) {
+  const t = normalizar(texto || '');
+  if (!t || t.length > 60) return false;
+  if (/\brecarreg\w+/.test(t)) return false; // recarga de crédito
+  if (!/\b(reinici\w+|reboot)\b/.test(t)) return false;
+  return t.split(/\s+/).length <= 2 || /\b(sistema|servidor|servicos?|validador|bot|tudo|maquina)\b/.test(t);
 }
 
 /**
@@ -491,4 +504,4 @@ function interpretarMensagem(body) {
   };
 }
 
-module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus, interpretarPedidoPatio, interpretarEscolhaPatio, interpretarConsultaValidacao, interpretarComandoIdentificacao, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar };
+module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus, interpretarPedidoPatio, interpretarEscolhaPatio, interpretarConsultaValidacao, interpretarComandoIdentificacao, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoReiniciar, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar };

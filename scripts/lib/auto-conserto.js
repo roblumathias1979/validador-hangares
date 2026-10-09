@@ -30,6 +30,21 @@ function reiniciarServico(nome) {
   return { ok: ativo, nome, detalhe: ativo ? 'reiniciado e no ar' : `reiniciei, mas está "${st.saida || st.erro}"` };
 }
 
+/**
+ * Agenda o reinício e DEVOLVE NA HORA — o aviso ao grupo precisa sair antes.
+ * Quem reinicia é uma unidade systemd própria (infra/reiniciar-*.service), que
+ * espera uns segundos e roda fora do cgroup do n8n: reiniciar o n8n a partir de
+ * um processo filho dele mataria o próprio script no meio. O sudoers libera só
+ * estes dois comandos exatos (ver infra/README.md).
+ * tipo: 'servicos' (n8n, painel, Evolution) | 'servidor' (a máquina inteira).
+ */
+function agendarReinicio(tipo) {
+  const unidade = tipo === 'servidor' ? 'reiniciar-servidor.service' : tipo === 'servicos' ? 'reiniciar-servicos.service' : null;
+  if (!unidade) return { ok: false, detalhe: `tipo de reinício desconhecido: ${tipo}` };
+  const r = rodar('sudo', ['-n', 'systemctl', 'start', '--no-block', unidade]);
+  return r.ok ? { ok: true, detalhe: `agendado (${unidade})` } : { ok: false, detalhe: `não consegui agendar (${r.erro})` };
+}
+
 /** Compacta os logs do journald, que são o que normalmente enche o disco. */
 function liberarDisco() {
   const r = rodar('sudo', ['journalctl', '--vacuum-size=200M']);
@@ -67,4 +82,4 @@ function acoesPara(problemas, { contingenciaLigada = false } = {}) {
   return { automaticas, manuais };
 }
 
-module.exports = { rodar, reiniciarServico, liberarDisco, logsRecentes, acoesPara };
+module.exports = { rodar, reiniciarServico, agendarReinicio, liberarDisco, logsRecentes, acoesPara };
