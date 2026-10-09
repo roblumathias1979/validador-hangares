@@ -35,7 +35,7 @@
     },
     {
       "parameters": {
-        "command": "=node \"/home/ubuntu/validador-hangares/scripts/processar-mensagem.js\" \"{{ $json.payloadB64 }}\" --enviar"
+        "command": "=node \"/home/ubuntu/validador-hangares/fechamento-caixa/scripts/despachar-webhook.js\" \"{{ $json.payloadB64 }}\" --enviar"
       },
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
