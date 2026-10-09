@@ -9,7 +9,9 @@ WorkingDirectory=/home/ubuntu/validador-hangares
 Environment=NODES_EXCLUDE=[]
 Environment=N8N_USER_FOLDER=/home/ubuntu/validador-hangares/n8n/data
 Environment=N8N_SECURE_COOKIE=false
-Environment=N8N_LOG_LEVEL=debug
+# warn: so avisos e erros. O debug (ate 09/10/2026) registrava uma consulta ao
+# banco por minuto e enchia ~450 MB de journal em poucas semanas.
+Environment=N8N_LOG_LEVEL=warn
 # Expurgo automatico do historico de execucoes (16/09/2026).
 # Motivo NAO e espaco: o banco tem ~6 MB com 57 execucoes. E privacidade —
 # cada execucao guarda o payload do WhatsApp, com nome e telefone de cliente,
