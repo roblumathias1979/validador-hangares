@@ -1,9 +1,9 @@
 [Unit]
-Description=Backup semanal cifrado do servidor
+Description=Backup mensal cifrado do servidor
 
 [Timer]
-# Todo domingo 06:00 UTC = 03:00 em Brasilia (sem movimento nos patios).
-OnCalendar=Sun *-*-* 06:00:00
+# Dia 1 de cada mes, 06:00 UTC = 03:00 em Brasilia (sem movimento nos patios).
+OnCalendar=*-*-01 06:00:00
 # Se o servidor estava desligado no horario, faz assim que ligar.
 Persistent=true
 

@@ -18,7 +18,7 @@
  *   node scripts/backup-externo.js                 faz o backup e envia ao grupo
  *   node scripts/backup-externo.js --sem-enviar    faz só a cópia local
  *
- * Roda toda semana por systemd timer (infra/backup-externo.timer). Sai com 0.
+ * Roda todo mês (dia 1) por systemd timer (infra/backup-externo.timer). Sai com 0.
  */
 
 const fs = require('fs');
@@ -28,7 +28,7 @@ const crypto = require('crypto');
 const { spawn, execFileSync } = require('child_process');
 
 const RAIZ = path.join(__dirname, '..');
-const MANTER = 8; // cópias guardadas no servidor
+const MANTER = 8; // cópias guardadas no servidor (8 meses)
 const LIMITE_ENVIO = 60 * 1024 * 1024; // acima disso o WhatsApp recusa: fica só no servidor
 
 const CIFRA = ['enc', '-aes-256-cbc', '-pbkdf2', '-iter', '200000', '-salt'];
@@ -137,7 +137,7 @@ async function main() {
     r = await gerarBackup({ destino, senhaArquivo, extras: extra ? [extra] : [] });
   } catch (e) {
     console.log(JSON.stringify({ status: 'erro', mensagem: e.message }));
-    await avisar(`⚠️ O backup semanal do servidor *falhou*: ${e.message}\nChame o suporte técnico.`).catch(() => {});
+    await avisar(`⚠️ O backup mensal do servidor *falhou*: ${e.message}\nChame o suporte técnico.`).catch(() => {});
     return;
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
@@ -152,7 +152,7 @@ async function main() {
     const { carregarConfig } = require('./lib/hangar');
     const { enviarDocumento } = require('./lib/evolution');
     const b64 = fs.readFileSync(r.arquivo).toString('base64');
-    const legenda = `💾 *Backup semanal do servidor* — ${mb(r.bytes)}\n\n`
+    const legenda = `💾 *Backup mensal do servidor* — ${mb(r.bytes)}\n\n`
       + 'Guarde este arquivo (ele vem CIFRADO). Para abrir é preciso a *senha do backup*, que está com o dono do sistema. '
       + 'Não apague as mensagens com backup: se o servidor for perdido, é daqui que ele é recriado.';
     for (const destinoZap of (carregarConfig().adminsWhatsapp || []).map((x) => String(x || '').trim()).filter(Boolean)) {
@@ -160,7 +160,7 @@ async function main() {
     }
     if (!enviadoA && !motivo) motivo = 'nenhum grupo de administração configurado';
   }
-  if (motivo && !enviadoA) await avisar(`⚠️ Backup semanal feito (${mb(r.bytes)}), mas *não foi enviado*: ${motivo}.\nA cópia está só no servidor.`).catch(() => {});
+  if (motivo && !enviadoA) await avisar(`⚠️ Backup mensal feito (${mb(r.bytes)}), mas *não foi enviado*: ${motivo}.\nA cópia está só no servidor.`).catch(() => {});
 
   console.log(JSON.stringify({ status: 'ok', arquivo: r.arquivo, tamanho: mb(r.bytes), itens: r.itens, enviadoA, motivo, removidos }));
 }

@@ -245,11 +245,11 @@ criar nem apagar), dada pela *role* da instância — sem chave guardada no serv
 ## Backup externo cifrado (fora da AWS)
 
 O snapshot do disco mora na MESMA conta da AWS: se a conta for suspensa (o plano
-gratuito acaba), ele vai junto. Por isso, toda semana (domingo, 03:00 em
+gratuito acaba), ele vai junto. Por isso, todo mês (dia 1, 03:00 em
 Brasília) o servidor empacota o que só existe nele — `.env`, `config/`, `data/`,
 o workflow do n8n e os arquivos pequenos da Evolution — **cifra** (AES-256) e
 manda ao grupo de administração do WhatsApp. Guarda também as 8 últimas cópias
-em `~/backups/`. O arquivo é cifrado porque o `.env` tem chaves e senhas e
+(8 meses) em `~/backups/`. O arquivo é cifrado porque o `.env` tem chaves e senhas e
 `data/` tem nome e telefone de cliente.
 
 **Ativar (uma vez), no servidor:**
