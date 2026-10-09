@@ -239,3 +239,50 @@ criar nem apagar), dada pela *role* da instância — sem chave guardada no serv
    ```
    Deve imprimir um número (quantos snapshots existem). Se der erro de permissão,
    a role ainda não pegou: espere 1 minuto e repita.
+
+---
+
+## Backup externo cifrado (fora da AWS)
+
+O snapshot do disco mora na MESMA conta da AWS: se a conta for suspensa (o plano
+gratuito acaba), ele vai junto. Por isso, toda semana (domingo, 03:00 em
+Brasília) o servidor empacota o que só existe nele — `.env`, `config/`, `data/`,
+o workflow do n8n e os arquivos pequenos da Evolution — **cifra** (AES-256) e
+manda ao grupo de administração do WhatsApp. Guarda também as 8 últimas cópias
+em `~/backups/`. O arquivo é cifrado porque o `.env` tem chaves e senhas e
+`data/` tem nome e telefone de cliente.
+
+**Ativar (uma vez), no servidor:**
+
+```bash
+cd ~/validador-hangares && git pull
+node scripts/backup-externo.js --criar-senha     # mostra a SENHA uma única vez — guarde num gerenciador de senhas
+node scripts/backup-externo.js                   # teste: faz o backup e envia ao grupo agora
+sudo cp infra/backup-externo.service infra/backup-externo.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now backup-externo.timer
+systemctl list-timers backup-externo.timer --no-pager
+```
+
+⚠️ **A senha é o que abre os backups.** Ela fica em `~/.backup-passphrase` (só o
+usuário `ubuntu` lê), mas se o servidor for perdido, esse arquivo vai junto: a
+única cópia útil é a que VOCÊ guardou ao rodar `--criar-senha`. Nunca mande a
+senha no mesmo grupo do arquivo. O comando não sobrescreve a senha existente
+(trocá-la deixaria os backups antigos ilegíveis).
+
+**Recriar o servidor a partir do backup:**
+
+1. Baixe o último `validador-AAAA-MM-DD.bak` do grupo (ou de `~/backups/`).
+2. Numa máquina com `openssl` e `tar`:
+   ```bash
+   mkdir restaurado && openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in validador-2026-10-09.bak | tar xzf - -C restaurado
+   ```
+   Ele pede a senha. Sai `.env`, `config/`, `data/`, `n8n-workflows.json` e `evolution/`.
+3. Num servidor novo: `git clone` do repositório; copie `.env`, `config/` e `data/`
+   para dentro dele; instale as unidades de `infra/`; importe o workflow
+   (`n8n import:workflow --input=n8n-workflows.json`); suba a Evolution com os
+   arquivos de `evolution/` e **pareie o WhatsApp de novo (QR)**, porque a sessão
+   do WhatsApp fica no banco da Evolution, que este backup não inclui.
+
+Acima de 60 MB o WhatsApp recusa o arquivo: o backup fica só no servidor e o
+bot avisa. Falha no backup também avisa o grupo.

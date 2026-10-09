@@ -1,0 +1,10 @@
+[Unit]
+Description=Backup semanal cifrado do servidor (enviado ao grupo de administracao)
+After=network-online.target docker.service n8n.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/validador-hangares
+ExecStart=/usr/bin/node /home/ubuntu/validador-hangares/scripts/backup-externo.js
