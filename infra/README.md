@@ -100,3 +100,52 @@ Antes de depender disto, confira o caminho do compose da Evolution em
 horário calmo. O aviso "voltei" só sai quando o reinício foi pedido pelo
 comando (`data/reinicio-pedido.json`); reinício que ninguém pediu fica com o
 `monitor-saude`.
+
+---
+
+## Comando "atualizar servidor" (WhatsApp da administração)
+
+O grupo de administração manda *atualizar servidor* e o bot pergunta: *1*
+**procurar** (só mostra o que há para atualizar — pacotes, quantos são de
+segurança, quais mexem em Docker/Node/Caddy, quais o Ubuntu está liberando aos
+poucos) ou *2* **instalar** (pede SIM e roda o `apt upgrade`). Depois da
+instalação o bot avisa o resultado e sugere *reiniciar sistema* quando vale.
+
+A instalação roda na unidade `atualizar-servidor.service`, fora do processo do
+n8n (o Docker e o n8n reiniciam no meio do upgrade). É não interativa: mantém
+sempre a configuração atual dos arquivos e não força pacote em liberação gradual.
+
+**Instalar no servidor (uma vez):**
+
+```bash
+cd ~/validador-hangares/infra
+sudo cp atualizar-servidor.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo visudo -f /etc/sudoers.d/validador-reiniciar
+```
+
+No arquivo, a linha **inteira** passa a ter os TRÊS comandos (uma linha só):
+
+```
+ubuntu ALL=(root) NOPASSWD: /usr/bin/systemctl start --no-block reiniciar-servicos.service, /usr/bin/systemctl start --no-block reiniciar-servidor.service, /usr/bin/systemctl start --no-block atualizar-servidor.service
+```
+
+Em *procurar* o bot só lê (`apt list`, `apt-get -s`): não precisa de sudo.
+
+## Backup: snapshot automático do disco (AWS Data Lifecycle Manager)
+
+Antes de atualizar, o que protege de verdade é ter um snapshot recente. Isto é
+feito no console da AWS, não no bot (que não tem, nem deve ter, permissão de
+AWS). Uma vez configurado, tira um snapshot por dia sozinho:
+
+1. EC2 → **Volumes** → marque o volume → **Tags** → **Manage tags** → adicione
+   `Backup` = `diario`.
+2. EC2 → **Lifecycle Manager** → **Create lifecycle policy** → *EBS snapshot policy*.
+3. *Target resources*: **Volumes**, tag `Backup` = `diario`. Role: *Default role*.
+4. Agenda: a cada **24 horas**, em horário calmo (ex.: 06:00 UTC = 03:00 em
+   Brasília). Retenção: **7** snapshots.
+5. *Create policy*. O primeiro snapshot sai no próximo horário da agenda.
+
+Custo: centavos por mês (o snapshot guarda só o que mudou).
+Restaurar: EC2 → Snapshots → o snapshot → *Create volume*, e trocar o volume da
+instância (instância parada). Guarde esse passo a passo antes de precisar dele.

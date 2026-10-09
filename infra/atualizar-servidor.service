@@ -1,0 +1,16 @@
+[Unit]
+Description=Instala as atualizacoes do Ubuntu (comando "atualizar servidor" opcao 2)
+
+[Service]
+Type=oneshot
+TimeoutStartSec=1800
+# Sem perguntas: mantem sempre a configuracao atual dos arquivos e deixa o
+# needrestart reiniciar os servicos sozinho (n8n, painel...).
+Environment=DEBIAN_FRONTEND=noninteractive
+Environment=NEEDRESTART_MODE=a
+# Espera o bot responder ao grupo antes de comecar.
+ExecStartPre=/bin/sleep 8
+# O "-" ignora falha: o aviso final roda de qualquer jeito e conta o que sobrou.
+ExecStart=-/usr/bin/apt-get -o DPkg::Lock::Timeout=300 update
+ExecStart=-/usr/bin/apt-get -y -o DPkg::Lock::Timeout=300 -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold upgrade
+ExecStart=-/usr/sbin/runuser -u ubuntu -- /usr/bin/node /home/ubuntu/validador-hangares/scripts/avisar-atualizado.js

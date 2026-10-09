@@ -32,7 +32,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env'), override: t
 const { carregarConfig, buscarHangarPorGrupo } = require('./lib/hangar');
 const { comTrava, comTravaAsync, lerJson, salvarAtomico } = require('./lib/trava-arquivo');
 const { destinosAdmin } = require('./lib/admins');
-const { interpretarMensagem, extrairPlaca, interpretarEscolhaPatio, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoReiniciar, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar } = require('./lib/whatsapp');
+const { interpretarMensagem, extrairPlaca, interpretarEscolhaPatio, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoReiniciar, interpretarPedidoAtualizar, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar } = require('./lib/whatsapp');
 // O cliente da Evolution vive em lib/evolution.js: o painel também precisa
 // mandar mensagem, e duas cópias do mesmo cliente divergiriam — inclusive no
 // `Connection: close`, que existe por um bug real de socket reaproveitado.
@@ -2199,6 +2199,79 @@ function responderReiniciar(msg, pend) {
   return executar('servidor');
 }
 
+// O comando "atualizar servidor": 1) PROCURAR (só lê e mostra o que há) ou
+// 2) INSTALAR (apt upgrade, com SIM). A instalação roda numa unidade systemd
+// própria — o Docker e o n8n reiniciam no meio e matariam um script filho — e
+// o resultado volta ao grupo por scripts/avisar-atualizado.js. Pacote em
+// liberação gradual do Ubuntu fica de fora, de propósito.
+const ATUALIZACAO_PEDIDO = path.join(__dirname, '..', 'data', 'atualizacao-pedido.json');
+
+function responderAtualizar(msg, pend) {
+  const resposta = (status, texto) => ({
+    status, grupoId: msg.grupoId, mensagemWhatsapp: texto,
+    notificarAdmin: false, responder: true, etapa: 'atualizar',
+  });
+  const t = normalizar(msg.texto || '');
+  const autoConserto = require('./lib/auto-conserto');
+  const atualizacoes = require('./lib/atualizacoes');
+
+  if (!pend) {
+    pendencias.registrar(msg.grupoId, msg.remetenteId, { tipo: 'atualizar_escolha' });
+    return resposta('atualizar_menu',
+      '🛠️ *Atualizar servidor* — o que você quer fazer?\n\n'
+      + '*1* — *Procurar*: só mostra o que há para atualizar. Não altera nada.\n'
+      + '*2* — *Instalar* as atualizações agora. O bot pode ficar fora por 1 a 3 minutos.\n\n'
+      + 'Responda *1* ou *2*. _Para desistir, responda CANCELAR._');
+  }
+
+  if (CANCELAR_BROADCAST.test(msg.texto || '')) {
+    pendencias.consumir(msg.grupoId, msg.remetenteId);
+    return resposta('atualizar_cancelado', 'Ok, nada foi atualizado.');
+  }
+
+  const perguntarInstalar = (r, comRelatorio) => {
+    if (!r.instalaveis) return resposta('atualizar_nada', atualizacoes.relatorio(r));
+    pendencias.registrar(msg.grupoId, msg.remetenteId, { tipo: 'atualizar_confirma', antes: r.instalaveis, sensiveis: r.sensiveis.map((x) => x.rotulo) });
+    return resposta('atualizar_confirmar',
+      (comRelatorio ? `${atualizacoes.relatorio(r)}\n\n` : '')
+      + `Vou *instalar ${r.instalaveis} pacote(s)* agora. Durante a instalação o bot pode ficar mudo por 1 a 3 minutos, e eu aviso aqui quando terminar.\n\nConfirma? Responda *SIM* ou *NÃO*.`);
+  };
+
+  if (pend.tipo === 'atualizar_escolha') {
+    const procurar = /^\s*1\s*$/.test(t) || /^(so )?(procurar|ver|verificar|listar)$/.test(t);
+    const instalar = /^\s*2\s*$/.test(t) || /^(so )?instalar$/.test(t);
+    if (!procurar && !instalar) {
+      return resposta('atualizar_nao_entendido', 'Não entendi. Responda *1* (procurar) ou *2* (instalar). _CANCELAR para desistir._');
+    }
+    pendencias.consumir(msg.grupoId, msg.remetenteId);
+    const r = atualizacoes.verificar(autoConserto.rodar);
+    if (r.erro) return resposta('atualizar_erro', atualizacoes.relatorio(r));
+    return procurar ? perguntarInstalar(r, true) : perguntarInstalar(r, false);
+  }
+
+  // atualizar_confirma
+  if (msg.resposta !== 'sim' && msg.resposta !== 'nao') {
+    return resposta('atualizar_confirma_nao_entendido', 'Responda *SIM* para instalar as atualizações ou *NÃO* para cancelar.');
+  }
+  pendencias.consumir(msg.grupoId, msg.remetenteId);
+  if (msg.resposta === 'nao') return resposta('atualizar_cancelado', 'Ok, nada foi atualizado.');
+  try {
+    salvarAtomico(ATUALIZACAO_PEDIDO, { grupoId: msg.grupoId, quem: msg.remetente || null, em: Date.now(), antes: pend.antes || 0, sensiveis: pend.sensiveis || [] });
+  } catch (e) { /* o aviso final é conforto; a instalação não depende dele */ }
+  const ag = autoConserto.agendarReinicio('atualizar');
+  if (!ag.ok) {
+    try { require('fs').unlinkSync(ATUALIZACAO_PEDIDO); } catch (e) { /* já não existe */ }
+    return {
+      ...resposta('atualizar_erro', `⚠️ Não consegui iniciar a atualização: ${ag.detalhe}.\nProvável causa: o servidor ainda não liberou esse comando para o bot (infra/README.md).`),
+      mensagem: `Atualização do servidor falhou ao agendar: ${ag.detalhe}`, notificarAdmin: true,
+    };
+  }
+  return {
+    ...resposta('atualizando_servidor', '🛠️ Instalando as atualizações agora. O bot pode ficar fora por 1 a 3 minutos — aviso aqui quando terminar.'),
+    mensagem: `Atualização do servidor pedida por ${msg.remetente || msg.grupoId} via WhatsApp.`,
+  };
+}
+
 // O comando "consertar": diagnostica e AGE nos problemas que têm conserto
 // seguro e reversível (reiniciar serviço, liberar disco, ligar contingência).
 // O que depende de gente (crédito, celular, coletor do aeroporto) ele não
@@ -2856,6 +2929,10 @@ async function responderNoGrupoAdmin(msg, aoReceber) {
       && !(msg.tipo === 'texto' && interpretarPedidoReiniciar(msg.texto))) {
     return responderReiniciar(msg, pend);
   }
+  if (pend && String(pend.tipo || '').startsWith('atualizar_')
+      && !(msg.tipo === 'texto' && interpretarPedidoAtualizar(msg.texto))) {
+    return responderAtualizar(msg, pend);
+  }
   const cmdFat = responderComandoFaturamento(msg, config);
   if (cmdFat) return cmdFat;
   // Respostas dos fluxos de movimentação. Mas um PEDIDO NOVO ("entrada e saída…")
@@ -2907,6 +2984,12 @@ async function responderNoGrupoAdmin(msg, aoReceber) {
   if (msg.tipo === 'texto' && !hangar && interpretarPedidoReiniciar(msg.texto)) {
     pendencias.consumir(msg.grupoId, msg.remetenteId);
     return responderReiniciar(msg, null);
+  }
+
+  // Atualizar servidor: menu procurar × instalar (pacotes do Ubuntu).
+  if (msg.tipo === 'texto' && !hangar && interpretarPedidoAtualizar(msg.texto)) {
+    pendencias.consumir(msg.grupoId, msg.remetenteId);
+    return responderAtualizar(msg, null);
   }
 
   // Conserto: "consertar", "arruma o validador". Age nos problemas seguros.

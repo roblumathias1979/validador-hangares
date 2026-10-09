@@ -36,10 +36,11 @@ function reiniciarServico(nome) {
  * espera uns segundos e roda fora do cgroup do n8n: reiniciar o n8n a partir de
  * um processo filho dele mataria o próprio script no meio. O sudoers libera só
  * estes dois comandos exatos (ver infra/README.md).
- * tipo: 'servicos' (n8n, painel, Evolution) | 'servidor' (a máquina inteira).
+ * tipo: 'servicos' (n8n, painel, Evolution) | 'servidor' (a máquina inteira) |
+ * 'atualizar' (apt upgrade — infra/atualizar-servidor.service).
  */
 function agendarReinicio(tipo) {
-  const unidade = tipo === 'servidor' ? 'reiniciar-servidor.service' : tipo === 'servicos' ? 'reiniciar-servicos.service' : null;
+  const unidade = { servidor: 'reiniciar-servidor.service', servicos: 'reiniciar-servicos.service', atualizar: 'atualizar-servidor.service' }[tipo] || null;
   if (!unidade) return { ok: false, detalhe: `tipo de reinício desconhecido: ${tipo}` };
   const r = rodar('sudo', ['-n', 'systemctl', 'start', '--no-block', unidade]);
   return r.ok ? { ok: true, detalhe: `agendado (${unidade})` } : { ok: false, detalhe: `não consegui agendar (${r.erro})` };

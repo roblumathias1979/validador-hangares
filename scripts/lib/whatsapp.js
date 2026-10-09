@@ -240,6 +240,21 @@ function interpretarPedidoReiniciar(texto) {
 }
 
 /**
+ * Pedido da administração para ATUALIZAR O SERVIDOR (pacotes do Ubuntu):
+ * "atualizar servidor", "atualiza o sistema", "tem atualização pendente?".
+ * Exige o verbo E o alvo — "atualizar" sozinho é ambíguo demais. true/false.
+ */
+function interpretarPedidoAtualizar(texto) {
+  const t = normalizar(texto || '');
+  if (!t || t.length > 70) return false;
+  if (/\brecarreg\w+/.test(t)) return false; // recarga de crédito
+  const alvo = /\b(servidor|sistema|pacotes?|ubuntu|linux|apt)\b/;
+  if (/\batualiz\w+/.test(t) && alvo.test(t)) return true;
+  if (/\b(tem|ha|existe)\b[^.?!]{0,20}\batualizac\w+/.test(t) && alvo.test(t)) return true;
+  return false;
+}
+
+/**
  * Pedido da administração para o bot JUNTAR O DIAGNÓSTICO para investigação de
  * código: "investigar", "investiga o problema", "ver os logs", "o que deu
  * errado". Diferente do conserto (que age) e do diagnóstico-status (que resume):
@@ -504,4 +519,4 @@ function interpretarMensagem(body) {
   };
 }
 
-module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus, interpretarPedidoPatio, interpretarEscolhaPatio, interpretarConsultaValidacao, interpretarComandoIdentificacao, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoReiniciar, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar };
+module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus, interpretarPedidoPatio, interpretarEscolhaPatio, interpretarConsultaValidacao, interpretarComandoIdentificacao, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoReiniciar, interpretarPedidoAtualizar, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar };
