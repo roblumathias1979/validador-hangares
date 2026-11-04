@@ -355,6 +355,22 @@ function interpretarComandoCriarPatio(texto) {
 }
 
 /**
+ * Pergunta da administração sobre quantas validações/liberações ainda restam
+ * ("quantas validações disponíveis no VOA", "liberações restantes do voasp",
+ * "cota do voa"). Devolve true/false; o pátio vem de outro lugar.
+ *
+ * "Vagas" fica de fora de propósito: "vagas do pátio" é a consulta de pátio
+ * que já existe (lê o ValidPark). Aqui o assunto é a COTA contratada.
+ */
+function interpretarPedidoCotaDisponivel(texto) {
+  const t = normalizar(texto || '');
+  if (!t || t.length > 100) return false;
+  if (/\b(cota|cotas)\b/.test(t)) return true;
+  return /\b(liberacao|liberacoes|validacao|validacoes)\b/.test(t)
+    && /\b(disponivel|disponiveis|restam|restante|restantes|resta|sobra|sobram|saldo|quantas|quantos|quanto|quantidade|qtd|qtde)\b/.test(t);
+}
+
+/**
  * Devolve `{ termo }` quando a mensagem pergunta se algo foi validado, e null
  * quando não é essa a pergunta. `termo` vazio significa que a pessoa perguntou
  * sem dizer de quem — quem chama decide o que fazer com isso.
@@ -556,4 +572,4 @@ function interpretarMensagem(body) {
   };
 }
 
-module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus, interpretarPedidoPatio, interpretarEscolhaPatio, interpretarConsultaValidacao, interpretarComandoIdentificacao, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoCriarPatio, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoReiniciar, interpretarPedidoAtualizar, interpretarCreditoAws, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar };
+module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus, interpretarPedidoPatio, interpretarEscolhaPatio, interpretarConsultaValidacao, interpretarComandoIdentificacao, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoCriarPatio, interpretarPedidoCotaDisponivel, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoReiniciar, interpretarPedidoAtualizar, interpretarCreditoAws, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar };

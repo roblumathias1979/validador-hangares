@@ -32,7 +32,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env'), override: t
 const { carregarConfig, buscarHangarPorGrupo } = require('./lib/hangar');
 const { comTrava, comTravaAsync, lerJson, salvarAtomico } = require('./lib/trava-arquivo');
 const { destinosAdmin } = require('./lib/admins');
-const { interpretarMensagem, extrairPlaca, interpretarEscolhaPatio, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoCriarPatio, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoReiniciar, interpretarPedidoAtualizar, interpretarCreditoAws, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar } = require('./lib/whatsapp');
+const { interpretarMensagem, extrairPlaca, interpretarEscolhaPatio, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoCriarPatio, interpretarPedidoCotaDisponivel, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoReiniciar, interpretarPedidoAtualizar, interpretarCreditoAws, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar } = require('./lib/whatsapp');
 // O cliente da Evolution vive em lib/evolution.js: o painel também precisa
 // mandar mensagem, e duas cópias do mesmo cliente divergiriam — inclusive no
 // `Connection: close`, que existe por um bug real de socket reaproveitado.
@@ -3071,6 +3071,13 @@ async function responderNoGrupoAdmin(msg, aoReceber) {
     return await investigarProblema(msg, aoReceber);
   }
 
+  // Quantas validações ainda restam num pátio: cota do bot + vagas do aeroporto.
+  // Lê só arquivos locais (histórico e foto do TechParking): responde na hora,
+  // sem abrir o ValidPark. Exige o pátio no texto.
+  if (msg.tipo === 'texto' && interpretarPedidoCotaDisponivel(msg.texto)) {
+    return responderCotaDisponivel(msg, hangar, config);
+  }
+
   // Diagnóstico: "por que não está funcionando?", "status do sistema". Antes do
   // pátio, mas só quando NENHUM hangar foi nomeado (senão é consulta de pátio).
   if (msg.tipo === 'texto' && !hangar && interpretarPedidoDiagnostico(msg.texto)) {
@@ -3222,6 +3229,60 @@ function responderComandoFaturamento(msg, config) {
       `${pend.ligar ? '💰' : '⛔'} Faturamento *${pend.ligar ? 'ligado' : 'desligado'}* em:\n\n${mudados.map((n) => `• ${n}`).join('\n')}`),
     mensagem: `Faturamento ${pend.ligar ? 'LIGADO' : 'desligado'} em ${mudados.join(', ')} por ${quem} via WhatsApp.`,
   };
+}
+
+// "Quantas validações disponíveis no VOA?" — as duas travas que valem ao mesmo
+// tempo: a cota contratada do bot (conta o histórico do mês) e as vagas do
+// pátio no aeroporto (foto do TechParking). A que for menor é o que dá para
+// validar agora.
+function responderCotaDisponivel(msg, hangar, config) {
+
+  const resposta = (status, texto) => ({
+    status, grupoId: msg.grupoId, mensagemWhatsapp: texto,
+    notificarAdmin: false, responder: true, etapa: 'admin_cota',
+  });
+  // "voa" é como chamam o VOASP: aceita a palavra que é começo do nome de UM só
+  // pátio (3+ letras). Mais de um candidato = não adivinha, pergunta.
+  if (!hangar) {
+    const palavras = normalizar(msg.texto || '').split(/\s+/).filter((w) => w.length >= 3);
+    const candidatos = config.hangares.filter((h) => (h.grupoWhatsappId || '').trim()
+      && palavras.some((w) => [h.hangar, h.id].filter(Boolean).some((n) => normalizar(n).startsWith(w))));
+    if (candidatos.length === 1) hangar = candidatos[0];
+  }
+  if (!hangar) {
+    const nomes = config.hangares.filter((h) => (h.grupoWhatsappId || '').trim()).map((h) => h.hangar || h.id);
+    return resposta('admin_cota_sem_hangar',
+      `De qual pátio? Diga o nome junto — ex.: *validações disponíveis do VOASP*.\n\nPátios: ${nomes.join(', ')}.`);
+  }
+  const cota = cotaMensal.situacao(hangar);
+  const linhas = [`📊 *${hangar.hangar || hangar.id}* — validações disponíveis (${cota.mes})`, ''];
+  let teto = null;
+
+  if (cota.temCota) {
+    linhas.push(`• Cota do mês: *${cota.restantes} de ${cota.limite}* disponíveis (${cota.usadas} usadas)${cota.esgotada ? ' — ⛔ esgotada' : ''}`);
+    teto = cota.restantes;
+  } else {
+    linhas.push('• Cota do mês: sem limite contratado');
+  }
+
+  let patio = null;
+  if (hangar.bolsaoTechparking) {
+    try { patio = snapshotTechparking.patioDoBolsao(hangar.bolsaoTechparking); } catch (e) { /* sem foto */ }
+  }
+  if (patio && patio.existe && patio.vagas != null && patio.ocupadas != null) {
+    const livres = Math.max(0, patio.vagas - patio.ocupadas);
+    const minutos = patio.idadeMs != null ? Math.round(patio.idadeMs / 60000) : null;
+    linhas.push(`• Pátio no aeroporto (${patio.label}): *${livres} vagas livres* (${patio.ocupadas} de ${patio.vagas} ocupadas)`
+      + (patio.fresca ? '' : ` — ⚠️ foto de ${minutos != null ? `${minutos} min` : 'tempo desconhecido'} atrás, pode estar desatualizada`));
+    teto = teto === null ? livres : Math.min(teto, livres);
+  } else {
+    linhas.push(hangar.bolsaoTechparking
+      ? `• Pátio no aeroporto (${hangar.bolsaoTechparking}): não consegui ler a lotação agora`
+      : '• Pátio no aeroporto: este pátio não está vinculado ao TechParking');
+  }
+
+  if (teto !== null) linhas.push('', `👉 Dá para validar *${teto}* agora (vale o menor dos dois números).`);
+  return resposta('admin_cota_disponivel', linhas.join('\n'));
 }
 
 // Criar pátio pelo WhatsApp da administração (grupo "Adm Bot" ou privado de
