@@ -32,7 +32,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env'), override: t
 const { carregarConfig, buscarHangarPorGrupo } = require('./lib/hangar');
 const { comTrava, comTravaAsync, lerJson, salvarAtomico } = require('./lib/trava-arquivo');
 const { destinosAdmin } = require('./lib/admins');
-const { interpretarMensagem, extrairPlaca, interpretarEscolhaPatio, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoReiniciar, interpretarPedidoAtualizar, interpretarCreditoAws, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar } = require('./lib/whatsapp');
+const { interpretarMensagem, extrairPlaca, interpretarEscolhaPatio, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoCriarPatio, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoReiniciar, interpretarPedidoAtualizar, interpretarCreditoAws, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar } = require('./lib/whatsapp');
 // O cliente da Evolution vive em lib/evolution.js: o painel também precisa
 // mandar mensagem, e duas cópias do mesmo cliente divergiriam — inclusive no
 // `Connection: close`, que existe por um bug real de socket reaproveitado.
@@ -51,6 +51,7 @@ const filaFaturamentos = require('./lib/faturamentos-pendentes');
 const { calcularValorPermanencia, formatarReais } = require('./lib/precos');
 const asaas = require('./lib/asaas');
 const { salvarEComitar } = require('./lib/salvar-config');
+const criarPatioLib = require('./lib/criar-patio');
 const bloqueados = require('./lib/tickets-bloqueados');
 const snapshotTechparking = require('./lib/snapshot-techparking');
 const { dentroDoPrazo } = require('./validate-ticket');
@@ -2991,6 +2992,8 @@ async function responderNoGrupoAdmin(msg, aoReceber) {
       && !(msg.tipo === 'texto' && interpretarPedidoAtualizar(msg.texto))) {
     return responderAtualizar(msg, pend);
   }
+  const cmdPatio = responderComandoCriarPatio(msg, config);
+  if (cmdPatio) return cmdPatio;
   const cmdFat = responderComandoFaturamento(msg, config);
   if (cmdFat) return cmdFat;
   // Respostas dos fluxos de movimentação. Mas um PEDIDO NOVO ("entrada e saída…")
@@ -3221,6 +3224,198 @@ function responderComandoFaturamento(msg, config) {
   };
 }
 
+// Criar pátio pelo WhatsApp da administração (grupo "Adm Bot" ou privado de
+// admin). Mesmo cadastro do painel, em conversa: nome, identificador, pátio no
+// TechParking, login do ValidPark, cota mensal e grupo — e só o SIM grava.
+//
+// Pedido do usuário em 04/11/2026: perguntar se o pátio JÁ existe no
+// TechParking e se o usuário e a senha JÁ foram criados, em vez de supor.
+// Quem responde NÃO cria o pátio mesmo assim; ele nasce marcado com o que falta.
+//
+// A senha é digitada no chat porque o usuário escolheu assim. Ela fica só na
+// pendência (5 min, arquivo do servidor) até o SIM, nunca é repetida pelo bot,
+// e vai direto para o .env — que o config nunca recebe. O .env NUNCA é
+// sobrescrito: se a variável já existe, o pátio não é criado.
+//
+// Devolve a resposta, ou null quando a mensagem não é deste assunto.
+function responderComandoCriarPatio(msg, config) {
+  if (msg.tipo === 'imagem') return null;
+  const pend = pendencias.buscar(msg.grupoId, msg.remetenteId);
+  const emAndamento = pend && pend.tipo === 'criarpatio';
+  const comando = interpretarComandoCriarPatio(msg.texto);
+  if (!emAndamento && !comando) return null;
+
+  const resposta = (status, texto) => ({
+    status, grupoId: msg.grupoId, mensagemWhatsapp: texto,
+    notificarAdmin: false, responder: true, etapa: 'criar_patio',
+  });
+  const ir = (passo, d, texto, status = 'criar_patio_pergunta') => {
+    pendencias.registrar(msg.grupoId, msg.remetenteId, { tipo: 'criarpatio', passo, d });
+    return resposta(status, texto);
+  };
+  const texto = String(msg.texto || '').trim();
+  const t = normalizar(texto);
+
+  // Comando novo sempre recomeça, mesmo no meio de outro.
+  if (comando) {
+    if (emAndamento) pendencias.consumir(msg.grupoId, msg.remetenteId);
+    return ir('nome', {}, '🏗️ *Criar pátio*\n\nQual o *nome* do pátio? (ex.: _Hangar Aristek_)\n\n_Para desistir, responda CANCELAR._');
+  }
+  if (CANCELAR_BROADCAST.test(texto)) {
+    pendencias.consumir(msg.grupoId, msg.remetenteId);
+    return resposta('criar_patio_cancelado', 'Ok, nenhum pátio foi criado.');
+  }
+
+  const d = { ...(pend.d || {}) };
+  const sim = msg.resposta === 'sim';
+  const nao = msg.resposta === 'nao';
+  const repete = (aviso, passo) => ir(passo || pend.passo, d, aviso, 'criar_patio_nao_entendido');
+
+  if (pend.passo === 'nome') {
+    if (texto.length < 2 || texto.length > 60) return repete('Me diga o *nome* do pátio (até 60 letras). _CANCELAR para desistir._');
+    d.nome = texto;
+    d.idSugerido = criarPatioLib.slugDe(texto);
+    return ir('id', d, `Nome: *${d.nome}*.\n\nO *identificador* (letras minúsculas, números e hífen) é usado nos arquivos e variáveis do sistema.\n`
+      + (d.idSugerido ? `Responda *OK* para usar *${d.idSugerido}*, ou digite outro.` : 'Digite um (ex.: _hangar-aristek_).'));
+  }
+
+  if (pend.passo === 'id') {
+    let id = null;
+    if (d.idSugerido && (sim || /^(ok|isso|esse|pode)$/.test(t))) id = d.idSugerido;
+    else id = texto.toLowerCase();
+    if (!criarPatioLib.idValido(id)) {
+      return repete('Identificador inválido: começa com letra, de 2 a 31 caracteres, só letras minúsculas, números e hífen (ex.: _hangar-aristek_).');
+    }
+    const atual = carregarConfig();
+    if (atual.hangares.some((h) => h.id === id)) return repete(`Já existe um pátio com o identificador *${id}*. Digite outro.`);
+    d.id = id;
+    return ir('tp_existe', d, 'Esse pátio *já está criado no TechParking*? Responda *SIM* ou *NÃO*.');
+  }
+
+  if (pend.passo === 'tp_existe') {
+    if (!sim && !nao) return repete('Responda *SIM* ou *NÃO*: o pátio já está criado no TechParking?');
+    if (nao) {
+      d.bolsao = null;
+      return ir('login_existe', d, 'Ok, o pátio fica *sem vínculo* com o TechParking (as vagas e a contingência só funcionam depois de vincular).\n\n'
+        + 'O *usuário e a senha do ValidPark* deste pátio já foram criados? Responda *SIM* ou *NÃO*.');
+    }
+    return ir('tp_nome', d, 'Qual o *nome do pátio no TechParking*? (exatamente como aparece lá, ex.: _PATIO VOA BOT_)');
+  }
+
+  if (pend.passo === 'tp_nome') {
+    const semVerificar = /^(mesmo assim|assim mesmo|seguir|continuar)$/.test(t);
+    if (semVerificar && d.tpTentativa) {
+      d.bolsao = d.tpTentativa;
+      d.tpAviso = 'não conferido na foto do TechParking';
+    } else {
+      const r = criarPatioLib.buscarPatioTechparking(texto);
+      if (r.achou) {
+        d.bolsao = r.label;
+        d.tpAviso = `${r.vagas != null ? `${r.vagas} vagas, ` : ''}id ${r.id}`;
+      } else if (!r.foto) {
+        d.bolsao = texto;
+        d.tpAviso = 'sem foto do TechParking para conferir';
+      } else {
+        d.tpTentativa = texto;
+        return ir('tp_nome', d, `Não achei *${texto}* entre os pátios do TechParking.`
+          + (r.sugestoes.length ? `\n\nParecidos:\n${r.sugestoes.map((x) => `• ${x}`).join('\n')}\n` : '\n')
+          + '\nDigite o nome certo, ou responda *MESMO ASSIM* para gravar como você escreveu.', 'criar_patio_nao_entendido');
+      }
+    }
+    return ir('login_existe', d, `TechParking: *${d.bolsao}* (${d.tpAviso}).\n\n`
+      + 'O *usuário e a senha do ValidPark* deste pátio já foram criados? Responda *SIM* ou *NÃO*.');
+  }
+
+  if (pend.passo === 'login_existe') {
+    if (!sim && !nao) return repete('Responda *SIM* ou *NÃO*: o usuário e a senha do ValidPark já foram criados?');
+    if (nao) {
+      d.usuario = null; d.senha = null;
+      return ir('cota', d, 'Ok, o pátio nasce *sem credencial* — ele só passa a validar quando o login for cadastrado (pelo painel).\n\n'
+        + 'Qual a *cota mensal de validações*? Responda um número (ex.: _20_) ou *SEM LIMITE*.');
+    }
+    return ir('usuario', d, 'Qual o *usuário* do ValidPark?');
+  }
+
+  if (pend.passo === 'usuario') {
+    if (!texto || /\s/.test(texto) || texto.length > 80) return repete('O usuário não pode ter espaços. Digite só o usuário.');
+    d.usuario = texto;
+    return ir('senha', d, 'Agora a *senha* do ValidPark. Eu não repito a senha em nenhuma mensagem. 🔒');
+  }
+
+  if (pend.passo === 'senha') {
+    if (!texto || texto.length > 120) return repete('Digite a senha do ValidPark.');
+    d.senha = texto;
+    return ir('cota', d, '🔒 Recebi. *Apague a mensagem da senha* do grupo depois.\n\n'
+      + 'Qual a *cota mensal de validações*? Responda um número (ex.: _20_) ou *SEM LIMITE*.');
+  }
+
+  if (pend.passo === 'cota') {
+    if (/^\d{1,5}$/.test(t)) {
+      d.cota = Number(t);
+      if (d.cota > 10000) return repete('A cota vai de 0 a 10000. Responda um número ou *SEM LIMITE*.');
+    } else if (/^(sem|sem (limite|cota|teto)|nenhum|nenhuma|ilimitad[oa]|nao tem)$/.test(t)) {
+      d.cota = null;
+    } else {
+      return repete('Responda um número (ex.: _20_) ou *SEM LIMITE*.');
+    }
+    return ir('grupo', d, 'Qual o *ID do grupo de WhatsApp* do pátio? (termina em _@g.us_)\n'
+      + 'Se ainda não tem, responda *DEPOIS* — o pátio só atende quando o grupo for vinculado.');
+  }
+
+  if (pend.passo === 'grupo') {
+    if (/^(depois|nao sei|ainda nao|pular|sem grupo)$/.test(t)) d.grupo = '';
+    else if (/^\d[\d-]*@g\.us$/.test(texto)) d.grupo = texto;
+    else return repete('O ID do grupo termina em _@g.us_ (ex.: _120363413246656441@g.us_). Ou responda *DEPOIS*.');
+    if (d.grupo) {
+      const dono = carregarConfig().hangares.find((h) => (h.grupoWhatsappId || '').trim() === d.grupo);
+      if (dono) { d.grupo = ''; return repete(`Esse grupo já pertence ao pátio *${dono.hangar || dono.id}*. Envie outro ID ou responda *DEPOIS*.`); }
+    }
+    const resumo = [
+      `🏗️ *Criar pátio — confirme*`, '',
+      `• Nome: *${d.nome}*`,
+      `• Identificador: ${d.id}`,
+      `• TechParking: ${d.bolsao ? `${d.bolsao} (${d.tpAviso})` : '⚠️ sem vínculo'}`,
+      `• Login do ValidPark: ${d.usuario ? `usuário ${d.usuario}, senha informada` : '⚠️ ainda não cadastrado'}`,
+      `• Cota mensal: ${d.cota == null ? 'sem limite' : `${d.cota} validações`}`,
+      `• Grupo do WhatsApp: ${d.grupo ? d.grupo : '⚠️ ainda não vinculado'}`,
+      '', 'Confirma? Responda *SIM* ou *NÃO*.',
+    ];
+    return ir('confirma', d, resumo.join('\n'), 'criar_patio_confirmar');
+  }
+
+  // confirma
+  if (!sim && !nao) return repete('Responda *SIM* para criar o pátio ou *NÃO* para cancelar.');
+  pendencias.consumir(msg.grupoId, msg.remetenteId);
+  if (nao) return resposta('criar_patio_cancelado', 'Ok, nenhum pátio foi criado.');
+
+  // Relê o arquivo: entre a pergunta e o SIM o painel pode ter salvo algo.
+  const atual = carregarConfig();
+  const quem = msg.remetente || msg.grupoId;
+  let hangar;
+  try {
+    hangar = criarPatioLib.acrescentarHangar(atual, { id: d.id, nome: d.nome, bolsao: d.bolsao, cotaMensal: d.cota, grupoId: d.grupo });
+    if (d.usuario && d.senha) {
+      criarPatioLib.acrescentarCredenciais([[hangar.usuarioEnvVar, d.usuario], [hangar.senhaEnvVar, d.senha]], 'bot do WhatsApp');
+    }
+    salvarEComitar(atual, `pátio "${d.nome}" (${d.id}) criado por ${quem} (WhatsApp)`, 'Bot do WhatsApp');
+  } catch (erro) {
+    return {
+      ...resposta('erro', `⚠️ Não criei o pátio: ${erro.message}\n\nNada foi gravado no config.`),
+      mensagem: erro.message, notificarAdmin: true,
+    };
+  }
+  const falta = [];
+  if (!d.usuario) falta.push('cadastrar o usuário e a senha do ValidPark (painel)');
+  if (!d.grupo) falta.push('vincular o grupo do WhatsApp (painel)');
+  if (!d.bolsao) falta.push('vincular o pátio do TechParking (painel)');
+  falta.push('dados do Asaas, se for faturar (painel)');
+  return {
+    ...resposta('criar_patio_criado', `✅ Pátio *${d.nome}* criado.\n\n*Falta:*\n${falta.map((x) => `• ${x}`).join('\n')}`),
+    hangarId: d.id,
+    mensagem: `Pátio ${d.nome} (${d.id}) criado por ${quem} via WhatsApp.`,
+  };
+}
+
 // Grava a contingência (liga/desliga) e monta a resposta. Preserva
 // 'autorizados' (e o que mais houver no bloco) — só ativo/desde/por mudam.
 function aplicarContingencia(ligar, quem, grupoId) {
@@ -3316,6 +3511,10 @@ async function responderAutorizacaoPrivada(msg) {
   if (!ehAdmin) {
     return { status: 'ignorado', motivo: 'privado de número que não é administração', grupoId: msg.grupoId, responder: false };
   }
+
+  // Criar pátio (mesmo comando do grupo "Adm Bot").
+  const cmdPatio = responderComandoCriarPatio(msg, config);
+  if (cmdPatio) return cmdPatio;
 
   // Faturamento por pátio (mesmo comando do grupo "Adm Bot").
   const cmdFat = responderComandoFaturamento(msg, config);

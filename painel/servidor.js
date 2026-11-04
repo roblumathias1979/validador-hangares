@@ -45,7 +45,6 @@ const RAIZ = path.join(__dirname, '..');
 require('dotenv').config({ path: path.join(RAIZ, '.env'), override: true });
 
 const CONFIG = path.join(RAIZ, 'config', 'hangares.json');
-const ENV = path.join(RAIZ, '.env');
 const PORTA = Number(process.env.PAINEL_PORTA) || 8081;
 const SENHA = process.env.PAINEL_SENHA || '';
 
@@ -85,42 +84,8 @@ function lerConfig() {
   return JSON.parse(fs.readFileSync(CONFIG, 'utf-8'));
 }
 
-/**
- * O .env como objeto, lido do disco a cada chamada.
- *
- * Serve para saber QUAIS variáveis existem. O painel nunca mostra valor de
- * credencial, e é por isso que esta leitura fica pontual em vez de virar estado.
- */
-function lerEnv() {
-  try {
-    const mapa = {};
-    for (const linha of fs.readFileSync(ENV, 'utf-8').split('\n')) {
-      const m = linha.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$/);
-      if (m) mapa[m[1]] = m[2].trim();
-    }
-    return mapa;
-  } catch (e) {
-    return {};
-  }
-}
-
-/**
- * Acrescenta credenciais ao .env. NUNCA sobrescreve: se a variável já existe,
- * recusa em vez de trocar por cima.
- *
- * Trocar a senha de um hangar em funcionamento pela tela de CRIAR hangar seria
- * um acidente caro e silencioso — o pátio pararia de validar e o motivo estaria
- * num arquivo que ninguém abre. Alterar credencial segue sendo trabalho de quem
- * tem acesso ao servidor, de propósito.
- */
-function acrescentarCredenciais(pares) {
-  const atual = lerEnv();
-  for (const [nome] of pares) {
-    if (atual[nome]) throw new Error(`${nome} já existe no .env — não vou sobrescrever. Altere no servidor.`);
-  }
-  fs.appendFileSync(ENV, `\n# ${new Date().toISOString().slice(0, 10)} — criado pelo painel\n`
-    + pares.map(([nome, valor]) => `${nome}=${valor}`).join('\n') + '\n');
-}
+// lerEnv e acrescentarCredenciais vivem em scripts/lib/criar-patio.js (o bot usa as mesmas).
+const { lerEnv, acrescentarCredenciais, acrescentarHangar, variaveisDe } = require('../scripts/lib/criar-patio');
 
 function git(args) {
   return execFileSync('git', args, { cwd: RAIZ, encoding: 'utf-8' }).trim();
@@ -781,9 +746,7 @@ const servidor = http.createServer(async (req, res) => {
         return;
       }
 
-      const PREFIXO = idLimpo.toUpperCase().replace(/-/g, '_');
-      const usuarioEnvVar = `${PREFIXO}_USUARIO`;
-      const senhaEnvVar = `${PREFIXO}_SENHA`;
+      const { usuarioEnvVar, senhaEnvVar } = variaveisDe(idLimpo);
 
       // Credenciais são opcionais: dá para cadastrar o pátio agora e receber o
       // login depois. Sem elas o pátio nasce marcado "sem credencial".
@@ -794,30 +757,9 @@ const servidor = http.createServer(async (req, res) => {
         } catch (e) { json(res, 400, { erro: e.message }); return; }
       }
 
-      // URL, seletores e formato de ticket são idênticos em todos os hangares —
-      // o ValidPark é um site só. Copiar do config, e não de uma cópia no
-      // código, evita que os dois divirjam quando o site mudar.
-      const modelo = config.hangares[0];
-      config.hangares.push({
-        id: idLimpo,
-        hangar: nomeLimpo,
-        grupoWhatsapp: '',
-        grupoWhatsappId: '',
-        validadorUrl: modelo.validadorUrl,
-        usuarioEnvVar,
-        senhaEnvVar,
-        seletores: JSON.parse(JSON.stringify(modelo.seletores)),
-        formatoTicket: JSON.parse(JSON.stringify(modelo.formatoTicket)),
-        placaGenerica: 'AAA0000',
-        prazoValidacaoHoras: modelo.prazoValidacaoHoras,
-        // Herdado de quem já opera: sem destino de aviso, um problema que
-        // precisa de gente não chega a ninguém.
-        grupoAdministracao: (config.hangares.find((h) => (h.grupoAdministracao || '').trim()) || {}).grupoAdministracao || '',
-        cotaMensalForaPrazo: 2,
-        asaas: { customerId: '', cnpj: '', razaoSocial: '', email: '' },
-        diasValidacaoPadrao: modelo.diasValidacaoPadrao,
-        exigeFotoVeiculoNoLocal: false,
-      });
+      // O molde (URL, seletores, formato do ticket) é copiado de um hangar que
+      // já opera — ver scripts/lib/criar-patio.js.
+      acrescentarHangar(config, { id: idLimpo, nome: nomeLimpo });
 
       const r = salvarEComitar(config, `pátio "${nomeLimpo}" criado (${idLimpo})`);
       json(res, 200, { ok: true, id: idLimpo, usuarioEnvVar, senhaEnvVar, credenciais: temLogin, ...r });

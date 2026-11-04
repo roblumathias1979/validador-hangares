@@ -340,6 +340,21 @@ function interpretarComandoFaturamento(texto) {
 }
 
 /**
+ * Comando da administração para CRIAR um pátio novo ("criar pátio", "cadastrar
+ * um novo pátio", "novo hangar"). Devolve true/false.
+ *
+ * Curto e com verbo de criação de propósito: "o pátio novo está pronto" é
+ * conversa, não comando — e este comando abre um cadastro de verdade.
+ */
+function interpretarComandoCriarPatio(texto) {
+  const t = normalizar(texto || '');
+  if (!t || t.length > 60) return false;
+  if (/\b(criar|crie|cadastrar|cadastre|adicionar|adicione|incluir|inclua)\b[^.?!]{0,20}\b(patio|hangar)\b/.test(t)) return true;
+  if (/^(novo|nova)\s+(patio|hangar)\b/.test(t)) return true;
+  return false;
+}
+
+/**
  * Devolve `{ termo }` quando a mensagem pergunta se algo foi validado, e null
  * quando não é essa a pergunta. `termo` vazio significa que a pessoa perguntou
  * sem dizer de quem — quem chama decide o que fazer com isso.
@@ -541,4 +556,4 @@ function interpretarMensagem(body) {
   };
 }
 
-module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus, interpretarPedidoPatio, interpretarEscolhaPatio, interpretarConsultaValidacao, interpretarComandoIdentificacao, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoReiniciar, interpretarPedidoAtualizar, interpretarCreditoAws, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar };
+module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus, interpretarPedidoPatio, interpretarEscolhaPatio, interpretarConsultaValidacao, interpretarComandoIdentificacao, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoCriarPatio, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoReiniciar, interpretarPedidoAtualizar, interpretarCreditoAws, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar };
