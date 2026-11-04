@@ -792,7 +792,8 @@
       "perguntarIdentificacao": false,
       "avisarPatioCheio": true,
       "bolsaoTechparking": "PATIO VOA BOT",
-      "faturamentoDesligado": true
+      "faturamentoDesligado": true,
+      "permiteValidarForaDoPrazo": false
     }
   ],
   "_observacao_faturamento": "Cota de validações fora do prazo (cotaMensalForaPrazo, padrão 5/mês por hangar) e dados do Asaas (asaas.customerId ou asaas.cnpj+razaoSocial+email para criar o cliente automaticamente) usados por scripts/lib/cota-fora-prazo.js e scripts/lib/asaas.js quando um ticket fica fora do prazo de validação (ver docs/perguntas-abertas.md, seção sobre faturamento, adicionada em 11/09/2026)."
