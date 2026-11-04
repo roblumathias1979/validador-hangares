@@ -355,6 +355,28 @@ function interpretarComandoCriarPatio(texto) {
 }
 
 /**
+ * Comando da administração para ADICIONAR cota ao pátio ("adicionar cota",
+ * "adicionar 5 cotas no voa", "liberar mais validações"). Devolve
+ * `{ quantidade }` (null quando não veio número) ou null se não é o comando.
+ *
+ * Tem de vir ANTES da consulta de cota disponível: "adicionar cota" cita
+ * "cota" e seria lido como pergunta.
+ */
+function interpretarComandoAdicionarCota(texto) {
+  const t = normalizar(texto || '');
+  if (!t || t.length > 80) return null;
+  const verbo = /\b(adicionar|adicione|acrescentar|acrescente|aumentar|aumente|somar|some|incluir|inclua|liberar mais|libere mais|dar mais|da mais|mais)\b/.test(t);
+  const assunto = /\b(cota|cotas|validacao|validacoes|liberacao|liberacoes)\b/.test(t);
+  if (!verbo || !assunto) return null;
+  // Pergunta ("quantas cotas mais tem?") não é comando.
+  if (/\b(quantas|quantos|quanto|qtd|restam|disponivel|disponiveis|saldo|tem|tinha|ainda|ha)\b/.test(t) || /\?/.test(t)) return null;
+  const m = t.match(/\b(\d{1,4})\s*(cotas?|validacao|validacoes|liberacao|liberacoes)\b/)
+    || t.match(/\b(?:adicionar|adicione|acrescentar|acrescente|aumentar|aumente|somar|some|incluir|inclua)\s+(\d{1,4})\b/)
+    || t.match(/\bem\s+(\d{1,4})\s*$/);
+  return { quantidade: m ? Number(m[1]) : null };
+}
+
+/**
  * Pergunta da administração sobre quantas validações/liberações ainda restam
  * ("quantas validações disponíveis no VOA", "liberações restantes do voasp",
  * "cota do voa"). Devolve true/false; o pátio vem de outro lugar.
@@ -572,4 +594,4 @@ function interpretarMensagem(body) {
   };
 }
 
-module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus, interpretarPedidoPatio, interpretarEscolhaPatio, interpretarConsultaValidacao, interpretarComandoIdentificacao, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoCriarPatio, interpretarPedidoCotaDisponivel, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoReiniciar, interpretarPedidoAtualizar, interpretarCreditoAws, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar };
+module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus, interpretarPedidoPatio, interpretarEscolhaPatio, interpretarConsultaValidacao, interpretarComandoIdentificacao, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoCriarPatio, interpretarComandoAdicionarCota, interpretarPedidoCotaDisponivel, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoReiniciar, interpretarPedidoAtualizar, interpretarCreditoAws, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar };

@@ -32,7 +32,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env'), override: t
 const { carregarConfig, buscarHangarPorGrupo } = require('./lib/hangar');
 const { comTrava, comTravaAsync, lerJson, salvarAtomico } = require('./lib/trava-arquivo');
 const { destinosAdmin } = require('./lib/admins');
-const { interpretarMensagem, extrairPlaca, interpretarEscolhaPatio, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoCriarPatio, interpretarPedidoCotaDisponivel, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoReiniciar, interpretarPedidoAtualizar, interpretarCreditoAws, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar } = require('./lib/whatsapp');
+const { interpretarMensagem, extrairPlaca, interpretarEscolhaPatio, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoCriarPatio, interpretarComandoAdicionarCota, interpretarPedidoCotaDisponivel, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoReiniciar, interpretarPedidoAtualizar, interpretarCreditoAws, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar } = require('./lib/whatsapp');
 // O cliente da Evolution vive em lib/evolution.js: o painel também precisa
 // mandar mensagem, e duas cópias do mesmo cliente divergiriam — inclusive no
 // `Connection: close`, que existe por um bug real de socket reaproveitado.
@@ -2994,6 +2994,8 @@ async function responderNoGrupoAdmin(msg, aoReceber) {
   }
   const cmdPatio = responderComandoCriarPatio(msg, config);
   if (cmdPatio) return cmdPatio;
+  const cmdCota = responderComandoAdicionarCota(msg, config);
+  if (cmdCota) return cmdCota;
   const cmdFat = responderComandoFaturamento(msg, config);
   if (cmdFat) return cmdFat;
   // Respostas dos fluxos de movimentação. Mas um PEDIDO NOVO ("entrada e saída…")
@@ -3231,6 +3233,15 @@ function responderComandoFaturamento(msg, config) {
   };
 }
 
+// "voa" é como chamam o VOASP: aceita a palavra (3+ letras) que é começo do
+// nome de UM só pátio em operação. Mais de um candidato = não adivinha.
+function acharHangarPorApelido(config, texto) {
+  const palavras = normalizar(texto || '').split(/[^a-z0-9]+/).filter((w) => w.length >= 3);
+  const candidatos = config.hangares.filter((h) => (h.grupoWhatsappId || '').trim()
+    && palavras.some((w) => [h.hangar, h.id].filter(Boolean).some((n) => normalizar(n).startsWith(w))));
+  return candidatos.length === 1 ? candidatos[0] : null;
+}
+
 // "Quantas validações disponíveis no VOA?" — as duas travas que valem ao mesmo
 // tempo: a cota contratada do bot (conta o histórico do mês) e as vagas do
 // pátio no aeroporto (foto do TechParking). A que for menor é o que dá para
@@ -3241,14 +3252,7 @@ function responderCotaDisponivel(msg, hangar, config) {
     status, grupoId: msg.grupoId, mensagemWhatsapp: texto,
     notificarAdmin: false, responder: true, etapa: 'admin_cota',
   });
-  // "voa" é como chamam o VOASP: aceita a palavra que é começo do nome de UM só
-  // pátio (3+ letras). Mais de um candidato = não adivinha, pergunta.
-  if (!hangar) {
-    const palavras = normalizar(msg.texto || '').split(/\s+/).filter((w) => w.length >= 3);
-    const candidatos = config.hangares.filter((h) => (h.grupoWhatsappId || '').trim()
-      && palavras.some((w) => [h.hangar, h.id].filter(Boolean).some((n) => normalizar(n).startsWith(w))));
-    if (candidatos.length === 1) hangar = candidatos[0];
-  }
+  if (!hangar) hangar = acharHangarPorApelido(config, msg.texto);
   if (!hangar) {
     const nomes = config.hangares.filter((h) => (h.grupoWhatsappId || '').trim()).map((h) => h.hangar || h.id);
     return resposta('admin_cota_sem_hangar',
@@ -3283,6 +3287,143 @@ function responderCotaDisponivel(msg, hangar, config) {
 
   if (teto !== null) linhas.push('', `👉 Dá para validar *${teto}* agora (vale o menor dos dois números).`);
   return resposta('admin_cota_disponivel', linhas.join('\n'));
+}
+
+// Adicionar cota ao pátio pelo WhatsApp da administração. A cota extra vale SÓ
+// NO MÊS (decisão do usuário em 04/11/2026): soma ao teto do mês corrente e
+// some na virada, sem ninguém desfazer. Fica em `cotaExtraMes: { "AAAA-MM": N }`
+// no config, e a cota do bot (lib/cota-mensal.js) já a considera.
+//
+// Passos: pátio (se não veio no texto) → quantidade (se não veio) → SIM.
+// Só pátio COM cota contratada: sem teto, não há o que adicionar.
+//
+// Devolve a resposta, ou null quando a mensagem não é deste assunto.
+function responderComandoAdicionarCota(msg, config) {
+  if (msg.tipo === 'imagem') return null;
+  const pend = pendencias.buscar(msg.grupoId, msg.remetenteId);
+  const emAndamento = pend && pend.tipo === 'addcota';
+  const comando = interpretarComandoAdicionarCota(msg.texto);
+  if (!emAndamento && !comando) return null;
+
+  const resposta = (status, texto) => ({
+    status, grupoId: msg.grupoId, mensagemWhatsapp: texto,
+    notificarAdmin: false, responder: true, etapa: 'adicionar_cota',
+  });
+  const ir = (passo, d, texto, status = 'adicionar_cota_pergunta') => {
+    pendencias.registrar(msg.grupoId, msg.remetenteId, { tipo: 'addcota', passo, d });
+    return resposta(status, texto);
+  };
+  const texto = String(msg.texto || '').trim();
+  const comCota = config.hangares.filter((h) => (h.grupoWhatsappId || '').trim() && cotaMensal.limiteBase(h) !== null);
+  const nomeDe = (h) => h.hangar || h.id;
+
+  const pedirConfirmacao = (hangar, quantidade) => {
+    const s = cotaMensal.situacao(hangar);
+    return ir('confirma', { hangarId: hangar.id, quantidade }, `➕ *Adicionar cota — confirme*\n\n`
+      + `• Pátio: *${nomeDe(hangar)}*\n`
+      + `• Adicionar: *${quantidade}* validações, só em ${s.mes}\n`
+      + `• Teto do mês: ${s.limite} → *${s.limite + quantidade}* (${s.usadas} usadas)\n\n`
+      + `Em ${proximoMes(s.mes)} volta ao teto normal (${s.base}).\nConfirma? Responda *SIM* ou *NÃO*.`, 'adicionar_cota_confirmar');
+  };
+  const pedirQuantidade = (hangar) => {
+    const s = cotaMensal.situacao(hangar);
+    return ir('qtd', { hangarId: hangar.id },
+      `➕ *${nomeDe(hangar)}* — teto de ${s.mes}: ${s.limite} (${s.usadas} usadas, ${s.restantes} restantes).\n\n`
+      + 'Quantas validações você quer *adicionar* neste mês? Responda um número (ex.: _5_).\n\n_Para desistir, responda CANCELAR._');
+  };
+
+  // Comando novo sempre recomeça, mesmo no meio de outro.
+  if (comando) {
+    if (emAndamento) pendencias.consumir(msg.grupoId, msg.remetenteId);
+    if (!comCota.length) return resposta('adicionar_cota_sem_patio', 'Nenhum pátio em operação tem cota mensal contratada — não há o que adicionar.');
+    const hangar = acharHangarNoTexto(config, texto) || acharHangarPorApelido(config, texto);
+    if (hangar) {
+      if (cotaMensal.limiteBase(hangar) === null) {
+        return resposta('adicionar_cota_sem_cota', `O pátio *${nomeDe(hangar)}* não tem cota mensal (é sem limite) — não há o que adicionar.`);
+      }
+      if (comando.quantidade) return pedirConfirmacaoValidada(hangar, comando.quantidade);
+      return pedirQuantidade(hangar);
+    }
+    if (comCota.length === 1) {
+      if (comando.quantidade) return pedirConfirmacaoValidada(comCota[0], comando.quantidade);
+      return pedirQuantidade(comCota[0]);
+    }
+    return ir('patio', {}, '➕ *Adicionar cota*\n\nEm qual pátio?\n\n'
+      + comCota.map((h, i) => `*${i + 1}* ${nomeDe(h)}`).join('\n') + '\n\nResponda o número ou o nome. _CANCELAR para desistir._');
+  }
+  if (CANCELAR_BROADCAST.test(texto)) {
+    pendencias.consumir(msg.grupoId, msg.remetenteId);
+    return resposta('adicionar_cota_cancelado', 'Ok, a cota não foi alterada.');
+  }
+
+  function pedirConfirmacaoValidada(hangar, quantidade) {
+    if (!Number.isInteger(quantidade) || quantidade < 1 || quantidade > 1000) {
+      return ir('qtd', { hangarId: hangar.id }, 'A quantidade vai de 1 a 1000. Quantas validações adicionar?', 'adicionar_cota_nao_entendido');
+    }
+    return pedirConfirmacao(hangar, quantidade);
+  }
+
+  const d = pend.d || {};
+  if (pend.passo === 'patio') {
+    const n = /^\d{1,2}$/.test(texto) ? Number(texto) : null;
+    const hangar = (n && comCota[n - 1]) || acharHangarNoTexto(config, texto) || acharHangarPorApelido(config, texto);
+    if (!hangar || cotaMensal.limiteBase(hangar) === null) {
+      return ir('patio', d, 'Não reconheci o pátio. Responda o *número* da lista ou o *nome*. _CANCELAR para desistir._', 'adicionar_cota_nao_entendido');
+    }
+    return pedirQuantidade(hangar);
+  }
+
+  const hangar = config.hangares.find((h) => h.id === d.hangarId);
+  if (!hangar) {
+    pendencias.consumir(msg.grupoId, msg.remetenteId);
+    return resposta('adicionar_cota_cancelado', 'Esse pátio não existe mais. Nada foi alterado.');
+  }
+
+  if (pend.passo === 'qtd') {
+    if (!/^\d{1,4}$/.test(texto.replace(/\s+/g, ''))) {
+      return ir('qtd', d, 'Responda só o *número* de validações a adicionar (ex.: _5_). _CANCELAR para desistir._', 'adicionar_cota_nao_entendido');
+    }
+    return pedirConfirmacaoValidada(hangar, Number(texto.replace(/\s+/g, '')));
+  }
+
+  // confirma
+  if (msg.resposta !== 'sim' && msg.resposta !== 'nao') {
+    return ir('confirma', d, 'Responda *SIM* para adicionar ou *NÃO* para cancelar.', 'adicionar_cota_nao_entendido');
+  }
+  pendencias.consumir(msg.grupoId, msg.remetenteId);
+  if (msg.resposta === 'nao') return resposta('adicionar_cota_cancelado', 'Ok, a cota não foi alterada.');
+
+  // Relê o arquivo: entre a pergunta e o SIM o painel pode ter salvo algo.
+  const atual = carregarConfig();
+  const alvo = atual.hangares.find((h) => h.id === d.hangarId);
+  if (!alvo || cotaMensal.limiteBase(alvo) === null) {
+    return resposta('adicionar_cota_cancelado', 'O pátio mudou e não tem mais cota mensal. Nada foi alterado.');
+  }
+  const mes = cotaMensal.mesAtual();
+  // Guarda só o mês corrente: os anteriores já expiraram e não pesam mais.
+  alvo.cotaExtraMes = { [mes]: cotaMensal.extraDoMes(alvo) + d.quantidade };
+  const quem = msg.remetente || msg.grupoId;
+  try {
+    salvarEComitar(atual, `Cota de ${mes} do ${nomeDe(alvo)}: +${d.quantidade} por ${quem} (WhatsApp)`, 'Bot do WhatsApp');
+  } catch (erro) {
+    return {
+      ...resposta('erro', '⚠️ Não consegui salvar a cota. Nada mudou — tente de novo.'),
+      mensagem: erro.message, notificarAdmin: true,
+    };
+  }
+  const s = cotaMensal.situacao(alvo);
+  return {
+    ...resposta('cota_adicionada', `✅ *${d.quantidade}* validações adicionadas ao *${nomeDe(alvo)}* em ${mes}.\n\n`
+      + `Teto do mês: *${s.limite}* (${s.base} contratadas + ${s.extra} extras) — ${s.usadas} usadas, *${s.restantes} restantes*.`),
+    hangarId: alvo.id,
+    mensagem: `Cota de ${mes} do ${nomeDe(alvo)}: +${d.quantidade} por ${quem} via WhatsApp (teto ${s.limite}).`,
+  };
+}
+
+function proximoMes(mes) {
+  const [a, m] = String(mes).split('-').map(Number);
+  const d = new Date(Date.UTC(a, m, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
 // Criar pátio pelo WhatsApp da administração (grupo "Adm Bot" ou privado de
@@ -3576,6 +3717,8 @@ async function responderAutorizacaoPrivada(msg) {
   // Criar pátio (mesmo comando do grupo "Adm Bot").
   const cmdPatio = responderComandoCriarPatio(msg, config);
   if (cmdPatio) return cmdPatio;
+  const cmdCota = responderComandoAdicionarCota(msg, config);
+  if (cmdCota) return cmdCota;
 
   // Faturamento por pátio (mesmo comando do grupo "Adm Bot").
   const cmdFat = responderComandoFaturamento(msg, config);

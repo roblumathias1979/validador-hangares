@@ -36,14 +36,34 @@ function mesAtual(quando = new Date()) {
 }
 
 /**
- * Teto do hangar, ou null quando não há teto. A ausência do campo significa
- * SEM LIMITE de propósito: quinze dos dezesseis hangares não têm cota
- * contratada, e um padrão numérico aqui limitaria todos eles em silêncio.
+ * Teto BASE do hangar (o contratado), ou null quando não há teto. A ausência
+ * do campo significa SEM LIMITE de propósito: quinze dos dezesseis hangares não
+ * têm cota contratada, e um padrão numérico aqui limitaria todos eles em
+ * silêncio.
  */
-function limiteDe(hangar) {
+function limiteBase(hangar) {
   return Number.isFinite(hangar && hangar.cotaMensalValidacoes)
     ? hangar.cotaMensalValidacoes
     : null;
+}
+
+/**
+ * Cota EXTRA concedida para o mês (`cotaExtraMes: { "2026-11": 5 }`). Vale só
+ * naquele mês e some sozinha na virada: o teto de dezembro volta ao contratado
+ * sem ninguém desfazer nada (decisão do usuário em 04/11/2026).
+ */
+function extraDoMes(hangar, quando = new Date()) {
+  const n = Number(hangar && hangar.cotaExtraMes && hangar.cotaExtraMes[mesAtual(quando)]);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/**
+ * Teto do mês = contratado + extra do mês, ou null quando não há teto (e aí
+ * extra nenhum faz sentido).
+ */
+function limiteDe(hangar, quando = new Date()) {
+  const base = limiteBase(hangar);
+  return base === null ? null : base + extraDoMes(hangar, quando);
 }
 
 /**
@@ -63,14 +83,16 @@ function usoNoMes(hangarId, quando = new Date()) {
  * falso — nunca se recusa por cota um hangar que não tem cota.
  */
 function situacao(hangar, quando = new Date()) {
-  const limite = limiteDe(hangar);
+  const limite = limiteDe(hangar, quando);
   if (limite === null) {
-    return { temCota: false, limite: null, usadas: null, restantes: null, esgotada: false, mes: mesAtual(quando) };
+    return { temCota: false, limite: null, base: null, extra: 0, usadas: null, restantes: null, esgotada: false, mes: mesAtual(quando) };
   }
   const usadas = usoNoMes(hangar.id, quando);
   return {
     temCota: true,
     limite,
+    base: limiteBase(hangar),
+    extra: extraDoMes(hangar, quando),
     usadas,
     restantes: Math.max(0, limite - usadas),
     esgotada: usadas >= limite,
@@ -96,4 +118,4 @@ function notaParaCliente(s, avisarAPartirDe = 5) {
   return `\n\n⚠️ Restam ${s.restantes} de ${s.limite} validações neste mês.`;
 }
 
-module.exports = { mesAtual, limiteDe, usoNoMes, situacao, mensagemEsgotada, notaParaCliente, FUSO };
+module.exports = { mesAtual, limiteBase, extraDoMes, limiteDe, usoNoMes, situacao, mensagemEsgotada, notaParaCliente, FUSO };
