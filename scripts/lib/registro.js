@@ -60,6 +60,10 @@ function registrar(resultado) {
     // formato dele, então é neste arquivo que ela existe.
     identificacao: resultado.identificacao || null,
     remetente: resultado.remetente || null,
+    // Telefone (só dígitos, com 55) de quem mandou a mensagem. Existe desde
+    // 04/11/2026, para o relatório de cotas dizer QUEM autorizou; linhas
+    // anteriores não têm. Dado pessoal: some com o expurgo de 90 dias.
+    telefone: resultado.telefone || null,
     grupoId: resultado.grupoId || null,
     valor: resultado.valor ?? null,
     escalado: resultado.escalado === true,

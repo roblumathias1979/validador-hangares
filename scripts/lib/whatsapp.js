@@ -377,6 +377,31 @@ function interpretarComandoAdicionarCota(texto) {
 }
 
 /**
+ * Pedido de RELATÓRIO das cotas usadas ("relatório das cotas do voa",
+ * "relatório de liberações usadas do voasp", "relatório de cota mês passado").
+ * Devolve `{ mesAnterior }` ou null.
+ *
+ * Exige a palavra "relatório/extrato" junto de cota/liberações — "validações"
+ * sozinha fica de fora, porque "relatório de validações" já é consulta de pátio.
+ */
+function interpretarPedidoRelatorioCota(texto) {
+  const t = normalizar(texto || '');
+  if (!t || t.length > 100) return null;
+  if (!/\b(relatorio|relatorios|extrato|historico)\b/.test(t)) return null;
+  if (!/\b(cota|cotas|liberacao|liberacoes)\b/.test(t)
+      && !(/\b(validacao|validacoes)\b/.test(t) && /\b(utilizada|utilizadas|usada|usadas|cota)\b/.test(t))) return null;
+  return { mesAnterior: /\b(mes passado|mes anterior|ultimo mes|passado)\b/.test(t) };
+}
+
+/** 5511992773041 -> "+55 11 99277-3041". Devolve null sem número. */
+function formatarTelefone(digitos) {
+  const d = String(digitos || '').replace(/\D/g, '');
+  if (!d) return null;
+  const m = d.match(/^(55)(\d{2})(\d{4,5})(\d{4})$/);
+  return m ? `+${m[1]} ${m[2]} ${m[3]}-${m[4]}` : `+${d}`;
+}
+
+/**
  * Pergunta da administração sobre quantas validações/liberações ainda restam
  * ("quantas validações disponíveis no VOA", "liberações restantes do voasp",
  * "cota do voa"). Devolve true/false; o pátio vem de outro lugar.
@@ -594,4 +619,4 @@ function interpretarMensagem(body) {
   };
 }
 
-module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus, interpretarPedidoPatio, interpretarEscolhaPatio, interpretarConsultaValidacao, interpretarComandoIdentificacao, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoCriarPatio, interpretarComandoAdicionarCota, interpretarPedidoCotaDisponivel, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoReiniciar, interpretarPedidoAtualizar, interpretarCreditoAws, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar };
+module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus, interpretarPedidoPatio, interpretarEscolhaPatio, interpretarConsultaValidacao, interpretarComandoIdentificacao, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoCriarPatio, interpretarComandoAdicionarCota, interpretarPedidoRelatorioCota, formatarTelefone, interpretarPedidoCotaDisponivel, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoReiniciar, interpretarPedidoAtualizar, interpretarCreditoAws, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar };

@@ -32,7 +32,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env'), override: t
 const { carregarConfig, buscarHangarPorGrupo } = require('./lib/hangar');
 const { comTrava, comTravaAsync, lerJson, salvarAtomico } = require('./lib/trava-arquivo');
 const { destinosAdmin } = require('./lib/admins');
-const { interpretarMensagem, extrairPlaca, interpretarEscolhaPatio, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoCriarPatio, interpretarComandoAdicionarCota, interpretarPedidoCotaDisponivel, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoReiniciar, interpretarPedidoAtualizar, interpretarCreditoAws, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar } = require('./lib/whatsapp');
+const { interpretarMensagem, extrairPlaca, interpretarEscolhaPatio, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoCriarPatio, interpretarComandoAdicionarCota, interpretarPedidoRelatorioCota, formatarTelefone, interpretarPedidoCotaDisponivel, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoReiniciar, interpretarPedidoAtualizar, interpretarCreditoAws, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar } = require('./lib/whatsapp');
 // O cliente da Evolution vive em lib/evolution.js: o painel também precisa
 // mandar mensagem, e duas cópias do mesmo cliente divergiriam — inclusive no
 // `Connection: close`, que existe por um bug real de socket reaproveitado.
@@ -540,9 +540,17 @@ async function processar(body, opcoes = {}) {
 
   // interpretarMensagem é pura e barata; chamá-la de novo aqui evita ter que
   // carregar o remetente por todos os pontos de retorno de conduzir().
-  const quem = interpretarMensagem(body).remetente;
+  const interpretada = interpretarMensagem(body);
+  const quem = interpretada.remetente;
   escalar(resultado, quem);
   if (!resultado.remetente && quem) resultado.remetente = quem;
+  // Telefone de quem mandou, para o relatório de cotas dizer QUEM autorizou
+  // (em grupo o id vem como @lid; o número real está em participantAlt).
+  if (!resultado.telefone) {
+    const alvo = interpretada.remetenteTelefone
+      || (String(interpretada.remetenteId || '').endsWith('@s.whatsapp.net') ? interpretada.remetenteId : null);
+    if (alvo) resultado.telefone = String(alvo).replace(/@.*$/, '').replace(/\D/g, '') || null;
+  }
 
   // Histórico do que o bot fez com o ticket. Fica aqui, no invólucro, para
   // valer para TODOS os caminhos de saída — validação, consulta, recusa,
@@ -3073,6 +3081,12 @@ async function responderNoGrupoAdmin(msg, aoReceber) {
     return await investigarProblema(msg, aoReceber);
   }
 
+  // Relatório das cotas usadas no mês: data, hora e telefone de quem autorizou.
+  if (msg.tipo === 'texto') {
+    const pedidoRel = interpretarPedidoRelatorioCota(msg.texto);
+    if (pedidoRel) return responderRelatorioCota(msg, hangar, config, pedidoRel);
+  }
+
   // Quantas validações ainda restam num pátio: cota do bot + vagas do aeroporto.
   // Lê só arquivos locais (histórico e foto do TechParking): responde na hora,
   // sem abrir o ValidPark. Exige o pátio no texto.
@@ -3240,6 +3254,57 @@ function acharHangarPorApelido(config, texto) {
   const candidatos = config.hangares.filter((h) => (h.grupoWhatsappId || '').trim()
     && palavras.some((w) => [h.hangar, h.id].filter(Boolean).some((n) => normalizar(n).startsWith(w))));
   return candidatos.length === 1 ? candidatos[0] : null;
+}
+
+// Relatório das cotas usadas no mês: uma linha por validação, com data, hora
+// (horário de São Paulo), ticket, placa e QUEM autorizou — nome e telefone de
+// quem respondeu SIM à pergunta da cota. Sai do mesmo histórico que a cota
+// conta, então relatório e saldo nunca discordam.
+//
+// O telefone só existe nas validações feitas depois de 04/11/2026 (antes o
+// histórico guardava só o nome); nas anteriores aparece "—".
+function responderRelatorioCota(msg, hangar, config, pedido) {
+  const resposta = (status, texto) => ({
+    status, grupoId: msg.grupoId, mensagemWhatsapp: texto,
+    notificarAdmin: false, responder: true, etapa: 'admin_relatorio_cota',
+  });
+  if (!hangar) hangar = acharHangarPorApelido(config, msg.texto);
+  if (!hangar) {
+    const nomes = config.hangares.filter((h) => (h.grupoWhatsappId || '').trim() && cotaMensal.limiteBase(h) !== null).map((h) => h.hangar || h.id);
+    return resposta('admin_relatorio_cota_sem_hangar',
+      `De qual pátio? Diga o nome junto — ex.: *relatório das cotas do VOASP*.\n\nPátios com cota: ${nomes.join(', ') || 'nenhum'}.`);
+  }
+
+  const quando = new Date();
+  if (pedido.mesAnterior) quando.setMonth(quando.getMonth() - 1, 15);
+  const s = cotaMensal.situacao(hangar, quando);
+  const linhasMes = registro.ultimos(Infinity, { hangarId: hangar.id, apenasValidados: true })
+    .filter((l) => l.em && cotaMensal.mesAtual(l.em) === s.mes)
+    .reverse(); // do mais antigo para o mais novo
+
+  const dataHora = (iso) => new Date(iso).toLocaleString('pt-BR', {
+    timeZone: cotaMensal.FUSO, day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit',
+  }).replace(',', '');
+  const LIMITE = 40;
+  const mostradas = linhasMes.slice(-LIMITE);
+
+  const cab = [`📋 *Relatório de cotas — ${hangar.hangar || hangar.id}* (${s.mes})`];
+  if (s.temCota) {
+    cab.push(`Teto: *${s.limite}*${s.extra ? ` (${s.base} + ${s.extra} extras)` : ''} — *${s.usadas} usadas*, ${s.restantes} restantes`);
+  } else {
+    cab.push(`Sem cota mensal contratada — ${linhasMes.length} validações no mês`);
+  }
+  if (!linhasMes.length) return resposta('admin_relatorio_cota', `${cab.join('\n')}\n\nNenhuma validação neste mês.`);
+
+  const linhas = mostradas.map((l, i) => {
+    const n = linhasMes.length - mostradas.length + i + 1;
+    const quem = [l.remetente || 'sem nome', l.telefone ? formatarTelefone(l.telefone) : '—'].join(' · ');
+    return `*${n}.* ${dataHora(l.em)} — ticket ${l.ticket || '—'}${l.placa && !l.placaEhGenerica ? ` — ${l.placa}` : ''}\n      👤 ${quem}`;
+  });
+  const rodape = [];
+  if (linhasMes.length > mostradas.length) rodape.push(`_Mostrando as ${mostradas.length} mais recentes de ${linhasMes.length}._`);
+  if (linhasMes.some((l) => !l.telefone)) rodape.push('_"—" = validação anterior a 04/11/2026: o histórico guardava só o nome._');
+  return resposta('admin_relatorio_cota', `${cab.join('\n')}\n\n${linhas.join('\n')}${rodape.length ? `\n\n${rodape.join('\n')}` : ''}`);
 }
 
 // "Quantas validações disponíveis no VOA?" — as duas travas que valem ao mesmo
