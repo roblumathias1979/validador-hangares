@@ -221,7 +221,7 @@
       "diasValidacaoPadrao": 20,
       "exigeFotoVeiculoNoLocal": false,
       "avisarVagasAbaixoDe": 5,
-      "perguntarIdentificacao": true,
+      "perguntarIdentificacao": false,
       "bolsaoTechparking": "SOLOJET SHARES"
     },
     {
