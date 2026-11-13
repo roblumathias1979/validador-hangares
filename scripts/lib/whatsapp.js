@@ -366,6 +366,19 @@ function interpretarPedidoPendencias(texto) {
 }
 
 /**
+ * Consulta da administração: QUAIS pátios estão com o antifraude ligado ("quais
+ * pátios estão com antifraude", "status do antifraude", "antifraude" sozinho).
+ * Só vale quando NÃO é o comando de ligar/desligar (esse tem precedência).
+ */
+function interpretarConsultaAntifraude(texto) {
+  const t = normalizar(texto || '').trim();
+  if (!t || t.length > 80) return false;
+  if (!/\banti[\s-]?fraude\b/.test(t)) return false;
+  if (/^(o )?anti[\s-]?fraude[?!. ]*$/.test(t)) return true;
+  return /\b(quais|qual|status|consult\w*|ver|mostr\w*|situacao|como esta|estao|esta|ativos?|ligados?|lista\w*)\b/.test(t);
+}
+
+/**
  * Comando da administração para CRIAR um pátio novo ("criar pátio", "cadastrar
  * um novo pátio", "novo hangar"). Devolve true/false.
  *
@@ -645,4 +658,4 @@ function interpretarMensagem(body) {
   };
 }
 
-module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus, interpretarPedidoPatio, interpretarEscolhaPatio, interpretarConsultaValidacao, interpretarComandoIdentificacao, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoAntifraude, interpretarPedidoPendencias, interpretarComandoCriarPatio, interpretarComandoAdicionarCota, interpretarPedidoRelatorioCota, formatarTelefone, interpretarPedidoCotaDisponivel, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoReiniciar, interpretarPedidoAtualizar, interpretarCreditoAws, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar };
+module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus, interpretarPedidoPatio, interpretarEscolhaPatio, interpretarConsultaValidacao, interpretarComandoIdentificacao, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoAntifraude, interpretarConsultaAntifraude, interpretarPedidoPendencias, interpretarComandoCriarPatio, interpretarComandoAdicionarCota, interpretarPedidoRelatorioCota, formatarTelefone, interpretarPedidoCotaDisponivel, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoReiniciar, interpretarPedidoAtualizar, interpretarCreditoAws, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar };

@@ -44,7 +44,7 @@ child.execFileSync = (cmd, args, opcoes) => {
   throw new Error('script inesperado: ' + path.basename((args && args[0]) || String(cmd)));
 };
 
-const { interpretarComandoAntifraude } = require(path.join(RAIZ, 'scripts', 'lib', 'whatsapp.js'));
+const { interpretarComandoAntifraude, interpretarConsultaAntifraude } = require(path.join(RAIZ, 'scripts', 'lib', 'whatsapp.js'));
 const { processar } = require(path.join(RAIZ, 'scripts', 'processar-mensagem.js'));
 const CONFIG = path.join(RAIZ, 'config', 'hangares.json');
 const foto = (id) => JSON.parse(fs.readFileSync(CONFIG, 'utf-8')).hangares.find((h) => h.id === id).exigeFotoVeiculoNoLocal === true;
@@ -62,11 +62,19 @@ const conferir = (nome, ok, detalhe) => { if (ok) return console.log(`  ok   ${n
     conferir(`"${t}" → ${esperado}`, interpretarComandoAntifraude(t) === esperado);
   }
 
+  console.log('\n1b) Parser da consulta');
+  for (const [t, esperado] of [['quais pátios estão com antifraude', true], ['status do antifraude', true], ['antifraude', true], ['Antifraude?', true], ['consultar antifraude', true],
+    ['ativar antifraude', false], ['desativar antifraude', false], ['teve fraude no pátio', false], ['quais pátios estão com faturamento', false]]) {
+    conferir(`consulta "${t}" → ${esperado}`, interpretarConsultaAntifraude(t) === esperado);
+  }
+
   console.log('\n2) Desligar em um pátio: lista → escolha → confirmação → SIM');
   let r = await processar(noAdm('desativar antifraude'), {});
   conferir('mostra a lista com o estado de cada pátio', r.status === 'antifraude_escolher_patios' && /AIBM 1 — 🛡️ ligado/.test(r.mensagemWhatsapp) && /AIBM 2 — 🛡️ ligado/.test(r.mensagemWhatsapp), r.status);
-  conferir('só entram pátios com o local cadastrado (2)', (r.mensagemWhatsapp.match(/\*\d\*/g) || []).length === 2, r.mensagemWhatsapp);
-  r = await processar(noAdm('1'), {});
+  conferir('a lista traz TODOS os pátios, não só os dois', (r.mensagemWhatsapp.match(/\*\d+\* /g) || []).length >= 16, String((r.mensagemWhatsapp.match(/\*\d+\* /g) || []).length));
+  conferir('pátio sem local cadastrado vem marcado', /Solojet — ⛔ desligado ⚠️ sem local/.test(r.mensagemWhatsapp), r.mensagemWhatsapp);
+  const nAibm1 = (r.mensagemWhatsapp.match(/\*(\d+)\* AIBM 1 /) || [])[1];
+  r = await processar(noAdm(nAibm1), {});
   conferir('pede confirmação e avisa o que se perde', r.status === 'antifraude_confirmar' && /AIBM 1/.test(r.mensagemWhatsapp) && /não pede a foto do veículo/.test(r.mensagemWhatsapp), r.status);
   conferir('nada mudou antes do SIM', foto('aibm') && foto('aibm-2'));
   r = await processar(noAdm('sim'), {});
@@ -75,15 +83,15 @@ const conferir = (nome, ok, detalhe) => { if (ok) return console.log(`  ok   ${n
 
   console.log('\n3) Ligar todos: só o que muda entra na confirmação');
   r = await processar(noAdm('ativar antifraude todos'), {});
-  conferir('vai direto à confirmação, só com o AIBM (o AIBM 2 já está ligado)', r.status === 'antifraude_confirmar' && /\*1 pátio\(s\)\*/.test(r.mensagemWhatsapp) && /• AIBM 1/.test(r.mensagemWhatsapp) && !/• AIBM 2/.test(r.mensagemWhatsapp), r.mensagemWhatsapp);
+  conferir('vai direto à confirmação, só com o AIBM 1 (o AIBM 2 já está ligado; os sem local ficam de fora e são avisados)', r.status === 'antifraude_confirmar' && /\*1 pátio\(s\)\*/.test(r.mensagemWhatsapp) && /• AIBM 1/.test(r.mensagemWhatsapp) && !/• AIBM 2/.test(r.mensagemWhatsapp) && /Não vou ligar/.test(r.mensagemWhatsapp) && /Solojet/.test(r.mensagemWhatsapp), r.mensagemWhatsapp);
   r = await processar(noAdm('sim'), {});
   conferir('religou', r.status === 'antifraude_ligado' && foto('aibm') && foto('aibm-2'), r.status);
   r = await processar(noAdm('ativar antifraude todos'), {});
-  conferir('já está ligado: diz que não há o que mudar', r.status === 'antifraude_sem_mudanca', r.status);
+  conferir('já ligado onde dá: só avisa dos pátios sem local (nada a ligar)', r.status === 'antifraude_sem_local' && /Solojet/.test(r.mensagemWhatsapp), r.status);
 
   console.log('\n4) NÃO, CANCELAR e respostas soltas não mudam nada');
   r = await processar(noAdm('desativar antifraude ambos'), {});
-  conferir('"ambos" vai direto à confirmação dos dois', r.status === 'antifraude_confirmar' && /todos os 2 pátios/.test(r.mensagemWhatsapp), r.status);
+  conferir('"ambos" vai direto à confirmação (só os 2 que estão ligados mudam)', r.status === 'antifraude_confirmar' && /\*2 pátio\(s\)\*/.test(r.mensagemWhatsapp) && /• AIBM 1/.test(r.mensagemWhatsapp) && /• AIBM 2/.test(r.mensagemWhatsapp), r.status);
   r = await processar(noAdm('talvez'), {});
   conferir('resposta solta pede SIM ou NÃO', r.status === 'antifraude_confirma_nao_entendido' && foto('aibm') && foto('aibm-2'), r.status);
   r = await processar(noAdm('não'), {});
@@ -102,7 +110,30 @@ const conferir = (nome, ok, detalhe) => { if (ok) return console.log(`  ok   ${n
   conferir('escolha pelo nome', r.status === 'antifraude_confirmar', r.status);
   await processar(noAdm('não'), {});
   r = await processar(noPrivado('ativar antifraude todos'), {});
-  conferir('funciona no privado de quem é admin (já ligado: sem mudança)', r.status === 'antifraude_sem_mudanca', r.status);
+  conferir('funciona no privado de quem é admin (já ligado onde dá)', r.status === 'antifraude_sem_local', r.status);
+
+  console.log('\n5b) Trava: não se liga onde não há local cadastrado');
+  await processar(noAdm('ativar antifraude'), {});
+  const nSolojet = (/\*(\d+)\* Solojet — /.exec((await processar(noAdm('ativar antifraude'), {})).mensagemWhatsapp) || [])[1];
+  r = await processar(noAdm(nSolojet), {});
+  conferir('escolher só o Solojet para ligar: recusa e explica', r.status === 'antifraude_sem_local' && /nenhum validaria/.test(r.mensagemWhatsapp), r.status);
+  conferir('nada mudou no Solojet', !foto('solojet'));
+  r = await processar(noAdm('desativar antifraude'), {});
+  r = await processar(noAdm(nSolojet), {});
+  conferir('DESLIGAR vale em qualquer pátio (já está desligado: sem mudança)', r.status === 'antifraude_sem_mudanca', r.status);
+
+  console.log('\n5c) Consulta: quais pátios estão com antifraude');
+  r = await processar(noAdm('quais pátios estão com antifraude'), {});
+  conferir('lista os ligados', r.status === 'antifraude_consulta' && /Ligado em 2:.*AIBM 1.*AIBM 2/.test(r.mensagemWhatsapp), r.mensagemWhatsapp);
+  conferir('separa os desligados sem local (não dá para ligar)', /sem local cadastrado/.test(r.mensagemWhatsapp) && /Solojet/.test(r.mensagemWhatsapp));
+  conferir('aponta como mudar', /ativar antifraude/.test(r.mensagemWhatsapp));
+  r = await processar(noAdm('antifraude'), {});
+  conferir('"antifraude" sozinho também consulta', r.status === 'antifraude_consulta', r.status);
+  await processar(noAdm('desativar antifraude'), {});
+  r = await processar(noAdm('status do antifraude'), {});
+  conferir('a consulta não atrapalha um comando em andamento (a escolha continua valendo)', r.status === 'antifraude_consulta', r.status);
+  r = await processar(noAdm('cancelar'), {});
+  conferir('...e o CANCELAR ainda funciona', r.status === 'antifraude_cancelado', r.status);
 
   console.log('\n6) Grupo de hangar NÃO comanda o antifraude');
   const antes = [foto('aibm'), foto('aibm-2')].join();
