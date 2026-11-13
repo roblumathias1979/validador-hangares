@@ -32,7 +32,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env'), override: t
 const { carregarConfig, buscarHangarPorGrupo } = require('./lib/hangar');
 const { comTrava, comTravaAsync, lerJson, salvarAtomico } = require('./lib/trava-arquivo');
 const { destinosAdmin } = require('./lib/admins');
-const { interpretarMensagem, extrairPlaca, interpretarEscolhaPatio, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoAntifraude, interpretarComandoCriarPatio, interpretarComandoAdicionarCota, interpretarPedidoRelatorioCota, formatarTelefone, interpretarPedidoCotaDisponivel, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoReiniciar, interpretarPedidoAtualizar, interpretarCreditoAws, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar } = require('./lib/whatsapp');
+const { interpretarMensagem, extrairPlaca, interpretarEscolhaPatio, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoAntifraude, interpretarPedidoPendencias, interpretarResposta, interpretarComandoCriarPatio, interpretarComandoAdicionarCota, interpretarPedidoRelatorioCota, formatarTelefone, interpretarPedidoCotaDisponivel, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoReiniciar, interpretarPedidoAtualizar, interpretarCreditoAws, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar } = require('./lib/whatsapp');
 // O cliente da Evolution vive em lib/evolution.js: o painel também precisa
 // mandar mensagem, e duas cópias do mesmo cliente divergiriam — inclusive no
 // `Connection: close`, que existe por um bug real de socket reaproveitado.
@@ -3142,7 +3142,18 @@ async function responderNoGrupoAdmin(msg, aoReceber) {
     };
   }
 
-  return await responderAutorizacaoPrivada(msg);
+  // O número do ticket na resposta ("NÃO 011011080357") só era entendido no
+  // PRIVADO: no grupo a frase inteira não era um sim/não, e o bot repetia a lista
+  // de pendências para sempre — com dois pedidos ou mais, o grupo não tinha como
+  // decidir. Aqui, só no grupo de administração, o número sai da frase antes de
+  // interpretar a resposta, como o privado faz. (Em grupo de hangar não: lá o
+  // cliente responde a uma pergunta do próprio ticket dele.)
+  let alvo = msg;
+  if (msg.tipo === 'texto' && msg.texto) {
+    const citado = (msg.texto.match(/\b(\d{12})\b/) || [])[1] || null;
+    if (citado) alvo = { ...msg, ticketCitado: citado, resposta: interpretarResposta(msg.texto.replace(citado, ' ').trim()) };
+  }
+  return await responderAutorizacaoPrivada(alvo);
 }
 
 // Liga/desliga o ANTIFRAUDE pelo WhatsApp da administração: a exigência de foto
@@ -3909,14 +3920,27 @@ async function responderAutorizacaoPrivada(msg) {
     if (!total) {
       return { status: 'ignorado', motivo: 'privado sem decisão e sem nada aguardando', grupoId: msg.grupoId, responder: false };
     }
+    // No GRUPO de administração, uma mensagem que o bot não entende (conversa, um
+    // comando com erro de digitação) NÃO despeja a lista inteira de novo: dava a
+    // impressão de o bot estar travado nela. Só um lembrete curto, com o caminho
+    // para ver a lista (*pendências*). No privado, a lista segue como sempre.
+    if (msg.tipo === 'texto' && !interpretarPedidoPendencias(msg.texto)) {
+      return {
+        status: 'autorizacao_nao_entendida', grupoId: msg.grupoId,
+        mensagemWhatsapp: `Não entendi essa mensagem. Há ${total} pedido(s) aguardando decisão — mande *pendências* para ver.`,
+        notificarAdmin: false, responder: true, etapa: 'autorizacao_privada',
+      };
+    }
     const linhasFat = fats.slice(0, 5).map((f) => `• 💰 ${f.ticket} — ${f.hangarId}, faturar R$ ${formatarReais(f.valor)}`);
     const linhasBloq = blocks.slice(0, 5).map((b) => `• 🚫 ${b.ticket} — ${b.hangarNome || b.hangarId}, pátio cheio`);
+    const exemplo = (fats[0] || blocks[0] || {}).ticket || '011809140000';
     return {
-      status: 'autorizacao_nao_entendida', grupoId: msg.grupoId,
+      // No grupo, a lista só sai quando pedida (*pendências*); no privado segue o status de sempre.
+      status: msg.tipo === 'texto' ? 'autorizacao_pendencias' : 'autorizacao_nao_entendida', grupoId: msg.grupoId,
       mensagemWhatsapp: `Há ${total} pedido(s) aguardando sua decisão:\n\n`
         + linhasFat.concat(linhasBloq).join('\n')
         + '\n\nResponda *SIM* para autorizar ou *NÃO* para recusar.'
-        + (total > 1 ? '\nCom mais de um, diga o número: _SIM 011809140000_' : ''),
+        + (total > 1 ? `\nCom mais de um, diga o número do ticket: _SIM ${exemplo}_` : ''),
       notificarAdmin: false, responder: true, etapa: 'autorizacao_privada',
     };
   }

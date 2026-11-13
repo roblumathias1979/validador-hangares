@@ -355,6 +355,17 @@ function interpretarComandoAntifraude(texto) {
 }
 
 /**
+ * Pedido da administração para VER as decisões em aberto ("pendências", "o que
+ * está aguardando", "pedidos"). Curto de propósito: em grupo as pessoas
+ * conversam, e uma frase longa que cita "pedido" é conversa, não comando.
+ */
+function interpretarPedidoPendencias(texto) {
+  const t = normalizar(texto || '');
+  if (!t || t.length > 60) return false;
+  return /\b(pendencias?|aguardando|pedidos|decisoes|autorizacoes)\b/.test(t);
+}
+
+/**
  * Comando da administração para CRIAR um pátio novo ("criar pátio", "cadastrar
  * um novo pátio", "novo hangar"). Devolve true/false.
  *
@@ -634,4 +645,4 @@ function interpretarMensagem(body) {
   };
 }
 
-module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus, interpretarPedidoPatio, interpretarEscolhaPatio, interpretarConsultaValidacao, interpretarComandoIdentificacao, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoAntifraude, interpretarComandoCriarPatio, interpretarComandoAdicionarCota, interpretarPedidoRelatorioCota, formatarTelefone, interpretarPedidoCotaDisponivel, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoReiniciar, interpretarPedidoAtualizar, interpretarCreditoAws, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar };
+module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus, interpretarPedidoPatio, interpretarEscolhaPatio, interpretarConsultaValidacao, interpretarComandoIdentificacao, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoAntifraude, interpretarPedidoPendencias, interpretarComandoCriarPatio, interpretarComandoAdicionarCota, interpretarPedidoRelatorioCota, formatarTelefone, interpretarPedidoCotaDisponivel, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoReiniciar, interpretarPedidoAtualizar, interpretarCreditoAws, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar };
