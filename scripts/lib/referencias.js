@@ -86,8 +86,15 @@ function guardar(hangarId, { mimetype, base64, rotulo }) {
   const pasta = pastaDe(hangarId);
   fs.mkdirSync(pasta, { recursive: true });
   const limpo = String(rotulo || 'referencia').toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 30) || 'referencia';
-  const nome = `${Date.now()}-${limpo}${tipo.ext}`;
-  fs.writeFileSync(path.join(pasta, nome), dados);
+  // Nome único mesmo com várias fotos no mesmo milissegundo (a troca pelo
+  // WhatsApp grava as 3 de uma vez): `wx` falha se o arquivo já existe, e aí
+  // tenta com um sufixo. Sem isto, duas fotos seguidas se sobrescreviam.
+  const base = `${Date.now()}-${limpo}`;
+  let nome = '';
+  for (let i = 0; ; i += 1) {
+    nome = i === 0 ? `${base}${tipo.ext}` : `${base}-${i}${tipo.ext}`;
+    try { fs.writeFileSync(path.join(pasta, nome), dados, { flag: 'wx' }); break; } catch (e) { if (e.code !== 'EEXIST') throw e; }
+  }
   return { nome, bytes: dados.length, usadoNaConferencia: tipo.imagem };
 }
 

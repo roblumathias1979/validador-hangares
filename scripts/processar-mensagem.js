@@ -32,7 +32,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env'), override: t
 const { carregarConfig, buscarHangarPorGrupo } = require('./lib/hangar');
 const { comTrava, comTravaAsync, lerJson, salvarAtomico } = require('./lib/trava-arquivo');
 const { destinosAdmin } = require('./lib/admins');
-const { interpretarMensagem, extrairPlaca, interpretarEscolhaPatio, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoAntifraude, interpretarConsultaAntifraude, interpretarPedidoPendencias, interpretarResposta, interpretarComandoCriarPatio, interpretarComandoAdicionarCota, interpretarPedidoRelatorioCota, formatarTelefone, interpretarPedidoCotaDisponivel, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoReiniciar, interpretarPedidoAtualizar, interpretarCreditoAws, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar } = require('./lib/whatsapp');
+const { interpretarMensagem, extrairPlaca, interpretarEscolhaPatio, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoAntifraude, interpretarConsultaAntifraude, interpretarComandoFotosPatio, interpretarPedidoPendencias, interpretarResposta, interpretarComandoCriarPatio, interpretarComandoAdicionarCota, interpretarPedidoRelatorioCota, formatarTelefone, interpretarPedidoCotaDisponivel, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoReiniciar, interpretarPedidoAtualizar, interpretarCreditoAws, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar } = require('./lib/whatsapp');
 // O cliente da Evolution vive em lib/evolution.js: o painel também precisa
 // mandar mensagem, e duas cópias do mesmo cliente divergiriam — inclusive no
 // `Connection: close`, que existe por um bug real de socket reaproveitado.
@@ -2992,6 +2992,11 @@ async function responderNoGrupoAdmin(msg, aoReceber) {
   if (pend && String(pend.tipo || '').startsWith('broadcast_')) {
     return await continuarBroadcast(msg, pend, config);
   }
+  // Troca de fotos de referência em andamento: as IMAGENS chegam por aqui.
+  if (pend && String(pend.tipo || '').startsWith('fotosref_')) {
+    const r = await responderFotosPatio(msg, config);
+    if (r) return r;
+  }
   if (pend && String(pend.tipo || '').startsWith('reiniciar_')
       && !(msg.tipo === 'texto' && interpretarPedidoReiniciar(msg.texto))) {
     return responderReiniciar(msg, pend);
@@ -3008,6 +3013,8 @@ async function responderNoGrupoAdmin(msg, aoReceber) {
   if (cmdFat) return cmdFat;
   const cmdAnti = responderComandoAntifraude(msg, config);
   if (cmdAnti) return cmdAnti;
+  const cmdFotos = await responderFotosPatio(msg, config);
+  if (cmdFotos) return cmdFotos;
   // Respostas dos fluxos de movimentação. Mas um PEDIDO NOVO ("entrada e saída…")
   // tem prioridade sobre uma pendência velha — senão uma oferta de PDF antiga
   // engoliria a nova consulta.
@@ -3154,6 +3161,131 @@ async function responderNoGrupoAdmin(msg, aoReceber) {
     if (citado) alvo = { ...msg, ticketCitado: citado, resposta: interpretarResposta(msg.texto.replace(citado, ' ').trim()) };
   }
   return await responderAutorizacaoPrivada(alvo);
+}
+
+// Troca das FOTOS DE REFERÊNCIA de um pátio pelo WhatsApp da administração: o bot
+// compara a foto do veículo do cliente com elas (conferência de local do
+// antifraude). Passo a passo — escolher o pátio, mandar até 3 fotos (uma por
+// mensagem ou várias de uma vez), responder PRONTO e confirmar com SIM. As fotos
+// ficam numa área de espera até o SIM, e as antigas são copiadas antes de saírem
+// (ver lib/referencias-whatsapp.js). Foto errada enfraquece ou trava a conferência
+// daquele pátio, por isso a confirmação mostra o que muda.
+//
+// Devolve a resposta, ou null quando a mensagem não é deste assunto. Imagem só
+// importa quando há uma coleta em andamento.
+const REGEX_PRONTO = /^\s*(pronto|prontinho|terminei|terminado|acabou|fim|feito|ok)\s*[.!]*\s*$/i;
+
+async function responderFotosPatio(msg, config) {
+  const refs = require('./lib/referencias-whatsapp');
+  const referencias = require('./lib/referencias');
+  const pend = pendencias.buscar(msg.grupoId, msg.remetenteId);
+  const emAndamento = pend && String(pend.tipo || '').startsWith('fotosref_');
+  const comando = msg.tipo === 'texto' && interpretarComandoFotosPatio(msg.texto);
+  if (!emAndamento && !comando) return null;
+
+  const resposta = (status, texto) => ({
+    status, grupoId: msg.grupoId, mensagemWhatsapp: texto,
+    notificarAdmin: false, responder: true, etapa: 'fotos_patio',
+  });
+  const nome = (id) => { const h = config.hangares.find((x) => x.id === id); return h ? (h.hangar || id) : id; };
+  const plural = (n) => `${n} foto${n === 1 ? '' : 's'}`;
+  const MAX = referencias.MAX_IMAGENS;
+  const limparColeta = (id) => { try { refs.limparPendentes(id); } catch (e) { /* já limpa */ } };
+
+  // Comando novo sempre recomeça (e larga o que estava na espera).
+  if (comando) {
+    if (emAndamento && pend.hangarId) limparColeta(pend.hangarId);
+    if (emAndamento) pendencias.consumir(msg.grupoId, msg.remetenteId);
+    const lista = hangaresComGrupo(config).map((h) => h.id);
+    if (!lista.length) return resposta('fotos_sem_patios', 'Não há nenhum pátio em operação cadastrado.');
+    pendencias.registrar(msg.grupoId, msg.remetenteId, { tipo: 'fotosref_patio', lista });
+    return resposta('fotos_escolher_patio',
+      '📷 *Atualizar fotos de referência* — de qual pátio?\n\nResponda o número ou o nome:\n\n'
+      + lista.map((id, i) => { const n = refs.contarAtuais(id); return `*${i + 1}* ${nome(id)} — ${n ? `📷 ${plural(n)}` : 'sem fotos'}`; }).join('\n')
+      + '\n\n_Para desistir, responda CANCELAR._');
+  }
+
+  if (msg.tipo === 'texto' && CANCELAR_BROADCAST.test(msg.texto || '')) {
+    if (pend.hangarId) limparColeta(pend.hangarId);
+    pendencias.consumir(msg.grupoId, msg.remetenteId);
+    return resposta('fotos_cancelado', 'Ok, nada mudou nas fotos de referência.');
+  }
+
+  // 1) escolher o pátio (um só)
+  if (pend.tipo === 'fotosref_patio') {
+    if (msg.tipo !== 'texto') return resposta('fotos_escolher_patio', 'Primeiro me diga *de qual pátio* (o número ou o nome da lista). _CANCELAR para desistir._');
+    const alvos = resolverAlvosBroadcast(msg.texto, pend.lista, config);
+    if (alvos.length !== 1) {
+      return resposta('fotos_patio_nao_entendido',
+        alvos.length > 1 ? 'Uma troca de cada vez: me diga *um só* pátio (o número da lista). _CANCELAR para desistir._'
+          : 'Não reconheci o pátio. Responda o *número* da lista ou o nome. _CANCELAR para desistir._');
+    }
+    const id = alvos[0];
+    limparColeta(id);
+    pendencias.consumir(msg.grupoId, msg.remetenteId);
+    pendencias.registrar(msg.grupoId, msg.remetenteId, { tipo: 'fotosref_coletando', hangarId: id });
+    const n = refs.contarAtuais(id);
+    return resposta('fotos_coletando',
+      `📷 Pátio *${nome(id)}* — hoje tem ${n ? plural(n) : 'nenhuma foto'} de referência.\n\n`
+      + `Mande agora as fotos *novas* (até ${MAX}), uma por mensagem ou várias de uma vez. Elas vão *substituir* as atuais.\n`
+      + 'Dica: fotos que mostrem o piso, a parede e o fundo do local, de ângulos diferentes — como o carro aparece estacionado.\n\n'
+      + 'Quando terminar, responda *PRONTO*. _CANCELAR para desistir._\n'
+      + `⏱️ Cada foto renova o prazo de ${pendencias.VALIDADE_MS / 60000} minutos.`);
+  }
+
+  // 2) receber as fotos
+  if (pend.tipo === 'fotosref_coletando') {
+    const id = pend.hangarId;
+    if (msg.tipo === 'imagem') {
+      let r;
+      try {
+        const img = await baixarImagemBase64(msg.messageId);
+        r = refs.guardarPendente(id, { mimetype: img.mediaType, base64: img.base64, idMensagem: msg.messageId });
+      } catch (erro) {
+        return resposta('fotos_erro', '⚠️ Não consegui baixar essa foto. Mande de novo.');
+      }
+      if (!r.ok) return resposta('fotos_recusada', `⚠️ ${r.motivo}`);
+      pendencias.registrar(msg.grupoId, msg.remetenteId, { tipo: 'fotosref_coletando', hangarId: id }); // renova o prazo
+      return resposta('fotos_recebida',
+        r.total > MAX
+          ? `📷 Recebi (${r.total}). Só uso as ${MAX} primeiras. Responda *PRONTO* para continuar.`
+          : `📷 Recebi a foto ${r.total} (até ${MAX}). Mande mais ou responda *PRONTO*.`);
+    }
+    if (msg.tipo === 'texto' && REGEX_PRONTO.test(msg.texto || '')) {
+      const qtd = Math.min(refs.listarPendentes(id).length, MAX);
+      if (!qtd) return resposta('fotos_nenhuma', 'Ainda não recebi nenhuma foto. Mande as fotos novas ou responda *CANCELAR*.');
+      const atuais = refs.contarAtuais(id);
+      pendencias.consumir(msg.grupoId, msg.remetenteId);
+      pendencias.registrar(msg.grupoId, msg.remetenteId, { tipo: 'fotosref_confirma', hangarId: id, qtd });
+      return resposta('fotos_confirmar',
+        `Vou *substituir* ${atuais ? `as ${plural(atuais)} atuais` : 'as fotos (hoje não há nenhuma)'} do *${nome(id)}* por *${plural(qtd)} nova${qtd === 1 ? '' : 's'}*.\n\n`
+        + 'As atuais ficam guardadas numa cópia. ⚠️ Fotos erradas enfraquecem ou travam a conferência de local deste pátio — confira que são do lugar certo.\n\n'
+        + 'Confirma? Responda *SIM* ou *NÃO*.');
+    }
+    return resposta('fotos_aguardando',
+      `Estou esperando as fotos do *${nome(id)}*. Mande as imagens e responda *PRONTO*, ou *CANCELAR* para desistir.`);
+  }
+
+  // 3) confirmar
+  if (msg.tipo !== 'texto' || (msg.resposta !== 'sim' && msg.resposta !== 'nao')) {
+    return resposta('fotos_confirma_nao_entendido', 'Responda *SIM* para trocar as fotos ou *NÃO* para cancelar.');
+  }
+  const id = pend.hangarId;
+  pendencias.consumir(msg.grupoId, msg.remetenteId);
+  if (msg.resposta === 'nao') {
+    limparColeta(id);
+    return resposta('fotos_cancelado', 'Ok, mantive as fotos atuais.');
+  }
+  let r;
+  try { r = refs.aplicar(id); } catch (erro) {
+    return { ...resposta('fotos_erro', `⚠️ ${erro.message}`), mensagem: erro.message, notificarAdmin: true };
+  }
+  return {
+    ...resposta('fotos_atualizadas',
+      `✅ Fotos de referência do *${nome(id)}* atualizadas: *${plural(r.novas)}* nova${r.novas === 1 ? '' : 's'}`
+      + `${r.substituidas ? ` (substituíram ${r.substituidas})` : ''}.\n\nA conferência de local já usa as novas.`),
+    mensagem: `Fotos de referência de ${nome(id)} trocadas por ${msg.remetente || msg.grupoId} via WhatsApp (${r.novas} nova(s), ${r.substituidas} substituída(s)).`,
+  };
 }
 
 // Liga/desliga o ANTIFRAUDE pelo WhatsApp da administração: a exigência de foto

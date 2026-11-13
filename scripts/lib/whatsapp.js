@@ -379,6 +379,22 @@ function interpretarConsultaAntifraude(texto) {
 }
 
 /**
+ * Comando da administração para TROCAR as fotos de referência de um pátio
+ * ("atualizar fotos dos pátios", "trocar as fotos de referência", "mandar novas
+ * fotos do local"). Exige foto + pátio/local/referência + um verbo de troca; só
+ * abre um menu, então um falso positivo custa uma resposta, não uma mudança.
+ */
+function interpretarComandoFotosPatio(texto) {
+  const t = normalizar(texto || '').trim();
+  if (!t || t.length > 90) return false;
+  if (!/\b(fotos?|imagens?)\b/.test(t)) return false;
+  // Verbo de troca + fotos já basta ("substituir fotos do AIBM"); "mandar/enviar"
+  // é comum demais em conversa, então esses exigem também pátio/local/referência.
+  if (/\b(atualiz\w+|troc\w+|substitu\w+)\b/.test(t)) return true;
+  return /\b(cadastr\w+|mand\w+|envi\w+|sub\w+)\b/.test(t) && /\b(patios?|hangar(es)?|local|locais|referencias?)\b/.test(t);
+}
+
+/**
  * Comando da administração para CRIAR um pátio novo ("criar pátio", "cadastrar
  * um novo pátio", "novo hangar"). Devolve true/false.
  *
@@ -658,4 +674,4 @@ function interpretarMensagem(body) {
   };
 }
 
-module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus, interpretarPedidoPatio, interpretarEscolhaPatio, interpretarConsultaValidacao, interpretarComandoIdentificacao, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoAntifraude, interpretarConsultaAntifraude, interpretarPedidoPendencias, interpretarComandoCriarPatio, interpretarComandoAdicionarCota, interpretarPedidoRelatorioCota, formatarTelefone, interpretarPedidoCotaDisponivel, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoReiniciar, interpretarPedidoAtualizar, interpretarCreditoAws, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar };
+module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus, interpretarPedidoPatio, interpretarEscolhaPatio, interpretarConsultaValidacao, interpretarComandoIdentificacao, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoAntifraude, interpretarConsultaAntifraude, interpretarComandoFotosPatio, interpretarPedidoPendencias, interpretarComandoCriarPatio, interpretarComandoAdicionarCota, interpretarPedidoRelatorioCota, formatarTelefone, interpretarPedidoCotaDisponivel, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoReiniciar, interpretarPedidoAtualizar, interpretarCreditoAws, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar };
