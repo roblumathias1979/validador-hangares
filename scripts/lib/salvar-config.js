@@ -27,8 +27,44 @@ const { comTrava } = require('./trava-arquivo');
 const RAIZ = path.join(__dirname, '..', '..');
 const CONFIG = path.join(RAIZ, 'config', 'hangares.json');
 
-function git(args) {
-  return execFileSync('git', args, { cwd: RAIZ, encoding: 'utf-8' }).trim();
+function git(args, raiz = RAIZ) {
+  return execFileSync('git', args, { cwd: raiz, encoding: 'utf-8' }).trim();
+}
+
+/**
+ * Envia o commit ao GitHub. Se o push for RECUSADO porque o GitHub andou (alguém
+ * mesclou na main enquanto o servidor tinha alteração local — o painel e o bot
+ * gravam aqui e eu/outros mesclam lá), busca, reaplica as alterações do servidor
+ * por cima e tenta de novo UMA vez. Sem isto os commits do servidor ficavam
+ * presos ("N alterações ainda não enviadas") e o `git pull` seguinte falhava com
+ * "divergent branches" — foi o que impediu a mudança do AIBM de chegar, em
+ * 13/11/2026. Conflito de verdade (os dois lados mexeram na MESMA chave) não se
+ * resolve sozinho: aborta, deixa tudo como estava e diz o motivo.
+ */
+function enviar(raiz, identidade) {
+  const empurrar = () => git(['push', 'origin', 'HEAD:main'], raiz);
+  try {
+    empurrar();
+    return { enviado: true };
+  } catch (e) {
+    const texto = String((e && e.message) || e);
+    if (!/rejected|non-fast-forward|fetch first|failed to push/i.test(texto)) {
+      return { enviado: false, motivo: texto.slice(0, 200) };
+    }
+  }
+  try {
+    git(['fetch', 'origin', 'main'], raiz);
+    git([...identidade, 'rebase', 'origin/main'], raiz);
+  } catch (e) {
+    try { git(['rebase', '--abort'], raiz); } catch (_) { /* não havia rebase em andamento */ }
+    return { enviado: false, motivo: 'o GitHub tem mudanças que conflitam com as do servidor — precisa juntar à mão (git pull --rebase)' };
+  }
+  try {
+    empurrar();
+    return { enviado: true, reconciliado: true };
+  } catch (e) {
+    return { enviado: false, motivo: String((e && e.message) || e).slice(0, 200) };
+  }
 }
 
 /**
@@ -36,32 +72,23 @@ function git(args) {
  * @param {string} resumo   o que mudou, em uma linha — vira a mensagem do commit
  * @param {string} autor    quem alterou ("Painel do Validador", "Bot do WhatsApp")
  */
-function salvarEComitar(config, resumo, autor = 'Painel do Validador') {
-  return comTrava(CONFIG, () => {
-    const antes = fs.readFileSync(CONFIG, 'utf-8');
-    fs.writeFileSync(CONFIG, `${JSON.stringify(config, null, 2)}\n`);
+function salvarEComitar(config, resumo, autor = 'Painel do Validador', { raiz = RAIZ } = {}) {
+  const arquivo = path.join(raiz, 'config', 'hangares.json');
+  const identidade = ['-c', `user.name=${autor}`, '-c', 'user.email=painel@validador.local'];
+  return comTrava(arquivo, () => {
+    const antes = fs.readFileSync(arquivo, 'utf-8');
+    fs.writeFileSync(arquivo, `${JSON.stringify(config, null, 2)}\n`);
     try {
-      git(['add', 'config/hangares.json']);
-      git([
-        '-c', `user.name=${autor}`,
-        '-c', 'user.email=painel@validador.local',
-        'commit', '-m', `${autor}: ${resumo}`,
-      ]);
-      const commit = git(['rev-parse', '--short', 'HEAD']);
-
-      let push = { enviado: false, motivo: 'sem tentativa' };
-      try {
-        git(['push', 'origin', 'HEAD:main']);
-        push = { enviado: true };
-      } catch (e) {
-        push = { enviado: false, motivo: String(e.message || e).slice(0, 200) };
-      }
-
-      return { commitado: true, commit, push };
+      git(['add', 'config/hangares.json'], raiz);
+      git([...identidade, 'commit', '-m', `${autor}: ${resumo}`], raiz);
     } catch (erro) {
-      fs.writeFileSync(CONFIG, antes);
+      fs.writeFileSync(arquivo, antes);
       throw new Error(`Não consegui commitar, alteração desfeita: ${erro.message.slice(0, 200)}`);
     }
+    const push = enviar(raiz, identidade);
+    // Depois de reaplicar por cima do GitHub o hash mudou: devolve o de agora.
+    const commit = git(['rev-parse', '--short', 'HEAD'], raiz);
+    return { commitado: true, commit, push };
   });
 }
 

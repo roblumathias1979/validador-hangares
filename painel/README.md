@@ -51,11 +51,15 @@ Commitando, o git segue sendo a fonte da verdade e o histórico vira auditoria:
 quem mudou a cota do Alljet, quando, e de quanto para quanto. Se o commit
 falhar, a escrita é desfeita — o arquivo nunca fica divergindo do git.
 
-**O servidor não tem credencial de escrita no GitHub**, então o push não
-acontece: os commits ficam locais e o painel mostra quantos estão pendentes de
-envio. As mudanças valem em produção normalmente; o que falta é só o envio para
-o repositório remoto. Para resolver de vez, é preciso cadastrar uma deploy key
-do servidor no GitHub.
+Depois de commitar, o servidor faz `git push origin HEAD:main`. Se o push for
+**recusado** porque o GitHub recebeu mudanças novas (alguém mesclou na `main`),
+ele busca, reaplica a alteração por cima (`rebase`) e envia de novo — sem
+intervenção (desde 13/11/2026; antes disso os commits ficavam presos e o
+`git pull` seguinte falhava com "divergent branches"). Se as duas pontas mudaram
+a **mesma chave**, ele não decide por você: deixa tudo como estava, o painel
+mostra quantos commits estão pendentes e a causa, e a junção é manual
+(`git pull --rebase` no servidor). As mudanças valem em produção normalmente
+mesmo sem o envio; o que falta é só o repositório remoto.
 
 ## Não há "esqueci minha senha"
 
