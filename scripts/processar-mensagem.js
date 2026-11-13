@@ -1270,6 +1270,7 @@ async function conduzir(body, { aoReceber } = {}) {
     // resposta é a mesma de qualquer jeito.
     const reuso = fotosUsadas.jaUsada(imagemVeiculo.base64);
     if (reuso) {
+      pedido.tentativasFoto = (pedido.tentativasFoto || 0) + 1;
       pendencias.registrar(msg.grupoId, msg.remetenteId, pedido);
       return {
         status: 'foto_reutilizada',
@@ -1333,6 +1334,7 @@ async function conduzir(body, { aoReceber } = {}) {
     // A pendência é REGRAVADA nos dois casos de recusa: o cliente reenvia só a
     // foto do carro, sem precisar mandar o ticket de novo. Ela vence em 5 min.
     if (local.local !== 'compativel') {
+      pedido.tentativasFoto = (pedido.tentativasFoto || 0) + 1;
       pendencias.registrar(msg.grupoId, msg.remetenteId, pedido);
       const incompativel = local.local === 'incompativel';
       return {
@@ -1353,10 +1355,14 @@ async function conduzir(body, { aoReceber } = {}) {
       };
     }
 
-    // Local compatível: antes de validar, pergunta se o veículo pertence ao ticket
-    // (ver o bloco "Confirmação do veículo", mais acima). `confirmarVeiculoNoTicket:
-    // false` no config do pátio volta ao comportamento antigo (valida direto).
-    if (hangar.confirmarVeiculoNoTicket !== false) {
+    // Local compatível. Se foi a PRIMEIRA foto do carro depois do ticket, o vínculo
+    // é inequívoco (veio na sequência do pedido) e valida direto. Se a verificação
+    // já não concluiu antes (foto indeterminada, incompatível ou reutilizada), há
+    // mais de uma foto na conversa e é aí que o carro se perde do ticket: antes de
+    // validar, pergunta se o veículo pertence ao ticket (ver "Confirmação do
+    // veículo", mais acima). `confirmarVeiculoNoTicket: false` no config do pátio
+    // nunca pergunta.
+    if (hangar.confirmarVeiculoNoTicket !== false && (pedido.tentativasFoto || 0) > 0) {
       const hashVeiculo = fotosUsadas.impressaoDigital(imagemVeiculo.base64);
       pendencias.registrar(msg.grupoId, msg.remetenteId, { ...pedido, tipo: 'confirmar_veiculo', hashVeiculo, placaLida: r.placa || null, infoLocal });
       return {
@@ -1372,6 +1378,11 @@ async function conduzir(body, { aoReceber } = {}) {
     }
 
     const resultado = { ...infoLocal, ...(await validar(hangar, msg, pedido, false)) };
+    if (resultado.status === 'validado' && resultado.mensagemWhatsapp) {
+      // O aviso repete ticket e placa: prende a foto do carro ao ticket na conversa.
+      const placaVisivel = (pedido.placa && pedido.placa !== (hangar.placaGenerica || 'AAA0000')) ? pedido.placa : (r.placa || null);
+      resultado.mensagemWhatsapp += `\n\n🚗 Veículo${placaVisivel ? ` ${placaVisivel}` : ''} vinculado ao ticket ${pedido.ticket}.`;
+    }
 
     // Queima a foto SÓ quando validou. Registrar antes faria o cliente perder
     // uma foto boa por causa de um erro nosso — pátio cheio, site fora do ar —

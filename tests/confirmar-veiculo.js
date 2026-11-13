@@ -1,17 +1,20 @@
 #!/usr/bin/env node
 /**
- * "Esse veículo pertence ao ticket X?" (13/11/2026).
+ * Vínculo do veículo ao ticket no antifraude (13/11/2026).
  *
- * No antifraude (AIBM 1 e 2), depois que a foto do veículo passa na conferência
- * de local, o bot pergunta se o veículo pertence ao ticket antes de validar. A
- * foto do carro, no grupo, se perdia entre as outras mensagens; a pergunta cola
- * o número do ticket e a placa lida logo abaixo dela.
+ * A foto do carro, no grupo, se perdia entre as outras mensagens e depois ninguém
+ * sabia de qual ticket era. Regra:
+ *  - a PRIMEIRA foto do carro depois do ticket confere (local compatível): valida
+ *    direto, e o aviso final já diz "Veículo X vinculado ao ticket Y";
+ *  - se a verificação não concluiu (indeterminado, incompatível ou foto
+ *    reutilizada), o bot pede outra foto; quando ela conferir, PERGUNTA "esse
+ *    veículo pertence ao ticket X?" antes de validar (agora há mais de uma foto);
+ *  - `confirmarVeiculoNoTicket: false` nunca pergunta.
  *
- * Protege: a pergunta traz ticket e placa e NÃO valida nem gasta a foto; SIM valida
- * e o aviso final repete ticket e placa; NÃO cancela e devolve o pedido da foto do
- * veículo; resposta solta não valida; placa corrigida à mão vale; foto reutilizada
- * continua sendo barrada ANTES da pergunta; local incompatível não pergunta; e
- * `confirmarVeiculoNoTicket: false` volta a validar direto.
+ * Protege: validação direta na primeira foto; a pergunta só depois de tentativa
+ * anterior, com ticket e placa, sem validar nem gastar a foto; SIM valida; NÃO
+ * devolve o pedido; resposta solta e SIM de outra pessoa não validam; placa
+ * corrigida à mão vale; foto reutilizada continua barrada antes de tudo.
  */
 
 const fs = require('fs');
@@ -65,50 +68,72 @@ const abrirPedido = (ticket) => pendencias.registrar(GRUPO, PESSOA, { ticket, pl
 
 let falhas = 0;
 const conferir = (nome, ok, detalhe) => { if (ok) return console.log(`  ok   ${nome}`); falhas += 1; console.log(`  FALHA ${nome}${detalhe ? ` — ${detalhe}` : ''}`); };
+const compat = (placa = 'TKM1I33') => ({ local: 'compativel', localMotivo: 'bate', cenario: 'concreto', placa });
 
 (async () => {
-  console.log('1) A pergunta');
+  console.log('1) Primeira foto do carro confere: valida direto');
   abrirPedido('011609000100');
   let r = await processar(foto(), {});
-  conferir('local compatível: pergunta em vez de validar', r.status === 'confirmar_veiculo_ticket', r.status);
-  conferir('traz o número do ticket', /011609000100/.test(r.mensagemWhatsapp));
-  conferir('traz a placa lida', /TKM1I33/.test(r.mensagemWhatsapp));
-  conferir('diz que o local confere', /confere com o \*AIBM 1\*/.test(r.mensagemWhatsapp), r.mensagemWhatsapp);
-  conferir('NÃO validou ainda', validacoes.length === 0);
-  conferir('a foto ainda não foi gasta', fotosUsadas.jaUsada(FOTO) === null);
+  conferir('valida direto, sem perguntar', r.status === 'validado' && validacoes.length === 1 && validacoes[0].ticket === '011609000100', r.status);
+  conferir('o aviso final amarra o veículo ao ticket', /Veículo TKM1I33 vinculado ao ticket 011609000100/.test(r.mensagemWhatsapp), r.mensagemWhatsapp);
+  conferir('a foto do carro foi gasta (par com a do ticket)', fotosUsadas.jaUsada(FOTO) !== null);
+  conferir('não sobra pendência', pendencias.buscar(GRUPO, PESSOA) === null);
+
+  console.log('\n2) Verificação não concluiu: pede outra foto; quando conferir, PERGUNTA');
+  zerar(); validacoes = []; fotoAtual = Buffer.from('carro-2a').toString('base64');
+  respostaLocal = { local: 'indeterminado', localMotivo: 'close demais', cenario: 'x', placa: null };
+  abrirPedido('011609000200');
+  r = await processar(foto(), {});
+  conferir('indeterminado: pede outra foto, não pergunta nada', r.status === 'local_indeterminado' && validacoes.length === 0, r.status);
+  conferir('o pedido segue aberto com 1 tentativa', (pendencias.buscar(GRUPO, PESSOA) || {}).tentativasFoto === 1);
+  fotoAtual = Buffer.from('carro-2b').toString('base64');
+  respostaLocal = compat('TKM1I33');
+  r = await processar(foto(), {});
+  conferir('a segunda foto confere: pergunta se pertence ao ticket', r.status === 'confirmar_veiculo_ticket', r.status);
+  conferir('a pergunta traz ticket e placa', /011609000200/.test(r.mensagemWhatsapp) && /TKM1I33/.test(r.mensagemWhatsapp), r.mensagemWhatsapp);
+  conferir('diz que o local confere', /confere com o \*AIBM 1\*/.test(r.mensagemWhatsapp));
+  conferir('NÃO validou nem gastou a foto ainda', validacoes.length === 0 && fotosUsadas.jaUsada(fotoAtual) === null);
   conferir('a pendência virou "confirmar_veiculo"', (pendencias.buscar(GRUPO, PESSOA) || {}).tipo === 'confirmar_veiculo');
 
-  console.log('\n2) Resposta solta e de outra pessoa não validam');
+  console.log('\n3) Resposta solta e de outra pessoa não validam');
   r = await processar(texto('talvez'), {});
-  conferir('texto solto pede SIM ou NÃO', r.status === 'confirmacao_veiculo_nao_entendida' && /011609000100/.test(r.mensagemWhatsapp), r.status);
+  conferir('texto solto pede SIM ou NÃO', r.status === 'confirmacao_veiculo_nao_entendida' && /011609000200/.test(r.mensagemWhatsapp), r.status);
   r = await processar(texto('sim', OUTRA), {});
   conferir('um SIM de OUTRA pessoa do grupo não valida', validacoes.length === 0 && (r.responder === false || r.status === 'ignorado'), r.status);
 
-  console.log('\n3) SIM valida e o aviso repete ticket e placa');
+  console.log('\n4) SIM valida e o aviso repete ticket e placa');
   r = await processar(texto('sim'), {});
-  conferir('valida', r.status === 'validado' && validacoes.length === 1 && validacoes[0].ticket === '011609000100', r.status);
-  conferir('o aviso final amarra o veículo ao ticket', /Veículo TKM1I33 vinculado ao ticket 011609000100/.test(r.mensagemWhatsapp), r.mensagemWhatsapp);
-  conferir('agora a foto do carro foi gasta (par com a do ticket)', fotosUsadas.jaUsada(FOTO) !== null);
+  conferir('valida', r.status === 'validado' && validacoes.length === 1 && validacoes[0].ticket === '011609000200', r.status);
+  conferir('o aviso final amarra o veículo ao ticket', /Veículo TKM1I33 vinculado ao ticket 011609000200/.test(r.mensagemWhatsapp), r.mensagemWhatsapp);
+  conferir('agora a foto foi gasta', fotosUsadas.jaUsada(fotoAtual) !== null);
   conferir('registra quem confirmou', r.veiculoConfirmadoPor === 'Cliente');
   conferir('não sobra pendência', pendencias.buscar(GRUPO, PESSOA) === null);
 
-  console.log('\n4) NÃO cancela e devolve o pedido da foto do veículo');
-  zerar(); validacoes = []; fotoAtual = Buffer.from('outro-carro-4').toString('base64');
-  abrirPedido('011609000200');
+  console.log('\n5) NÃO cancela e devolve o pedido da foto do veículo');
+  zerar(); validacoes = [];
+  respostaLocal = { local: 'incompativel', localMotivo: 'asfalto com faixa amarela', cenario: 'x', placa: null };
+  fotoAtual = Buffer.from('carro-5a').toString('base64');
+  abrirPedido('011609000300');
+  r = await processar(foto(), {});
+  conferir('local incompatível: bloqueia, avisa a administração, sem pergunta', r.status === 'local_incompativel' && r.notificarAdmin === true, r.status);
+  respostaLocal = compat('TKM1I33'); fotoAtual = Buffer.from('carro-5b').toString('base64');
   await processar(foto(), {});
   r = await processar(texto('não'), {});
-  conferir('não valida', r.status === 'veiculo_nao_confere' && validacoes.length === 0, r.status);
-  conferir('a foto não foi gasta', fotosUsadas.jaUsada(fotoAtual) === null);
-  const p4 = pendencias.buscar(GRUPO, PESSOA) || {};
-  conferir('o pedido da foto do veículo volta (dá para reenviar a certa)', p4.tipo === 'foto_local' && p4.ticket === '011609000200', JSON.stringify(p4));
+  conferir('NÃO: não valida', r.status === 'veiculo_nao_confere' && validacoes.length === 0, r.status);
+  const p5 = pendencias.buscar(GRUPO, PESSOA) || {};
+  conferir('o pedido da foto do veículo volta (dá para reenviar a certa)', p5.tipo === 'foto_local' && p5.ticket === '011609000300', JSON.stringify(p5));
   conferir('a mensagem orienta os dois casos', /foto do veículo certo/.test(r.mensagemWhatsapp) && /ticket é outro/.test(r.mensagemWhatsapp));
-  fotoAtual = Buffer.from('carro-certo-4').toString('base64');
+  fotoAtual = Buffer.from('carro-5c').toString('base64');
   r = await processar(foto(), {});
-  conferir('reenviando a foto certa, pergunta de novo', r.status === 'confirmar_veiculo_ticket', r.status);
+  conferir('reenviando, pergunta de novo (já houve tentativa)', r.status === 'confirmar_veiculo_ticket', r.status);
 
-  console.log('\n5) Placa corrigida à mão');
-  zerar(); validacoes = []; fotoAtual = Buffer.from('carro-5').toString('base64');
-  abrirPedido('011609000300');
+  console.log('\n6) Placa corrigida à mão');
+  zerar(); validacoes = [];
+  respostaLocal = { local: 'indeterminado', localMotivo: 'x', cenario: 'x', placa: null };
+  fotoAtual = Buffer.from('carro-6a').toString('base64');
+  abrirPedido('011609000400');
+  await processar(foto(), {});
+  respostaLocal = compat('TKM1I33'); fotoAtual = Buffer.from('carro-6b').toString('base64');
   await processar(foto(), {});
   r = await processar(texto('placa ABC1D23'), {});
   conferir('anota a placa e repete a pergunta', r.status === 'placa_anotada' && /ABC1D23/.test(r.mensagemWhatsapp), r.status);
@@ -116,34 +141,36 @@ const conferir = (nome, ok, detalhe) => { if (ok) return console.log(`  ok   ${n
   conferir('valida com a placa corrigida', r.status === 'validado' && validacoes[0].placa === 'ABC1D23', JSON.stringify(validacoes));
   conferir('o aviso mostra a placa corrigida', /Veículo ABC1D23 vinculado/.test(r.mensagemWhatsapp), r.mensagemWhatsapp);
 
-  console.log('\n6) O que NÃO pergunta');
-  zerar(); validacoes = []; fotoAtual = Buffer.from('carro-6').toString('base64');
-  respostaLocal = { local: 'incompativel', localMotivo: 'asfalto com faixa amarela', cenario: 'x', placa: null };
-  abrirPedido('011609000400');
-  r = await processar(foto(), {});
-  conferir('local incompatível: bloqueia, sem pergunta', r.status === 'local_incompativel' && r.notificarAdmin === true, r.status);
-  respostaLocal = { local: 'indeterminado', localMotivo: 'close', cenario: 'x', placa: null };
-  r = await processar(foto(), {});
-  conferir('local indeterminado: pede outra foto, sem pergunta', r.status === 'local_indeterminado', r.status);
-  respostaLocal = { local: 'compativel', localMotivo: 'bate', cenario: 'concreto', placa: null };
-  r = await processar(foto(), {});
-  conferir('sem placa lida, a pergunta avisa', r.status === 'confirmar_veiculo_ticket' && /Não consegui ler a placa/.test(r.mensagemWhatsapp), r.status);
-  r = await processar(texto('sim'), {});
-  conferir('e o aviso final não inventa placa', r.status === 'validado' && /Veículo vinculado ao ticket/.test(r.mensagemWhatsapp), r.mensagemWhatsapp);
-
-  console.log('\n7) Foto reutilizada continua barrada ANTES da pergunta');
-  respostaLocal = { local: 'compativel', localMotivo: 'bate', cenario: 'concreto', placa: 'TKM1I33' };
+  console.log('\n7) Sem placa lida');
+  zerar(); validacoes = [];
+  respostaLocal = compat(null); fotoAtual = Buffer.from('carro-7').toString('base64');
   abrirPedido('011609000500');
   r = await processar(foto(), {});
-  conferir('mesma foto de um ticket já validado: recusa', r.status === 'foto_reutilizada' && r.notificarAdmin === true, r.status);
+  conferir('primeira foto sem placa: valida direto', r.status === 'validado', r.status);
+  conferir('o aviso não inventa placa', /Veículo vinculado ao ticket 011609000500/.test(r.mensagemWhatsapp), r.mensagemWhatsapp);
 
-  console.log('\n8) A chave confirmarVeiculoNoTicket: false volta a validar direto');
+  console.log('\n8) Foto reutilizada continua barrada, e conta como tentativa');
+  zerar(); validacoes = [];
+  respostaLocal = compat('TKM1I33'); fotoAtual = FOTO;
+  abrirPedido('011609000600');
+  await processar(foto(), {});                      // gasta FOTO
+  abrirPedido('011609000601');
+  r = await processar(foto(), {});
+  conferir('mesma foto de um ticket já validado: recusa e avisa a administração', r.status === 'foto_reutilizada' && r.notificarAdmin === true, r.status);
+  fotoAtual = Buffer.from('carro-8b').toString('base64');
+  r = await processar(foto(), {});
+  conferir('a foto nova depois do reuso: pergunta se pertence ao ticket', r.status === 'confirmar_veiculo_ticket' && /011609000601/.test(r.mensagemWhatsapp), r.status);
+
+  console.log('\n9) confirmarVeiculoNoTicket: false nunca pergunta');
   zerar(); validacoes = [];
   cenario.montar({ hangares: { aibm: { exigeFotoVeiculoNoLocal: true, confirmarVeiculoNoTicket: false } }, zerarDados: false });
-  fotoAtual = Buffer.from('carro-8').toString('base64');
-  abrirPedido('011609000600');
+  respostaLocal = { local: 'indeterminado', localMotivo: 'x', cenario: 'x', placa: null };
+  fotoAtual = Buffer.from('carro-9a').toString('base64');
+  abrirPedido('011609000700');
+  await processar(foto(), {});
+  respostaLocal = compat('TKM1I33'); fotoAtual = Buffer.from('carro-9b').toString('base64');
   r = await processar(foto(), {});
-  conferir('valida direto, sem pergunta', r.status === 'validado' && validacoes.length === 1, r.status);
+  conferir('mesmo depois de uma tentativa, valida direto', r.status === 'validado' && validacoes.length === 1, r.status);
 
   console.log(`\n${falhas ? `${falhas} falha(s)` : 'tudo certo'}`);
   process.exit(falhas ? 1 : 0);

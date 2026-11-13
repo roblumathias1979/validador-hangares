@@ -111,11 +111,6 @@ function payloadFotoCarro() {
   };
 }
 
-// Resposta de texto de quem mandou a foto (a pergunta "esse veículo pertence ao ticket?").
-function payloadTexto(t) {
-  return { data: { key: { remoteJid: GRUPO_AIBM1, fromMe: false, id: `X${Math.random()}`, participant: REMETENTE }, pushName: 'Teste', message: { conversation: t } } };
-}
-
 function pendenciaDeFoto(ticket) {
   pendencias.registrar(GRUPO_AIBM1, REMETENTE, {
     ticket, placa: null, placaEhGenerica: true,
@@ -138,10 +133,7 @@ async function main() {
   console.log('Primeira vez: foto nova valida normalmente');
   pendenciaDeFoto('011609000001');
   const primeira = await processar(payloadFotoCarro(), {});
-  conferir('pergunta se o veículo pertence ao ticket', primeira.status === 'confirmar_veiculo_ticket', `veio "${primeira.status}"`);
-  conferir('a foto ainda NÃO é gasta (só quando a validação sai)', fotosUsadas.jaUsada(FOTO) === null);
-  const confirmou = await processar(payloadTexto('sim'), {});
-  conferir('valida', confirmou.status === 'validado', `veio "${confirmou.status}"`);
+  conferir('valida', primeira.status === 'validado', `veio "${primeira.status}"`);
   conferir('a foto fica registrada como gasta', fotosUsadas.jaUsada(FOTO) !== null);
 
   console.log('\nMesma foto, outro ticket: tem que recusar');
@@ -163,8 +155,7 @@ async function main() {
   fs.writeFileSync(path.join(RAIZ, 'data/fotos-usadas.json'), '{}');
   respostaDaValidacao = { status: 'sem_vagas', mensagemWhatsapp: 'sem vagas', vagasDisponiveis: 0, totalVagas: 12 };
   pendenciaDeFoto('011609000003');
-  await processar(payloadFotoCarro(), {});
-  const semVagas = await processar(payloadTexto('sim'), {});
+  const semVagas = await processar(payloadFotoCarro(), {});
   conferir('não validou', semVagas.status === 'sem_vagas', `veio "${semVagas.status}"`);
   conferir('a foto continua valendo', fotosUsadas.jaUsada(FOTO) === null);
 
@@ -185,9 +176,7 @@ async function main() {
   // Passo 2: foto do veículo fecha e valida.
   fotoAtual = FOTO_CARRO;
   const passo2 = await processar(payloadFotoCarro(), {});
-  conferir('foto do veículo pergunta se pertence ao ticket', passo2.status === 'confirmar_veiculo_ticket', `veio "${passo2.status}"`);
-  const passo3 = await processar(payloadTexto('sim'), {});
-  conferir('o SIM valida', passo3.status === 'validado', `veio "${passo3.status}"`);
+  conferir('foto do veículo valida', passo2.status === 'validado', `veio "${passo2.status}"`);
   conferir('a foto do TICKET foi gasta', fotosUsadas.jaUsada(FOTO_TICKET) !== null);
   conferir('a foto do VEÍCULO foi gasta', fotosUsadas.jaUsada(FOTO_CARRO) !== null);
   const reg = fotosUsadas.jaUsada(FOTO_TICKET) || {};
