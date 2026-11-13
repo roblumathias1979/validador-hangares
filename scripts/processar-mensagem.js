@@ -868,6 +868,59 @@ async function conduzir(body, { aoReceber } = {}) {
       }
     }
 
+    // Confirmação do veículo: "esse veículo pertence ao ticket X?". Perguntada DEPOIS
+    // de a conferência de local passar e ANTES de validar. A foto do carro, no
+    // grupo, se perdia entre as outras mensagens e depois ninguém sabia de qual
+    // ticket ela era; a pergunta cola o número do ticket (e a placa lida) logo
+    // abaixo da foto, e só o SIM de quem mandou valida. A foto só é "gasta" (par
+    // com a do ticket) quando a validação sai, como antes.
+    if (pendente.tipo === 'confirmar_veiculo') {
+      const placaTxt = pendente.placaLida ? ` (placa *${pendente.placaLida}*)` : '';
+      if (msg.resposta === 'nao') {
+        if (!pendencias.consumir(msg.grupoId, msg.remetenteId)) {
+          return { status: 'ignorado', motivo: 'pendência já consumida por outra mensagem', grupoId: msg.grupoId, responder: false };
+        }
+        // O pedido da foto do veículo volta: se foi só a foto errada, reenvia a certa.
+        const { tipo: _t, hashVeiculo: _h, placaLida: _p, infoLocal: _i, criadoEm: _c, ...resto } = pendente;
+        pendencias.registrar(msg.grupoId, msg.remetenteId, { ...resto, tipo: 'foto_local' });
+        return {
+          status: 'veiculo_nao_confere', hangarId: hangar.id, grupoId: msg.grupoId, ticket: pendente.ticket,
+          mensagemWhatsapp: `Ok, *não* validei o ticket ${pendente.ticket}.\n\n`
+            + `Se o ticket é esse e a foto era de outro carro, mande a foto do veículo certo (o pedido fica aberto por ${pendencias.VALIDADE_MS / 60000} minutos). `
+            + 'Se o ticket é outro, mande a foto dele.',
+          notificarAdmin: false, responder: true, etapa: 'confirmacao_veiculo',
+        };
+      }
+      if (msg.resposta !== 'sim') {
+        return {
+          status: 'confirmacao_veiculo_nao_entendida', hangarId: hangar.id, grupoId: msg.grupoId, ticket: pendente.ticket,
+          mensagemWhatsapp: `Esse veículo${placaTxt} pertence ao ticket *${pendente.ticket}*? Responda *SIM* para validar ou *NÃO*. `
+            + '_Se a placa estiver errada, escreva a placa certa._',
+          notificarAdmin: false, responder: true, etapa: 'confirmacao_veiculo',
+        };
+      }
+      const pedido = pendencias.consumir(msg.grupoId, msg.remetenteId);
+      if (!pedido) {
+        return { status: 'ignorado', motivo: 'pendência já consumida por outra mensagem', grupoId: msg.grupoId, responder: false };
+      }
+      const resultado = { ...(pedido.infoLocal || {}), ...(await validar(hangar, msg, pedido, false)), veiculoConfirmadoPor: msg.remetente || null };
+      if (resultado.status === 'validado') {
+        try {
+          fotosUsadas.registrarPar({
+            hashes: [pedido.hashTicket, pedido.hashVeiculo],
+            hangarId: hangar.id, ticket: pedido.ticket, grupoId: msg.grupoId, remetente: msg.remetente, placa: pedido.placa,
+          });
+        } catch (e) { resultado.fotoNaoRegistrada = e.message; }
+        // O aviso final repete ticket e placa: é o que prende a foto ao ticket no grupo.
+        if (resultado.mensagemWhatsapp) {
+          // A placa corrigida à mão vale mais que a lida; a genérica do pátio não aparece.
+          const placaVisivel = (pedido.placa && pedido.placa !== (hangar.placaGenerica || 'AAA0000')) ? pedido.placa : (pedido.placaLida || null);
+          resultado.mensagemWhatsapp += `\n\n🚗 Veículo${placaVisivel ? ` ${placaVisivel}` : ''} vinculado ao ticket ${pedido.ticket}.`;
+        }
+      }
+      return resultado;
+    }
+
     // Pendência de foto não se responde com texto: reforça o que falta em vez
     // de tratar "sim" como resposta a uma pergunta que não foi feita.
     if (pendente.tipo === 'foto_local') {
@@ -1297,6 +1350,24 @@ async function conduzir(body, { aoReceber } = {}) {
         notificarAdmin: incompativel,
         responder: true,
         etapa: 'conferencia_local',
+      };
+    }
+
+    // Local compatível: antes de validar, pergunta se o veículo pertence ao ticket
+    // (ver o bloco "Confirmação do veículo", mais acima). `confirmarVeiculoNoTicket:
+    // false` no config do pátio volta ao comportamento antigo (valida direto).
+    if (hangar.confirmarVeiculoNoTicket !== false) {
+      const hashVeiculo = fotosUsadas.impressaoDigital(imagemVeiculo.base64);
+      pendencias.registrar(msg.grupoId, msg.remetenteId, { ...pedido, tipo: 'confirmar_veiculo', hashVeiculo, placaLida: r.placa || null, infoLocal });
+      return {
+        ...infoLocal,
+        status: 'confirmar_veiculo_ticket', hangarId: hangar.id, grupoId: msg.grupoId, ticket: pedido.ticket,
+        mensagemWhatsapp: `✅ A foto confere com o *${hangar.hangar || hangar.id}*.\n\n`
+          + (r.placa ? `🚗 Placa lida: *${r.placa}*\n` : '🚗 Não consegui ler a placa nesta foto.\n')
+          + `🎫 Esse veículo pertence ao ticket *${pedido.ticket}*?\n\n`
+          + 'Responda *SIM* para validar ou *NÃO* para cancelar.\n'
+          + `⏱️ Pedido aberto por ${pendencias.VALIDADE_MS / 60000} minutos.`,
+        notificarAdmin: false, responder: true, etapa: 'confirmacao_veiculo',
       };
     }
 

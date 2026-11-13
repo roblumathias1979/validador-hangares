@@ -64,9 +64,10 @@
       "exigeFotoVeiculoNoLocal": false,
       "_observacao_administracao": "Conversa PRIVADA do administrador (pushName 'estacionamento', 272447123230847@lid), não um grupo — o campo aceita os dois formatos. Escolha do usuário em 15/09/2026. Ressalva registrada: concentrar os avisos numa pessoa significa que férias, doença ou troca de número deixam os alertas sem ninguém, e nada avisa que isso aconteceu. Trocar para um grupo de administração é mudança só neste campo, sem mexer em código.",
       "_observacao_grupo": "O que vale para o roteamento é grupoWhatsappId, não este nome: o ID do WhatsApp é imutável e renomear o grupo não o altera (confirmado em 16/09/2026, quando o grupo foi renomeado e nada quebrou). Este campo é só rótulo para leitura humana. ATENÇÃO: apagar e recriar o grupo GERA UM ID NOVO — aí o bot para de reconhecer as mensagens até este config ser atualizado.",
-      "perguntarIdentificacao": true,
+      "perguntarIdentificacao": false,
       "avisarPatioCheio": true,
-      "bolsaoTechparking": "HANGAR SOLOJET"
+      "bolsaoTechparking": "HANGAR SOLOJET",
+      "placaObrigatoria": false
     },
     {
       "id": "aibm",
@@ -124,7 +125,8 @@
       "bolsaoTechparking": "AIBM",
       "permiteValidarForaDoPrazo": false,
       "faturamentoDesligado": false,
-      "avisarPatioCheio": true
+      "avisarPatioCheio": true,
+      "placaObrigatoria": false
     },
     {
       "id": "aibm-2",
@@ -155,7 +157,7 @@
       },
       "placaGenerica": "AAA0000",
       "prazoValidacaoHoras": 2,
-      "exigeFotoVeiculoNoLocal": true,
+      "exigeFotoVeiculoNoLocal": false,
       "_observacao_fraude": "Pátio distinto de 'aibm' — CONFIRMADO pelo usuário (11/09/2026) que são dois pátios separados, não o mesmo hangar duplicado. Mesmo requisito do AIBM: exigir foto do veículo estacionado no local antes de validar. Ainda faltam: login/senha próprios, URL do validador e foto de referência da fachada.",
       "grupoAdministracao": "5511913119423@s.whatsapp.net",
       "_observacao_validador_compartilhado": "URL e seletores herdados do Solojet: CONFIRMADO pelo usuário (11/09/2026) que o ValidPark (validpark.technext.com.br) é o MESMO site para todos os pátios do aeroporto — só login/senha mudam por hangar. Os seletores foram copiados 1:1 dos do Solojet (mesma UI React/MUI); ainda não testados de verdade contra o login real deste hangar especificamente, então vale reconfirmar no primeiro teste real (pode haver pequenas diferenças de layout por pátio).",
@@ -183,7 +185,8 @@
       "bolsaoTechparking": "AIBM 2",
       "permiteValidarForaDoPrazo": false,
       "faturamentoDesligado": false,
-      "avisarPatioCheio": true
+      "avisarPatioCheio": true,
+      "placaObrigatoria": false
     },
     {
       "id": "solojet-shares",
@@ -228,7 +231,8 @@
       "exigeFotoVeiculoNoLocal": false,
       "avisarVagasAbaixoDe": 5,
       "perguntarIdentificacao": false,
-      "bolsaoTechparking": "SOLOJET SHARES"
+      "bolsaoTechparking": "SOLOJET SHARES",
+      "placaObrigatoria": false
     },
     {
       "id": "plane-aviation",
@@ -270,8 +274,9 @@
       },
       "diasValidacaoPadrao": 20,
       "exigeFotoVeiculoNoLocal": false,
-      "perguntarIdentificacao": true,
-      "bolsaoTechparking": "PLANE AVIATION"
+      "perguntarIdentificacao": false,
+      "bolsaoTechparking": "PLANE AVIATION",
+      "placaObrigatoria": false
     },
     {
       "id": "nacoes",
@@ -313,8 +318,9 @@
       },
       "diasValidacaoPadrao": 20,
       "exigeFotoVeiculoNoLocal": false,
-      "perguntarIdentificacao": true,
-      "bolsaoTechparking": "NACOES"
+      "perguntarIdentificacao": false,
+      "bolsaoTechparking": "NACOES",
+      "placaObrigatoria": false
     },
     {
       "id": "indaia",
@@ -356,8 +362,9 @@
       },
       "diasValidacaoPadrao": 20,
       "exigeFotoVeiculoNoLocal": false,
-      "perguntarIdentificacao": true,
-      "bolsaoTechparking": "INDAIA"
+      "perguntarIdentificacao": false,
+      "bolsaoTechparking": "INDAIA",
+      "placaObrigatoria": false
     },
     {
       "id": "hangar-1",
@@ -399,8 +406,9 @@
       },
       "diasValidacaoPadrao": 20,
       "exigeFotoVeiculoNoLocal": false,
-      "perguntarIdentificacao": true,
-      "bolsaoTechparking": "HANGAR-1"
+      "perguntarIdentificacao": false,
+      "bolsaoTechparking": "HANGAR-1",
+      "placaObrigatoria": false
     },
     {
       "id": "hangar-aristek",
@@ -442,8 +450,9 @@
       },
       "diasValidacaoPadrao": 20,
       "exigeFotoVeiculoNoLocal": false,
-      "perguntarIdentificacao": true,
-      "bolsaoTechparking": "HANGAR ARISTEK"
+      "perguntarIdentificacao": false,
+      "bolsaoTechparking": "HANGAR ARISTEK",
+      "placaObrigatoria": false
     },
     {
       "id": "epeac",
@@ -486,7 +495,9 @@
       "diasValidacaoPadrao": 20,
       "exigeFotoVeiculoNoLocal": false,
       "avisarPatioCheio": false,
-      "bolsaoTechparking": "EPEAC - ESCOLA AVIACAO CIVIL"
+      "bolsaoTechparking": "EPEAC - ESCOLA AVIACAO CIVIL",
+      "perguntarIdentificacao": false,
+      "placaObrigatoria": false
     },
     {
       "id": "dux-express",
@@ -529,8 +540,9 @@
       "diasValidacaoPadrao": 20,
       "exigeFotoVeiculoNoLocal": false,
       "avisarVagasAbaixoDe": 5,
-      "perguntarIdentificacao": true,
-      "bolsaoTechparking": "DUX Express"
+      "perguntarIdentificacao": false,
+      "bolsaoTechparking": "DUX Express",
+      "placaObrigatoria": false
     },
     {
       "id": "concorde",
@@ -572,8 +584,9 @@
       },
       "diasValidacaoPadrao": 20,
       "exigeFotoVeiculoNoLocal": false,
-      "perguntarIdentificacao": true,
-      "bolsaoTechparking": "CONCORDE"
+      "perguntarIdentificacao": false,
+      "bolsaoTechparking": "CONCORDE",
+      "placaObrigatoria": false
     },
     {
       "id": "cimed-alljet",
@@ -617,8 +630,9 @@
       "diasValidacaoPadrao": 20,
       "exigeFotoVeiculoNoLocal": false,
       "avisarVagasAbaixoDe": 5,
-      "perguntarIdentificacao": true,
-      "bolsaoTechparking": "CIMED \\ ALLJET"
+      "perguntarIdentificacao": false,
+      "bolsaoTechparking": "CIMED \\ ALLJET",
+      "placaObrigatoria": false
     },
     {
       "id": "bravo-aviation",
@@ -661,8 +675,9 @@
       "diasValidacaoPadrao": 20,
       "exigeFotoVeiculoNoLocal": false,
       "avisarVagasAbaixoDe": 5,
-      "perguntarIdentificacao": true,
-      "bolsaoTechparking": "BRAVO AVIATION"
+      "perguntarIdentificacao": false,
+      "bolsaoTechparking": "BRAVO AVIATION",
+      "placaObrigatoria": false
     },
     {
       "id": "alljet",
@@ -705,8 +720,9 @@
       "diasValidacaoPadrao": 20,
       "exigeFotoVeiculoNoLocal": false,
       "_observacao_grupo": "Grupo criado em 16/09/2026. O roteamento usa grupoWhatsappId, não o nome — renomear é inofensivo, apagar e recriar gera ID novo e quebra. Login BOT_ALLJET, seletores e leitura de vagas testados contra o site real na mesma data: pátio de 37 vagas (bem menor que as 90 do Solojet, então a proteção de pátio cheio pesa mais aqui).",
-      "perguntarIdentificacao": true,
-      "bolsaoTechparking": "ALLJET"
+      "perguntarIdentificacao": false,
+      "bolsaoTechparking": "ALLJET",
+      "placaObrigatoria": false
     },
     {
       "id": "aerie-aviacao-executiva",
@@ -751,7 +767,8 @@
       "avisarVagasAbaixoDe": null,
       "perguntarIdentificacao": false,
       "avisarPatioCheio": false,
-      "bolsaoTechparking": "AERIE AVIACAO EXECUTIVA"
+      "bolsaoTechparking": "AERIE AVIACAO EXECUTIVA",
+      "placaObrigatoria": false
     },
     {
       "id": "voasp",
@@ -799,7 +816,8 @@
       "avisarPatioCheio": true,
       "bolsaoTechparking": "PATIO VOA BOT",
       "faturamentoDesligado": true,
-      "permiteValidarForaDoPrazo": false
+      "permiteValidarForaDoPrazo": false,
+      "placaObrigatoria": false
     }
   ],
   "_observacao_faturamento": "Cota de validações fora do prazo (cotaMensalForaPrazo, padrão 5/mês por hangar) e dados do Asaas (asaas.customerId ou asaas.cnpj+razaoSocial+email para criar o cliente automaticamente) usados por scripts/lib/cota-fora-prazo.js e scripts/lib/asaas.js quando um ticket fica fora do prazo de validação (ver docs/perguntas-abertas.md, seção sobre faturamento, adicionada em 11/09/2026)."
