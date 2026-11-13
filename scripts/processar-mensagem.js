@@ -32,7 +32,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env'), override: t
 const { carregarConfig, buscarHangarPorGrupo } = require('./lib/hangar');
 const { comTrava, comTravaAsync, lerJson, salvarAtomico } = require('./lib/trava-arquivo');
 const { destinosAdmin } = require('./lib/admins');
-const { interpretarMensagem, extrairPlaca, interpretarEscolhaPatio, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoCriarPatio, interpretarComandoAdicionarCota, interpretarPedidoRelatorioCota, formatarTelefone, interpretarPedidoCotaDisponivel, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoReiniciar, interpretarPedidoAtualizar, interpretarCreditoAws, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar } = require('./lib/whatsapp');
+const { interpretarMensagem, extrairPlaca, interpretarEscolhaPatio, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoAntifraude, interpretarComandoCriarPatio, interpretarComandoAdicionarCota, interpretarPedidoRelatorioCota, formatarTelefone, interpretarPedidoCotaDisponivel, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoReiniciar, interpretarPedidoAtualizar, interpretarCreditoAws, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar } = require('./lib/whatsapp');
 // O cliente da Evolution vive em lib/evolution.js: o painel também precisa
 // mandar mensagem, e duas cópias do mesmo cliente divergiriam — inclusive no
 // `Connection: close`, que existe por um bug real de socket reaproveitado.
@@ -3006,6 +3006,8 @@ async function responderNoGrupoAdmin(msg, aoReceber) {
   if (cmdCota) return cmdCota;
   const cmdFat = responderComandoFaturamento(msg, config);
   if (cmdFat) return cmdFat;
+  const cmdAnti = responderComandoAntifraude(msg, config);
+  if (cmdAnti) return cmdAnti;
   // Respostas dos fluxos de movimentação. Mas um PEDIDO NOVO ("entrada e saída…")
   // tem prioridade sobre uma pendência velha — senão uma oferta de PDF antiga
   // engoliria a nova consulta.
@@ -3141,6 +3143,109 @@ async function responderNoGrupoAdmin(msg, aoReceber) {
   }
 
   return await responderAutorizacaoPrivada(msg);
+}
+
+// Liga/desliga o ANTIFRAUDE pelo WhatsApp da administração: a exigência de foto
+// do veículo estacionado no pátio e a conferência do local (`exigeFotoVeiculoNoLocal`).
+// Mesmo passo a passo do faturamento — o comando, a escolha dos pátios (TODOS ou
+// números) e a confirmação SIM/NÃO —, porque mexe num controle antifraude: ligar
+// exige o cliente ir ao carro; DESLIGAR tira a checagem, e quem decide precisa ver
+// quais pátios mudam. Só entram pátios com a descrição do local cadastrada
+// (`localReferencia`): sem ela a conferência não tem com o que comparar.
+//
+// Devolve a resposta, ou null quando a mensagem não é deste assunto.
+function responderComandoAntifraude(msg, config) {
+  const pend = pendencias.buscar(msg.grupoId, msg.remetenteId);
+  const emAndamento = pend && String(pend.tipo || '').startsWith('antifraude_');
+  const comando = msg.tipo === 'imagem' ? null : interpretarComandoAntifraude(msg.texto);
+  if (!emAndamento && comando === null) return null;
+
+  const resposta = (status, texto) => ({
+    status, grupoId: msg.grupoId, mensagemWhatsapp: texto,
+    notificarAdmin: false, responder: true, etapa: 'comando_antifraude',
+  });
+  const nome = (id) => { const h = config.hangares.find((x) => x.id === id); return h ? (h.hangar || id) : id; };
+  const ligado = (id) => (config.hangares.find((x) => x.id === id) || {}).exigeFotoVeiculoNoLocal === true;
+  const verbo = (ligar) => (ligar ? 'LIGAR' : 'DESLIGAR');
+  const candidatos = () => hangaresComGrupo(config)
+    .filter((h) => typeof h.localReferencia === 'string' ? h.localReferencia.trim() : h.localReferencia)
+    .map((h) => h.id);
+
+  const pedirConfirmacao = (ligar, alvos, lista) => {
+    const mudam = alvos.filter((id) => ligado(id) !== ligar);
+    if (emAndamento) pendencias.consumir(msg.grupoId, msg.remetenteId);
+    if (!mudam.length) {
+      return resposta('antifraude_sem_mudanca',
+        `O antifraude já está *${ligar ? 'ligado' : 'desligado'}* em ${alvos.length === lista.length ? 'todos os pátios' : alvos.map(nome).join(', ')}. Nada a mudar.`);
+    }
+    pendencias.registrar(msg.grupoId, msg.remetenteId, { tipo: 'antifraude_confirma', ligar, alvos: mudam });
+    return resposta('antifraude_confirmar',
+      `Vou *${verbo(ligar)}* o antifraude em ${mudam.length === lista.length ? `*todos os ${mudam.length} pátios*` : `*${mudam.length} pátio(s)*`}:\n\n`
+      + `${mudam.map((id) => `• ${nome(id)}`).join('\n')}\n\n`
+      + (ligar
+        ? 'Com o antifraude ligado, o cliente manda a foto do ticket e *depois* a foto do veículo estacionado no pátio. O bot confere o local e só valida se for compatível.\n\n'
+        : '⚠️ Com o antifraude *desligado*, o bot valida só com a foto do ticket: *não pede a foto do veículo nem confere o local*. Use só se for mesmo necessário.\n\n')
+      + 'Confirma? Responda *SIM* ou *NÃO*.');
+  };
+
+  // Comando novo sempre recomeça, mesmo no meio de outro.
+  if (comando !== null) {
+    if (emAndamento) pendencias.consumir(msg.grupoId, msg.remetenteId);
+    const lista = candidatos();
+    if (!lista.length) return resposta('antifraude_sem_patios', 'Nenhum pátio tem a descrição do local cadastrada para o antifraude.');
+    if (/\b(todos|todas|ambos|ambas|os dois)\b/i.test(normalizar(msg.texto || ''))) return pedirConfirmacao(comando, lista, lista);
+    pendencias.registrar(msg.grupoId, msg.remetenteId, { tipo: 'antifraude_alvos', ligar: comando, lista });
+    return resposta('antifraude_escolher_patios',
+      `🛡️ *${verbo(comando)} antifraude*\n\nEm quais pátios? Responda *TODOS*, ou os números separados por vírgula (ex.: _1, 2_):\n\n`
+      + lista.map((id, i) => `*${i + 1}* ${nome(id)} — ${ligado(id) ? '🛡️ ligado' : '⛔ desligado'}`).join('\n')
+      + '\n\n_Para desistir, responda CANCELAR._');
+  }
+
+  if (CANCELAR_BROADCAST.test(msg.texto || '')) {
+    pendencias.consumir(msg.grupoId, msg.remetenteId);
+    return resposta('antifraude_cancelado', 'Ok, nada mudou no antifraude.');
+  }
+
+  if (pend.tipo === 'antifraude_alvos') {
+    const alvos = resolverAlvosBroadcast(msg.texto, pend.lista, config);
+    if (!alvos.length) {
+      return resposta('antifraude_patios_nao_entendido',
+        'Não reconheci os pátios. Responda *TODOS* ou os números da lista (ex.: _1, 2_). _CANCELAR para desistir._');
+    }
+    return pedirConfirmacao(pend.ligar, alvos, pend.lista);
+  }
+
+  // antifraude_confirma
+  if (msg.resposta !== 'sim' && msg.resposta !== 'nao') {
+    return resposta('antifraude_confirma_nao_entendido', `Responda *SIM* para ${pend.ligar ? 'ligar' : 'desligar'} o antifraude ou *NÃO* para cancelar.`);
+  }
+  pendencias.consumir(msg.grupoId, msg.remetenteId);
+  if (msg.resposta === 'nao') return resposta('antifraude_cancelado', 'Ok, nada mudou no antifraude.');
+
+  // Relê o arquivo: entre a pergunta e o SIM o painel pode ter salvo algo.
+  const atual = carregarConfig();
+  const mudados = [];
+  for (const id of pend.alvos) {
+    const h = atual.hangares.find((x) => x.id === id);
+    if (!h) continue;
+    h.exigeFotoVeiculoNoLocal = pend.ligar;
+    mudados.push(h.hangar || id);
+  }
+  const quem = msg.remetente || msg.grupoId;
+  try {
+    salvarEComitar(atual, `Antifraude (foto do veículo) ${pend.ligar ? 'LIGADO' : 'DESLIGADO'} em ${mudados.join(', ')} por ${quem} (WhatsApp)`, 'Bot do WhatsApp');
+  } catch (erro) {
+    return {
+      ...resposta('erro', '⚠️ Não consegui salvar a mudança do antifraude. Nada mudou — tente de novo.'),
+      mensagem: erro.message, notificarAdmin: true,
+    };
+  }
+  return {
+    ...resposta(pend.ligar ? 'antifraude_ligado' : 'antifraude_desligado',
+      `${pend.ligar ? '🛡️' : '⛔'} Antifraude *${pend.ligar ? 'ligado' : 'desligado'}* em:\n\n${mudados.map((n) => `• ${n}`).join('\n')}`
+      + (pend.ligar ? '\n\nA partir de agora o bot pede a foto do veículo antes de validar.' : '\n\nA partir de agora o bot valida só com a foto do ticket.')),
+    mensagem: `Antifraude ${pend.ligar ? 'LIGADO' : 'DESLIGADO'} em ${mudados.join(', ')} por ${quem} via WhatsApp.`,
+  };
 }
 
 // Liga/desliga o faturamento por pátio pelo WhatsApp da administração (grupo
@@ -3788,6 +3893,8 @@ async function responderAutorizacaoPrivada(msg) {
   // Faturamento por pátio (mesmo comando do grupo "Adm Bot").
   const cmdFat = responderComandoFaturamento(msg, config);
   if (cmdFat) return cmdFat;
+  const cmdAnti = responderComandoAntifraude(msg, config);
+  if (cmdAnti) return cmdAnti;
 
   // O admin decide sobre DUAS coisas pelo privado: ticket bloqueado (pátio
   // cheio) e faturamento de ticket vencido. O número do ticket desempata; sem

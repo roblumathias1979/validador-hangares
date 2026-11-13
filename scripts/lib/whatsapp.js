@@ -340,6 +340,21 @@ function interpretarComandoFaturamento(texto) {
 }
 
 /**
+ * Comando da administração para LIGAR/DESLIGAR o antifraude — a exigência de foto
+ * do veículo estacionado no pátio e a conferência do local ("ativar antifraude",
+ * "desativar antifraude"). Exige a palavra antifraude E um verbo: conversa sobre
+ * fraude não mexe em nada. true (ligar), false (desligar) ou null (não é comando).
+ */
+function interpretarComandoAntifraude(texto) {
+  const t = (texto || '').trim();
+  if (!t || t.length > 80) return null;
+  if (!/\banti[\s-]?fraude\b/i.test(t)) return null;
+  if (REGEX_DESLIGAR.test(t)) return false;
+  if (REGEX_LIGAR.test(t)) return true;
+  return null;
+}
+
+/**
  * Comando da administração para CRIAR um pátio novo ("criar pátio", "cadastrar
  * um novo pátio", "novo hangar"). Devolve true/false.
  *
@@ -619,4 +634,4 @@ function interpretarMensagem(body) {
   };
 }
 
-module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus, interpretarPedidoPatio, interpretarEscolhaPatio, interpretarConsultaValidacao, interpretarComandoIdentificacao, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoCriarPatio, interpretarComandoAdicionarCota, interpretarPedidoRelatorioCota, formatarTelefone, interpretarPedidoCotaDisponivel, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoReiniciar, interpretarPedidoAtualizar, interpretarCreditoAws, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar };
+module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus, interpretarPedidoPatio, interpretarEscolhaPatio, interpretarConsultaValidacao, interpretarComandoIdentificacao, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoAntifraude, interpretarComandoCriarPatio, interpretarComandoAdicionarCota, interpretarPedidoRelatorioCota, formatarTelefone, interpretarPedidoCotaDisponivel, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoReiniciar, interpretarPedidoAtualizar, interpretarCreditoAws, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar };
