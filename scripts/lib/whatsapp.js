@@ -395,6 +395,18 @@ function interpretarComandoFotosPatio(texto) {
 }
 
 /**
+ * Pedido da administração pelo ÍNDICE de comandos: "ajuda", "comandos", "menu",
+ * "o que você faz", e "ajuda <assunto>" para o passo a passo de um. Devolve
+ * `{ topico }` (vazio = índice completo) ou null. Só no grupo de administração.
+ */
+function interpretarPedidoAjuda(texto) {
+  const t = normalizar(texto || '').trim().replace(/[?!.]+$/, '');
+  if (!t || t.length > 60) return null;
+  const m = t.match(/^(ajuda|help|comandos?|menu|indice|lista de comandos|quais (?:sao )?(?:os )?comandos|o que (?:voce|vc|tu) (?:faz|sabe fazer)|como (?:eu )?(?:uso|usar))\b\s*(?:de |do |da |sobre |para |:)?\s*(.*)$/);
+  return m ? { topico: m[2].trim() } : null;
+}
+
+/**
  * Comando da administração para CRIAR um pátio novo ("criar pátio", "cadastrar
  * um novo pátio", "novo hangar"). Devolve true/false.
  *
@@ -686,4 +698,4 @@ function interpretarMensagem(body) {
   };
 }
 
-module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus, interpretarPedidoPatio, interpretarEscolhaPatio, interpretarConsultaValidacao, interpretarComandoIdentificacao, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoAntifraude, interpretarConsultaAntifraude, interpretarComandoFotosPatio, interpretarPedidoPendencias, interpretarComandoCriarPatio, interpretarComandoAdicionarCota, interpretarPedidoRelatorioCota, formatarTelefone, interpretarPedidoCotaDisponivel, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoReiniciar, interpretarPedidoAtualizar, interpretarCreditoAws, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar };
+module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus, interpretarPedidoPatio, interpretarEscolhaPatio, interpretarConsultaValidacao, interpretarComandoIdentificacao, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoAntifraude, interpretarConsultaAntifraude, interpretarComandoFotosPatio, interpretarPedidoPendencias, interpretarPedidoAjuda, interpretarComandoCriarPatio, interpretarComandoAdicionarCota, interpretarPedidoRelatorioCota, formatarTelefone, interpretarPedidoCotaDisponivel, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoReiniciar, interpretarPedidoAtualizar, interpretarCreditoAws, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar };

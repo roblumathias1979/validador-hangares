@@ -32,7 +32,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env'), override: t
 const { carregarConfig, buscarHangarPorGrupo } = require('./lib/hangar');
 const { comTrava, comTravaAsync, lerJson, salvarAtomico } = require('./lib/trava-arquivo');
 const { destinosAdmin } = require('./lib/admins');
-const { interpretarMensagem, extrairPlaca, interpretarEscolhaPatio, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoAntifraude, interpretarConsultaAntifraude, interpretarComandoFotosPatio, interpretarPedidoPendencias, interpretarResposta, interpretarComandoCriarPatio, interpretarComandoAdicionarCota, interpretarPedidoRelatorioCota, formatarTelefone, interpretarPedidoCotaDisponivel, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoReiniciar, interpretarPedidoAtualizar, interpretarCreditoAws, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar } = require('./lib/whatsapp');
+const { interpretarMensagem, extrairPlaca, interpretarEscolhaPatio, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoAntifraude, interpretarConsultaAntifraude, interpretarComandoFotosPatio, interpretarPedidoPendencias, interpretarPedidoAjuda, interpretarResposta, interpretarComandoCriarPatio, interpretarComandoAdicionarCota, interpretarPedidoRelatorioCota, formatarTelefone, interpretarPedidoCotaDisponivel, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoReiniciar, interpretarPedidoAtualizar, interpretarCreditoAws, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar } = require('./lib/whatsapp');
 // O cliente da Evolution vive em lib/evolution.js: o painel também precisa
 // mandar mensagem, e duas cópias do mesmo cliente divergiriam — inclusive no
 // `Connection: close`, que existe por um bug real de socket reaproveitado.
@@ -3176,6 +3176,8 @@ async function responderNoGrupoAdmin(msg, aoReceber) {
   if (cmdPatio) return cmdPatio;
   const cmdCota = responderComandoAdicionarCota(msg, config);
   if (cmdCota) return cmdCota;
+  const cmdAjuda = responderAjuda(msg);
+  if (cmdAjuda) return cmdAjuda;
   const cmdFat = responderComandoFaturamento(msg, config);
   if (cmdFat) return cmdFat;
   const cmdAnti = responderComandoAntifraude(msg, config);
@@ -3497,6 +3499,23 @@ async function responderFotosPatio(msg, config, aoReceber) {
       + `${r.substituidas ? ` (substituíram ${r.substituidas})` : ''}.\n\nA conferência de local já usa as novas.`),
     mensagem: `Fotos de referência de ${nome(id)} trocadas por ${msg.remetente || msg.grupoId} via WhatsApp (${r.novas} nova(s), ${r.substituidas} substituída(s)).`,
   };
+}
+
+// Índice de comandos da administração: "ajuda" lista tudo; "ajuda <assunto>" dá o
+// passo a passo (ver lib/ajuda-admin.js). Só texto, e só na administração.
+function responderAjuda(msg) {
+  if (msg.tipo !== 'texto' && msg.tipo !== 'texto_privado') return null;
+  const pedido = interpretarPedidoAjuda(msg.texto);
+  if (!pedido) return null;
+  const ajuda = require('./lib/ajuda-admin');
+  const resposta = (status, texto) => ({
+    status, grupoId: msg.grupoId, mensagemWhatsapp: texto,
+    notificarAdmin: false, responder: true, etapa: 'ajuda',
+  });
+  if (!pedido.topico) return resposta('ajuda_indice', ajuda.indice());
+  const d = ajuda.detalhe(pedido.topico);
+  return d ? resposta('ajuda_detalhe', d)
+    : resposta('ajuda_sem_assunto', `Não achei "${pedido.topico}" na ajuda. Mande *ajuda* para ver todos os comandos.`);
 }
 
 // Liga/desliga o ANTIFRAUDE pelo WhatsApp da administração: a exigência de foto
@@ -4271,6 +4290,10 @@ async function responderAutorizacaoPrivada(msg) {
     return { status: 'ignorado', motivo: 'privado de número que não é administração', grupoId: msg.grupoId, responder: false };
   }
 
+  // Índice de comandos (mesmo comando do grupo "Adm Bot").
+  const cmdAjudaPriv = responderAjuda(msg);
+  if (cmdAjudaPriv) return cmdAjudaPriv;
+
   // Criar pátio (mesmo comando do grupo "Adm Bot").
   const cmdPatio = responderComandoCriarPatio(msg, config);
   if (cmdPatio) return cmdPatio;
@@ -4308,7 +4331,7 @@ async function responderAutorizacaoPrivada(msg) {
     if (msg.tipo === 'texto' && !interpretarPedidoPendencias(msg.texto)) {
       return {
         status: 'autorizacao_nao_entendida', grupoId: msg.grupoId,
-        mensagemWhatsapp: `Não entendi essa mensagem. Há ${total} pedido(s) aguardando decisão — mande *pendências* para ver.`,
+        mensagemWhatsapp: `Não entendi essa mensagem. Há ${total} pedido(s) aguardando decisão — mande *pendências* para ver, ou *ajuda* para os comandos.`,
         notificarAdmin: false, responder: true, etapa: 'autorizacao_privada',
       };
     }
