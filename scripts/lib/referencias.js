@@ -28,9 +28,10 @@ const path = require('path');
 
 const RAIZ = path.join(__dirname, '..', '..', 'data', 'referencias');
 
-// 3 fotos por hangar: o suficiente para cobrir ângulos diferentes do mesmo
-// pátio sem inflar demais cada chamada ao modelo — cada imagem entra na conta.
-const MAX_IMAGENS = 3;
+// 5 imagens por hangar (eram 3 até 13/11/2026): cobre ângulos diferentes do mesmo
+// pátio — inclusive os quadros tirados de um vídeo — sem inflar demais cada
+// chamada ao modelo, porque cada imagem entra na conta de TODA conferência.
+const MAX_IMAGENS = 5;
 const MAX_BYTES = 3 * 1024 * 1024;
 
 const TIPOS = {

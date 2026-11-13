@@ -286,3 +286,26 @@ senha no mesmo grupo do arquivo. O comando não sobrescreve a senha existente
 
 Acima de 60 MB o WhatsApp recusa o arquivo: o backup fica só no servidor e o
 bot avisa. Falha no backup também avisa o grupo.
+
+---
+
+## Fotos de referência do pátio pelo WhatsApp (e vídeo)
+
+No grupo de administração: *atualizar fotos dos pátios* → escolher o pátio →
+mandar até **5** fotos (ou um **vídeo curto**, até 60 s e 30 MB) → *PRONTO* → *SIM*.
+As fotos novas ficam numa área de espera até o SIM; as antigas são copiadas para
+`data/referencias-anteriores/<pátio>/` (guarda as 3 últimas cópias). *LIMPAR*
+recomeça; *CANCELAR* desiste.
+
+**Vídeo:** o modelo de visão recebe imagens, então o bot extrai quadros do vídeo
+(escolhendo o mais nítido de cada trecho) e **mostra os quadros no grupo** antes de
+você aprovar. Para isso o servidor precisa do `ffmpeg` (se faltar, o bot avisa e
+sugere mandar fotos):
+
+```bash
+sudo apt install -y ffmpeg
+ffmpeg -version | head -1      # confere
+```
+
+O limite de imagens por pátio subiu de 3 para 5 (cada imagem entra em toda
+conferência de local, então mais não significa melhor: prefira ângulos diferentes).

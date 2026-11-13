@@ -636,6 +636,18 @@ function interpretarMensagem(body) {
         comandoIdentificacao: interpretarComandoIdentificacao(textoLivre),
       };
     }
+    // Vídeo: só o grupo de administração usa (referência do pátio, por quadros).
+    // Quem decide é processar-mensagem; nos demais grupos ele é ignorado.
+    if (msg.videoMessage) {
+      return {
+        ...base,
+        tipo: 'video',
+        legenda: msg.videoMessage.caption || null,
+        mimetype: msg.videoMessage.mimetype || null,
+        segundos: Number.isFinite(Number(msg.videoMessage.seconds)) ? Number(msg.videoMessage.seconds) : null,
+        tamanhoBytes: Number(msg.videoMessage.fileLength) || null,
+      };
+    }
     // Álbum: quando várias fotos são enviadas juntas, o WhatsApp manda primeiro
     // um `albumMessage` que é só metadado — anuncia quantas imagens vêm e não
     // carrega nenhuma. As fotos chegam logo atrás, como mensagens separadas.

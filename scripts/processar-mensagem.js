@@ -680,6 +680,12 @@ async function conduzir(body, { aoReceber } = {}) {
     return await responderNoGrupoAdmin(msg, aoReceber);
   }
 
+  // Vídeo só interessa ao grupo de administração (referência do pátio); em grupo
+  // de hangar é ignorado, como sempre foi.
+  if (msg.tipo === 'video') {
+    return { status: 'ignorado', motivo: 'vídeo fora do grupo de administração', grupoId: msg.grupoId, responder: false };
+  }
+
   const hangar = buscarHangarPorGrupo(carregarConfig(), msg.grupoId);
 
   // ---- pedido de situação do pátio ----
@@ -2994,7 +3000,7 @@ async function responderNoGrupoAdmin(msg, aoReceber) {
   }
   // Troca de fotos de referência em andamento: as IMAGENS chegam por aqui.
   if (pend && String(pend.tipo || '').startsWith('fotosref_')) {
-    const r = await responderFotosPatio(msg, config);
+    const r = await responderFotosPatio(msg, config, aoReceber);
     if (r) return r;
   }
   if (pend && String(pend.tipo || '').startsWith('reiniciar_')
@@ -3013,7 +3019,7 @@ async function responderNoGrupoAdmin(msg, aoReceber) {
   if (cmdFat) return cmdFat;
   const cmdAnti = responderComandoAntifraude(msg, config);
   if (cmdAnti) return cmdAnti;
-  const cmdFotos = await responderFotosPatio(msg, config);
+  const cmdFotos = await responderFotosPatio(msg, config, aoReceber);
   if (cmdFotos) return cmdFotos;
   // Respostas dos fluxos de movimentação. Mas um PEDIDO NOVO ("entrada e saída…")
   // tem prioridade sobre uma pendência velha — senão uma oferta de PDF antiga
@@ -3165,17 +3171,19 @@ async function responderNoGrupoAdmin(msg, aoReceber) {
 
 // Troca das FOTOS DE REFERÊNCIA de um pátio pelo WhatsApp da administração: o bot
 // compara a foto do veículo do cliente com elas (conferência de local do
-// antifraude). Passo a passo — escolher o pátio, mandar até 3 fotos (uma por
-// mensagem ou várias de uma vez), responder PRONTO e confirmar com SIM. As fotos
+// antifraude). Passo a passo — escolher o pátio, mandar fotos (uma por
+// mensagem ou várias de uma vez) OU um vídeo curto (o bot extrai quadros e mostra
+// no grupo), responder PRONTO e confirmar com SIM. As fotos
 // ficam numa área de espera até o SIM, e as antigas são copiadas antes de saírem
 // (ver lib/referencias-whatsapp.js). Foto errada enfraquece ou trava a conferência
 // daquele pátio, por isso a confirmação mostra o que muda.
 //
 // Devolve a resposta, ou null quando a mensagem não é deste assunto. Imagem só
 // importa quando há uma coleta em andamento.
+const extrairQuadros = require('./lib/extrair-quadros');
 const REGEX_PRONTO = /^\s*(pronto|prontinho|terminei|terminado|acabou|fim|feito|ok)\s*[.!]*\s*$/i;
 
-async function responderFotosPatio(msg, config) {
+async function responderFotosPatio(msg, config, aoReceber) {
   const refs = require('./lib/referencias-whatsapp');
   const referencias = require('./lib/referencias');
   const pend = pendencias.buscar(msg.grupoId, msg.remetenteId);
@@ -3228,8 +3236,9 @@ async function responderFotosPatio(msg, config) {
     return resposta('fotos_coletando',
       `📷 Pátio *${nome(id)}* — hoje tem ${n ? plural(n) : 'nenhuma foto'} de referência.\n\n`
       + `Mande agora as fotos *novas* (até ${MAX}), uma por mensagem ou várias de uma vez. Elas vão *substituir* as atuais.\n`
-      + 'Dica: fotos que mostrem o piso, a parede e o fundo do local, de ângulos diferentes — como o carro aparece estacionado.\n\n'
-      + 'Quando terminar, responda *PRONTO*. _CANCELAR para desistir._\n'
+      + 'Dica: fotos que mostrem o piso, a parede e o fundo do local, de ângulos diferentes — como o carro aparece estacionado.\n'
+      + `Pode mandar também um *vídeo curto* (até ${extrairQuadros.MAX_SEGUNDOS} s, andando devagar): eu tiro os quadros e mostro aqui para você conferir.\n\n`
+      + 'Quando terminar, responda *PRONTO*; *LIMPAR* recomeça as fotos. _CANCELAR para desistir._\n'
       + `⏱️ Cada foto renova o prazo de ${pendencias.VALIDADE_MS / 60000} minutos.`);
   }
 
@@ -3250,6 +3259,47 @@ async function responderFotosPatio(msg, config) {
         r.total > MAX
           ? `📷 Recebi (${r.total}). Só uso as ${MAX} primeiras. Responda *PRONTO* para continuar.`
           : `📷 Recebi a foto ${r.total} (até ${MAX}). Mande mais ou responda *PRONTO*.`);
+    }
+    if (msg.tipo === 'texto' && /^\s*(limpar|recomecar|recomeçar|apagar tudo)\s*[.!]*\s*$/i.test(msg.texto || '')) {
+      limparColeta(id);
+      pendencias.registrar(msg.grupoId, msg.remetenteId, { tipo: 'fotosref_coletando', hangarId: id });
+      return resposta('fotos_limpas', `Limpei o que eu tinha recebido do *${nome(id)}*. Mande as fotos (ou o vídeo) de novo.`);
+    }
+    if (msg.tipo === 'video') {
+      const vagas = MAX - refs.listarPendentes(id).length;
+      if (vagas <= 0) return resposta('fotos_recebida', `Já tenho as ${MAX} fotos. Responda *PRONTO* para continuar ou *LIMPAR* para recomeçar.`);
+      if (msg.segundos && msg.segundos > extrairQuadros.MAX_SEGUNDOS) {
+        return resposta('fotos_recusada', `⚠️ O vídeo tem ${msg.segundos} s — o limite é ${extrairQuadros.MAX_SEGUNDOS} s. Mande um mais curto.`);
+      }
+      if (msg.tamanhoBytes && msg.tamanhoBytes > extrairQuadros.MAX_BYTES_VIDEO) {
+        return resposta('fotos_recusada', `⚠️ O vídeo é pesado demais (${(msg.tamanhoBytes / 1048576).toFixed(0)} MB) — o limite é ${extrairQuadros.MAX_BYTES_VIDEO / 1048576} MB.`);
+      }
+      if (aoReceber) { try { await aoReceber(msg.grupoId, '🎞️ Recebi o vídeo, tirando os quadros...'); } catch (e) { /* aviso é conforto */ } }
+      let quadros;
+      try {
+        const v = await baixarImagemBase64(msg.messageId);
+        quadros = extrairQuadros.extrairQuadros(v.base64, { quantidade: vagas });
+      } catch (erro) {
+        const motivos = {
+          sem_ffmpeg: '⚠️ Não consigo tirar quadros de vídeo: falta instalar o programa *ffmpeg* no servidor (suporte técnico: `sudo apt install ffmpeg`). Mande *fotos* por enquanto.',
+          longo: `⚠️ ${erro.message} Mande um vídeo mais curto.`,
+          grande: `⚠️ ${erro.message}`,
+        };
+        return resposta('fotos_recusada', motivos[erro.codigo] || '⚠️ Não consegui ler esse vídeo. Tente de novo ou mande fotos.');
+      }
+      let guardados = 0;
+      for (const [k, q] of quadros.entries()) {
+        const r = refs.guardarPendente(id, { mimetype: q.mimetype, base64: q.base64, idMensagem: `${msg.messageId}q${k}` });
+        if (r.ok) guardados += 1;
+      }
+      // Mostra os quadros no grupo: quem aprova precisa ver o que vai valer.
+      for (const [k, q] of quadros.entries()) {
+        try { await enviarImagem(msg.grupoId, q.base64, { legenda: `Quadro ${k + 1} de ${quadros.length} (${q.instante}s)`, nomeArquivo: `quadro-${k + 1}.jpg` }); } catch (e) { /* a prévia é conforto */ }
+      }
+      pendencias.registrar(msg.grupoId, msg.remetenteId, { tipo: 'fotosref_coletando', hangarId: id }); // renova o prazo
+      return resposta('fotos_recebida',
+        `🎞️ Tirei *${guardados} quadro${guardados === 1 ? '' : 's'}* do vídeo e mandei acima (${refs.listarPendentes(id).length} de ${MAX} no total).\n`
+        + 'Se algum estiver borrado ou não mostrar o pátio, responda *LIMPAR* e mande de novo. Se estiverem bons, responda *PRONTO*.');
     }
     if (msg.tipo === 'texto' && REGEX_PRONTO.test(msg.texto || '')) {
       const qtd = Math.min(refs.listarPendentes(id).length, MAX);
@@ -4081,6 +4131,11 @@ async function responderAutorizacaoPrivada(msg) {
   const blocks = bloqueados.listar({ apenasAtivos: true });
 
   if (msg.resposta !== 'sim' && msg.resposta !== 'nao') {
+    // Imagem ou vídeo solto no grupo de administração não é uma resposta a pedido
+    // nenhum: fica em silêncio (antes disparava "não entendi" a cada foto postada).
+    if (msg.tipo !== 'texto' && msg.tipo !== 'texto_privado') {
+      return { status: 'ignorado', motivo: 'mídia sem texto no grupo de administração', grupoId: msg.grupoId, responder: false };
+    }
     const total = fats.length + blocks.length;
     if (!total) {
       return { status: 'ignorado', motivo: 'privado sem decisão e sem nada aguardando', grupoId: msg.grupoId, responder: false };

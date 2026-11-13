@@ -36,16 +36,19 @@ process.on('exit', () => { limparDirs(); for (const a of EXTRA) { const p = path
 // Evolution: devolve a "imagem" que o teste mandar.
 let proxima = { base64: Buffer.from('foto-de-teste').toString('base64'), mimetype: 'image/jpeg' };
 const http = require('http');
-http.request = (_o, cb) => { const r = new (require('stream').PassThrough)(); r.statusCode = 200; process.nextTick(() => { cb(r); r.end(JSON.stringify(proxima)); }); return { on() { return this; }, write() {}, end() {}, setTimeout() {}, destroy() {} }; };
+const chamadas = [];
+http.request = (o, cb) => { chamadas.push(String((o && o.path) || '')); const r = new (require('stream').PassThrough)(); r.statusCode = 200; process.nextTick(() => { cb(r); r.end(JSON.stringify(proxima)); }); return { on() { return this; }, write() {}, end() {}, setTimeout() {}, destroy() {} }; };
 
 const child = require('child_process');
 const real = child.execFileSync;
 child.execFileSync = (c, a, o) => (c === 'git' ? (a.includes('rev-parse') ? 'x' : '') : real(c, a, o));
 
-const { interpretarComandoFotosPatio } = require(path.join(RAIZ, 'scripts', 'lib', 'whatsapp.js'));
+const { interpretarComandoFotosPatio, interpretarMensagem } = require(path.join(RAIZ, 'scripts', 'lib', 'whatsapp.js'));
 const referencias = require(path.join(RAIZ, 'scripts', 'lib', 'referencias.js'));
 const refs = require(path.join(RAIZ, 'scripts', 'lib', 'referencias-whatsapp.js'));
+const extrair = require(path.join(RAIZ, 'scripts', 'lib', 'extrair-quadros.js'));
 const { processar } = require(path.join(RAIZ, 'scripts', 'processar-mensagem.js'));
+const crypto = require('crypto');
 
 const texto = (jid, t) => ({ data: { key: { remoteJid: jid, fromMe: false, id: `T${Math.random()}`, participant: PESSOA }, pushName: 'Rodrigo', message: { conversation: t } } });
 const imagem = (jid, id) => ({ data: { key: { remoteJid: jid, fromMe: false, id, participant: PESSOA }, pushName: 'Rodrigo', message: { imageMessage: { caption: '', mimetype: 'image/jpeg' } } } });
@@ -73,24 +76,24 @@ const conferir = (nome, ok, detalhe) => { if (ok) return console.log(`  ok   ${n
   conferir('"todos" não vale: uma troca de cada vez', r.status === 'fotos_patio_nao_entendido', r.status);
   r = await adm(n);
   conferir('escolhido o pátio, pede as fotos e avisa que substituem', r.status === 'fotos_coletando' && /Solojet Shares/.test(r.mensagemWhatsapp) && /substituir/.test(r.mensagemWhatsapp), r.status);
-  for (let i = 1; i <= 3; i += 1) {
+  for (let i = 1; i <= 5; i += 1) {
     r = await processar(imagem(ADM, `IMG${i}`), {});
     conferir(`foto ${i} recebida`, r.status === 'fotos_recebida' && new RegExp(`foto ${i} `).test(r.mensagemWhatsapp), r.status + ' ' + r.mensagemWhatsapp);
   }
-  r = await processar(imagem(ADM, 'IMG4'), {});
-  conferir('a quarta avisa que só 3 entram', r.status === 'fotos_recebida' && /3 primeiras/.test(r.mensagemWhatsapp), r.mensagemWhatsapp);
+  r = await processar(imagem(ADM, 'IMG6'), {});
+  conferir('a sexta avisa que só 5 entram', r.status === 'fotos_recebida' && /5 primeiras/.test(r.mensagemWhatsapp), r.mensagemWhatsapp);
   r = await processar(imagem(ADM, 'IMG1'), {});
-  conferir('a mesma foto reenviada não conta duas vezes', refs.listarPendentes(PATIO).length === 4, String(refs.listarPendentes(PATIO).length));
+  conferir('a mesma foto reenviada não conta duas vezes', refs.listarPendentes(PATIO).length === 6, String(refs.listarPendentes(PATIO).length));
   conferir('NADA mudou ainda nas fotos atuais', JSON.stringify(nomes()) === JSON.stringify(antigas));
   r = await adm('pronto');
-  conferir('PRONTO pede confirmação mostrando o que muda', r.status === 'fotos_confirmar' && /as 2 fotos atuais/.test(r.mensagemWhatsapp) && /3 fotos novas/.test(r.mensagemWhatsapp) && /cópia/.test(r.mensagemWhatsapp), r.mensagemWhatsapp);
+  conferir('PRONTO pede confirmação mostrando o que muda', r.status === 'fotos_confirmar' && /as 2 fotos atuais/.test(r.mensagemWhatsapp) && /5 fotos novas/.test(r.mensagemWhatsapp) && /cópia/.test(r.mensagemWhatsapp), r.mensagemWhatsapp);
   conferir('ainda nada mudou antes do SIM', JSON.stringify(nomes()) === JSON.stringify(antigas));
   r = await adm('talvez');
   conferir('resposta solta pede SIM ou NÃO', r.status === 'fotos_confirma_nao_entendido');
   r = await adm('sim');
-  conferir('SIM troca', r.status === 'fotos_atualizadas' && /3 fotos\* novas/.test(r.mensagemWhatsapp) && /substituíram 2/.test(r.mensagemWhatsapp), r.mensagemWhatsapp);
+  conferir('SIM troca', r.status === 'fotos_atualizadas' && /5 fotos\* novas/.test(r.mensagemWhatsapp) && /substituíram 2/.test(r.mensagemWhatsapp), r.mensagemWhatsapp);
   const novas = nomes();
-  conferir('o pátio agora tem as 3 novas (e nenhuma das antigas)', novas.length === 3 && !novas.some((x) => antigas.includes(x)), novas.join());
+  conferir('o pátio agora tem as 5 novas (e nenhuma das antigas)', novas.length === 5 && !novas.some((x) => antigas.includes(x)), novas.join());
   const pastaCopias = path.join(RAIZ, 'data', 'referencias-anteriores', PATIO);
   const copia = fs.readdirSync(pastaCopias);
   conferir('as 2 antigas ficaram numa cópia datada', copia.length === 1 && fs.readdirSync(path.join(pastaCopias, copia[0])).length === 2);
@@ -149,8 +152,64 @@ const conferir = (nome, ok, detalhe) => { if (ok) return console.log(`  ok   ${n
 
   console.log('\n6) Fotos gravadas em sequência não se sobrescrevem');
   limparDirs();
-  const gravados = [1, 2, 3].map((k) => referencias.guardar(PATIO, { mimetype: 'image/jpeg', base64: Buffer.from(`x${k}`).toString('base64'), rotulo: 'seq' }).nome);
-  conferir('três fotos no mesmo instante, três arquivos', new Set(gravados).size === 3 && nomes().length === 3, gravados.join());
+  const gravados = [1, 2, 3, 4, 5].map((k) => referencias.guardar(PATIO, { mimetype: 'image/jpeg', base64: Buffer.from(`x${k}`).toString('base64'), rotulo: 'seq' }).nome);
+  conferir('cinco fotos no mesmo instante, cinco arquivos', new Set(gravados).size === 5 && nomes().length === 5, gravados.join());
+  let recusouSexta = false;
+  try { referencias.guardar(PATIO, { mimetype: 'image/jpeg', base64: Buffer.from('s').toString('base64') }); } catch (e) { recusouSexta = /5 imagens/.test(e.message); }
+  conferir('a sexta é recusada (o limite agora é 5)', recusouSexta);
+
+
+  console.log('\n7) Vídeo: o bot tira os quadros e mostra no grupo');
+  const tmpV = fs.mkdtempSync(path.join(require('os').tmpdir(), 'video-teste-'));
+  const mp4 = path.join(tmpV, 'teste.mp4');
+  real('ffmpeg', ['-nostdin', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=duration=6:size=320x240:rate=10', '-pix_fmt', 'yuv420p', '-y', mp4]);
+  const base64Video = fs.readFileSync(mp4).toString('base64');
+  fs.rmSync(tmpV, { recursive: true, force: true });
+  const video = (id, segundos) => ({ data: { key: { remoteJid: ADM, fromMe: false, id, participant: PESSOA }, pushName: 'Rodrigo', message: { videoMessage: { mimetype: 'video/mp4', seconds: segundos, fileLength: '300000' } } } });
+  const vidaDe = (id, jid) => ({ data: { key: { remoteJid: jid, fromMe: false, id, participant: PESSOA }, pushName: 'X', message: { videoMessage: { mimetype: 'video/mp4', seconds: 6 } } } });
+  const m = interpretarMensagem(video('V0', 6).data ? { data: video('V0', 6).data } : {});
+  conferir('o parser reconhece o vídeo (tipo, segundos)', m.tipo === 'video' && m.segundos === 6 && m.ignorar === false, JSON.stringify({ t: m.tipo, s: m.segundos }));
+  conferir('instantes: 5 quadros em 10 s caem em 1, 3, 5, 7 e 9', JSON.stringify(extrair.instantes(10, 5).map((x) => Math.round(x))) === '[1,3,5,7,9]');
+
+  limparDirs();
+  proxima = { base64: base64Video, mimetype: 'video/mp4' };
+  await adm('atualizar fotos dos pátios'); await adm(n);
+  chamadas.length = 0;
+  r = await processar(video('V1', 6), {});
+  conferir('o vídeo vira 5 quadros', r.status === 'fotos_recebida' && /5 quadros/.test(r.mensagemWhatsapp) && refs.listarPendentes(PATIO).length === 5, r.status + ' ' + r.mensagemWhatsapp);
+  conferir('os 5 quadros foram mostrados no grupo', chamadas.filter((c) => /sendMedia/.test(c)).length === 5, chamadas.join(' '));
+  const arqs = refs.listarPendentes(PATIO);
+  conferir('são JPEG de verdade', arqs.every((a) => fs.readFileSync(a).slice(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]))));
+  conferir('são quadros diferentes (instantes diferentes)', new Set(arqs.map((a) => crypto.createHash('md5').update(fs.readFileSync(a)).digest('hex'))).size >= 4);
+  r = await processar(video('V2', 6), {});
+  conferir('com as 5 já recebidas, avisa que está cheio', /Já tenho as 5/.test(r.mensagemWhatsapp), r.mensagemWhatsapp);
+  r = await adm('limpar');
+  conferir('LIMPAR zera o que foi recebido e segue esperando', r.status === 'fotos_limpas' && refs.listarPendentes(PATIO).length === 0, r.status);
+  const jpg = { base64: Buffer.from('foto-de-teste').toString('base64'), mimetype: 'image/jpeg' };
+  proxima = jpg; await processar(imagem(ADM, 'P1'), {}); await processar(imagem(ADM, 'P2'), {}); proxima = { base64: base64Video, mimetype: 'video/mp4' };
+  chamadas.length = 0;
+  r = await processar(video('V3', 6), {});
+  conferir('com 2 fotos já recebidas, o vídeo completa só os 3 que faltam', refs.listarPendentes(PATIO).length === 5 && /3 quadros/.test(r.mensagemWhatsapp) && chamadas.filter((c) => /sendMedia/.test(c)).length === 3, r.mensagemWhatsapp);
+  await adm('limpar');
+  chamadas.length = 0;
+  r = await processar(video('V4', 120), {});
+  conferir('vídeo longo demais é recusado antes de baixar', r.status === 'fotos_recusada' && /limite é 60 s/.test(r.mensagemWhatsapp) && !chamadas.some((c) => /getBase64/.test(c)), r.mensagemWhatsapp);
+  const PATH_ORIGINAL = process.env.PATH;
+  process.env.PATH = '/caminho-que-nao-existe';
+  try { r = await processar(video('V5', 6), {}); } finally { process.env.PATH = PATH_ORIGINAL; }
+  conferir('sem ffmpeg no servidor: explica e sugere fotos', r.status === 'fotos_recusada' && /ffmpeg/.test(r.mensagemWhatsapp) && /apt install/.test(r.mensagemWhatsapp), r.mensagemWhatsapp);
+  conferir('nada ficou na espera depois da falha', refs.listarPendentes(PATIO).length === 0);
+  await adm('cancelar');
+  let erroLongo = null;
+  try { extrair.extrairQuadros(base64Video, { quantidade: 5, executar: (c, a) => (c === 'ffprobe' ? '90.0\n' : '') }); } catch (e) { erroLongo = e; }
+  conferir('a biblioteca recusa vídeo com mais de 60 s', erroLongo && erroLongo.codigo === 'longo');
+  r = await processar(vidaDe('V6', ADM), {});
+  conferir('vídeo no grupo de administração SEM coleta em andamento não quebra nem responde', r.responder === false || r.status === 'ignorado', JSON.stringify({ s: r.status, r: r.responder }));
+  r = await processar(imagem(ADM, 'FOTOSOLTA'), {});
+  conferir('foto solta no grupo de administração também fica em silêncio', r.responder === false, JSON.stringify({ s: r.status, r: r.responder }));
+  r = await processar(vidaDe('V7', GRUPO_HANGAR), {});
+  conferir('vídeo em grupo de hangar é ignorado', r.status === 'ignorado' && r.responder === false, r.status);
+  proxima = { base64: Buffer.from('foto-de-teste').toString('base64'), mimetype: 'image/jpeg' };
 
   console.log(`\n${falhas ? `${falhas} falha(s)` : 'tudo certo'}`);
   process.exit(falhas ? 1 : 0);
