@@ -32,7 +32,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env'), override: t
 const { carregarConfig, buscarHangarPorGrupo } = require('./lib/hangar');
 const { comTrava, comTravaAsync, lerJson, salvarAtomico } = require('./lib/trava-arquivo');
 const { destinosAdmin } = require('./lib/admins');
-const { interpretarMensagem, extrairPlaca, interpretarEscolhaPatio, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoAntifraude, interpretarConsultaAntifraude, interpretarComandoFotosPatio, interpretarPedidoPendencias, interpretarPedidoAjuda, interpretarResposta, interpretarComandoCriarPatio, interpretarComandoAdicionarCota, interpretarPedidoRelatorioCota, formatarTelefone, interpretarPedidoCotaDisponivel, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoReiniciar, interpretarPedidoAtualizar, interpretarCreditoAws, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar } = require('./lib/whatsapp');
+const { interpretarMensagem, extrairPlaca, interpretarEscolhaPatio, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoAntifraude, interpretarConsultaAntifraude, interpretarComandoFotosPatio, interpretarPedidoPendencias, interpretarPedidoAjuda, interpretarHorario, interpretarComandoAgendar, interpretarPedidoAgendamentos, interpretarResposta, interpretarComandoCriarPatio, interpretarComandoAdicionarCota, interpretarPedidoRelatorioCota, formatarTelefone, interpretarPedidoCotaDisponivel, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoReiniciar, interpretarPedidoAtualizar, interpretarCreditoAws, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar } = require('./lib/whatsapp');
 // O cliente da Evolution vive em lib/evolution.js: o painel também precisa
 // mandar mensagem, e duas cópias do mesmo cliente divergiriam — inclusive no
 // `Connection: close`, que existe por um bug real de socket reaproveitado.
@@ -2308,7 +2308,6 @@ async function responderRecargaAnthropic(msg, aoReceber) {
 // pede SIM, porque derruba tudo por alguns minutos. A pendência é por pessoa e
 // expira em 5 min, como as demais. O reinício em si é agendado e roda DEPOIS da
 // resposta (ver agendarReinicio); o aviso "voltei" sai de scripts/avisar-religado.js.
-const REINICIO_PEDIDO = path.join(__dirname, '..', 'data', 'reinicio-pedido.json');
 
 function responderReiniciar(msg, pend) {
   const resposta = (status, texto) => ({
@@ -2332,13 +2331,8 @@ function responderReiniciar(msg, pend) {
   }
 
   const executar = (tipo) => {
-    const autoConserto = require('./lib/auto-conserto');
-    try {
-      salvarAtomico(REINICIO_PEDIDO, { grupoId: msg.grupoId, tipo, quem: msg.remetente || null, em: Date.now() });
-    } catch (e) { /* o aviso "voltei" é conforto; o reinício não depende dele */ }
-    const r = autoConserto.agendarReinicio(tipo);
+    const r = require('./lib/acoes-sistema').reiniciar(tipo, { grupoId: msg.grupoId, quem: msg.remetente || null });
     if (!r.ok) {
-      try { require('fs').unlinkSync(REINICIO_PEDIDO); } catch (e) { /* já não existe */ }
       return {
         ...resposta('reiniciar_erro', `⚠️ Não consegui reiniciar: ${r.detalhe}.\nProvável causa: o servidor ainda não liberou esse comando para o bot. O suporte técnico resolve (infra/README.md).`),
         mensagem: `Reinício (${tipo}) falhou: ${r.detalhe}`, notificarAdmin: true,
@@ -2401,7 +2395,6 @@ function responderCreditoAws(msg, ca) {
 // própria — o Docker e o n8n reiniciam no meio e matariam um script filho — e
 // o resultado volta ao grupo por scripts/avisar-atualizado.js. Pacote em
 // liberação gradual do Ubuntu fica de fora, de propósito.
-const ATUALIZACAO_PEDIDO = path.join(__dirname, '..', 'data', 'atualizacao-pedido.json');
 
 function responderAtualizar(msg, pend) {
   const resposta = (status, texto) => ({
@@ -2452,12 +2445,8 @@ function responderAtualizar(msg, pend) {
   }
   pendencias.consumir(msg.grupoId, msg.remetenteId);
   if (msg.resposta === 'nao') return resposta('atualizar_cancelado', 'Ok, nada foi atualizado.');
-  try {
-    salvarAtomico(ATUALIZACAO_PEDIDO, { grupoId: msg.grupoId, quem: msg.remetente || null, em: Date.now(), antes: pend.antes || 0, sensiveis: pend.sensiveis || [] });
-  } catch (e) { /* o aviso final é conforto; a instalação não depende dele */ }
-  const ag = autoConserto.agendarReinicio('atualizar');
+  const ag = require('./lib/acoes-sistema').atualizar({ grupoId: msg.grupoId, quem: msg.remetente || null, antes: pend.antes || 0, sensiveis: pend.sensiveis || [] });
   if (!ag.ok) {
-    try { require('fs').unlinkSync(ATUALIZACAO_PEDIDO); } catch (e) { /* já não existe */ }
     return {
       ...resposta('atualizar_erro', `⚠️ Não consegui iniciar a atualização: ${ag.detalhe}.\nProvável causa: o servidor ainda não liberou esse comando para o bot (infra/README.md).`),
       mensagem: `Atualização do servidor falhou ao agendar: ${ag.detalhe}`, notificarAdmin: true,
@@ -3164,6 +3153,10 @@ async function responderNoGrupoAdmin(msg, aoReceber) {
     const r = await responderFotosPatio(msg, config, aoReceber);
     if (r) return r;
   }
+  if (pend && String(pend.tipo || '').startsWith('agendar_')) {
+    const r = responderAgendar(msg);
+    if (r) return r;
+  }
   if (pend && String(pend.tipo || '').startsWith('reiniciar_')
       && !(msg.tipo === 'texto' && interpretarPedidoReiniciar(msg.texto))) {
     return responderReiniciar(msg, pend);
@@ -3178,6 +3171,8 @@ async function responderNoGrupoAdmin(msg, aoReceber) {
   if (cmdCota) return cmdCota;
   const cmdAjuda = responderAjuda(msg);
   if (cmdAjuda) return cmdAjuda;
+  const cmdAgendar = responderAgendar(msg);
+  if (cmdAgendar) return cmdAgendar;
   const cmdFat = responderComandoFaturamento(msg, config);
   if (cmdFat) return cmdFat;
   const cmdAnti = responderComandoAntifraude(msg, config);
@@ -3499,6 +3494,125 @@ async function responderFotosPatio(msg, config, aoReceber) {
       + `${r.substituidas ? ` (substituíram ${r.substituidas})` : ''}.\n\nA conferência de local já usa as novas.`),
     mensagem: `Fotos de referência de ${nome(id)} trocadas por ${msg.remetente || msg.grupoId} via WhatsApp (${r.novas} nova(s), ${r.substituidas} substituída(s)).`,
   };
+}
+
+// Agendar uma ação de manutenção para um horário: "agendar reiniciar servidor
+// domingo 03:00". Confirma ANTES de guardar, mostrando a data por extenso — erro de
+// interpretação de horário vira reinício fora de hora. Quem executa é o timer do
+// systemd (scripts/executar-agendamentos.js), que avisa o grupo 10 min antes.
+// Também: "agendamentos" lista e "cancelar agendamento" cancela. Só administração.
+//
+// Devolve a resposta, ou null quando a mensagem não é deste assunto.
+function responderAgendar(msg) {
+  if (msg.tipo !== 'texto' && msg.tipo !== 'texto_privado') return null;
+  const ag = require('./lib/agendamentos');
+  const pend = pendencias.buscar(msg.grupoId, msg.remetenteId);
+  const emAndamento = pend && String(pend.tipo || '').startsWith('agendar_');
+  const cmd = interpretarComandoAgendar(msg.texto);
+  const pedidoLista = cmd ? null : interpretarPedidoAgendamentos(msg.texto);
+  if (!emAndamento && !cmd && !pedidoLista) return null;
+  // "ajuda" no meio de um agendamento segue para a ajuda (o agendamento fica esperando).
+  if (emAndamento && !cmd && !pedidoLista && interpretarPedidoAjuda(msg.texto)) return null;
+
+  const resposta = (status, texto) => ({
+    status, grupoId: msg.grupoId, mensagemWhatsapp: texto,
+    notificarAdmin: false, responder: true, etapa: 'agendar',
+  });
+  const agora = new Date();
+  const limpar = () => { if (emAndamento) pendencias.consumir(msg.grupoId, msg.remetenteId); };
+  const linhaDe = (j, i) => `*${i + 1}* ${ag.ACOES[j.acao].rotulo[0].toUpperCase()}${ag.ACOES[j.acao].rotulo.slice(1)} — ${ag.formatarQuando(new Date(j.quandoIso), agora)}`;
+  const EXEMPLOS = 'Exemplos: *03:00*, *amanhã 04:30*, *domingo 3h*, *15/11 02:00*.';
+
+  const perguntarHorario = (acao, dia, aviso = '') => {
+    limpar();
+    pendencias.registrar(msg.grupoId, msg.remetenteId, { tipo: 'agendar_quando', acao, dia: dia === undefined ? null : dia });
+    return resposta('agendar_perguntar_horario', `${aviso}Para que horas vou *${ag.ACOES[acao].rotulo}*? ${EXEMPLOS}\\n_CANCELAR para desistir._`);
+  };
+
+  // Calcula o horário e pede a confirmação; erros voltam com o motivo.
+  const propor = (acao, spec) => {
+    const r = ag.calcularQuando(spec, agora);
+    if (r.erro === 'hora_invalida') return perguntarHorario(acao, spec.dia, '⚠️ Não entendi esse horário. ');
+    if (r.erro === 'ja_passou') return perguntarHorario(acao, null, '⚠️ Esse horário de hoje já passou. ');
+    if (r.erro === 'data_invalida') { limpar(); return resposta('agendar_erro', '⚠️ Essa data não existe. Mande o comando de novo, por exemplo: *agendar reiniciar servidor 15/11 03:00*.'); }
+    if (r.erro === 'longe') { limpar(); return resposta('agendar_erro', `⚠️ Só agendo até ${ag.MAX_DIAS} dias à frente. Mande o comando de novo com uma data mais próxima.`); }
+    limpar();
+    pendencias.registrar(msg.grupoId, msg.remetenteId, { tipo: 'agendar_confirma', acao, quandoIso: r.quando.toISOString() });
+    return resposta('agendar_confirmar',
+      `🗓️ Vou *${ag.ACOES[acao].rotulo}* em *${ag.formatarQuando(r.quando, agora)}*.\\n`
+      + (r.adiouParaAmanha ? '_(o horário de hoje já passou, então marquei para amanhã)_\\n' : '')
+      + `\\n${ag.ACOES[acao].impacto} Aviso aqui ${ag.AVISO_MIN} minutos antes.\\n\\nConfirma? Responda *SIM* ou *NÃO*.`);
+  };
+
+  const seguir = (acao, spec) => (spec.hora === null || spec.hora === undefined ? perguntarHorario(acao, spec.dia) : propor(acao, spec));
+
+  // ---- comando novo: sempre recomeça
+  if (cmd) {
+    limpar();
+    if (!cmd.acao) {
+      pendencias.registrar(msg.grupoId, msg.remetenteId, { tipo: 'agendar_o_que', hora: cmd.hora, minuto: cmd.minuto, dia: cmd.dia });
+      return resposta('agendar_perguntar_acao', 'Agendar o quê?\\n\\n*1* reiniciar os *serviços* (cerca de 1 min)\\n*2* reiniciar o *servidor* (2 a 3 min)\\n*3* instalar as *atualizações*\\n\\n_CANCELAR para desistir._');
+    }
+    return seguir(cmd.acao, cmd);
+  }
+
+  // ---- ver / cancelar o que está agendado
+  if (pedidoLista) {
+    const ativos = ag.listarAtivos();
+    if (!ativos.length) { limpar(); return resposta('agendar_vazio', 'Não há nada agendado.'); }
+    const lista = ativos.map(linhaDe).join('\\n');
+    if (pedidoLista.tipo === 'listar') return resposta('agendar_lista', `🗓️ *Agendamentos*\\n\\n${lista}\\n\\n_Para cancelar: *cancelar agendamento*._`);
+    limpar();
+    pendencias.registrar(msg.grupoId, msg.remetenteId, { tipo: 'agendar_cancelar', ids: ativos.map((j) => j.id) });
+    return resposta('agendar_cancelar_qual', `🗓️ *Cancelar qual?*\\n\\n${lista}\\n\\nResponda o *número*, ou *TODOS*. _Para desistir, responda CANCELAR._`);
+  }
+
+  // ---- respostas às perguntas em andamento
+  if (CANCELAR_BROADCAST.test(msg.texto || '')) {
+    limpar();
+    return resposta('agendar_cancelado', 'Ok, nada foi agendado.');
+  }
+
+  if (pend.tipo === 'agendar_o_que') {
+    const t = normalizar(msg.texto || '');
+    const acao = /^\s*1\b|\bservic/.test(t) ? 'servicos' : /^\s*2\b|\bservidor|\bmaquina/.test(t) ? 'servidor' : /^\s*3\b|\batualiz|\binstal/.test(t) ? 'atualizar' : null;
+    if (!acao) return resposta('agendar_acao_nao_entendida', 'Não entendi. Responda *1* (serviços), *2* (servidor) ou *3* (atualizações). _CANCELAR para desistir._');
+    return seguir(acao, { hora: pend.hora, minuto: pend.minuto, dia: pend.dia });
+  }
+
+  if (pend.tipo === 'agendar_quando') {
+    const h = interpretarHorario(msg.texto);
+    if (h.hora === null) return resposta('agendar_horario_nao_entendido', `Não entendi o horário. ${EXEMPLOS} _CANCELAR para desistir._`);
+    return propor(pend.acao, { hora: h.hora, minuto: h.minuto, dia: h.dia === null ? pend.dia : h.dia });
+  }
+
+  if (pend.tipo === 'agendar_cancelar') {
+    const t = normalizar(msg.texto || '');
+    if (/\btodos?\b/.test(t)) { const n = ag.cancelarTodos(); limpar(); return resposta('agendar_cancelados', `✅ ${n} agendamento(s) cancelado(s).`); }
+    const n = Number((t.match(/\b(\d{1,2})\b/) || [])[1]);
+    const id = pend.ids[n - 1];
+    if (!id) return resposta('agendar_cancelar_nao_entendido', 'Responda o *número* da lista ou *TODOS*. _CANCELAR para desistir._');
+    const j = ag.cancelar(id);
+    limpar();
+    return resposta('agendar_cancelados', j ? `✅ Cancelei: ${ag.ACOES[j.acao].rotulo}, ${ag.formatarQuando(new Date(j.quandoIso), agora)}.` : 'Esse agendamento já não está ativo.');
+  }
+
+  // agendar_confirma
+  if (msg.resposta !== 'sim' && msg.resposta !== 'nao') {
+    return resposta('agendar_confirma_nao_entendido', 'Responda *SIM* para agendar ou *NÃO* para cancelar.');
+  }
+  limpar();
+  if (msg.resposta === 'nao') return resposta('agendar_cancelado', 'Ok, nada foi agendado.');
+  try {
+    const j = ag.criar({ acao: pend.acao, quando: new Date(pend.quandoIso), grupoId: msg.grupoId, quem: msg.remetente || null }, agora);
+    return {
+      ...resposta('agendado', `✅ Agendado: *${ag.ACOES[j.acao].rotulo}* — ${ag.formatarQuando(new Date(j.quandoIso), agora)}.\\n\\nAviso aqui ${ag.AVISO_MIN} minutos antes. *agendamentos* lista; *cancelar agendamento* cancela.`),
+      mensagem: `Agendado por ${msg.remetente || msg.grupoId}: ${ag.ACOES[j.acao].rotulo} em ${j.quandoIso}.`,
+    };
+  } catch (erro) {
+    const motivos = { duplicado: 'Já existe esse mesmo agendamento.', limite: `Já há ${ag.MAX_ATIVOS} agendamentos ativos — cancele algum (*cancelar agendamento*).`, passado: 'Esse horário já passou. Mande o comando de novo.', longe: `Só agendo até ${ag.MAX_DIAS} dias à frente.` };
+    return resposta('agendar_erro', `⚠️ ${motivos[erro.codigo] || `Não consegui agendar: ${erro.message}`}`);
+  }
 }
 
 // Índice de comandos da administração: "ajuda" lista tudo; "ajuda <assunto>" dá o
@@ -4293,6 +4407,8 @@ async function responderAutorizacaoPrivada(msg) {
   // Índice de comandos (mesmo comando do grupo "Adm Bot").
   const cmdAjudaPriv = responderAjuda(msg);
   if (cmdAjudaPriv) return cmdAjudaPriv;
+  const cmdAgendarPriv = responderAgendar(msg);
+  if (cmdAgendarPriv) return cmdAgendarPriv;
 
   // Criar pátio (mesmo comando do grupo "Adm Bot").
   const cmdPatio = responderComandoCriarPatio(msg, config);

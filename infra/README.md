@@ -309,3 +309,34 @@ ffmpeg -version | head -1      # confere
 
 O limite de imagens por pátio subiu de 3 para 5 (cada imagem entra em toda
 conferência de local, então mais não significa melhor: prefira ângulos diferentes).
+
+---
+
+## Agendar manutenção pelo WhatsApp
+
+No grupo de administração: *agendar reiniciar servidor domingo 03:00*, *agendar
+reiniciar serviços amanhã 04:30*, *agendar atualizar servidor 02:00*. O bot mostra a
+data por extenso e pede **SIM** antes de guardar; avisa o grupo **10 minutos antes**;
+no horário executa pelo mesmo caminho dos comandos manuais (e o "Voltei!" / o relatório
+da atualização chegam no mesmo grupo). `agendamentos` lista; `cancelar agendamento`
+cancela (um pelo número, ou TODOS). Horário de Brasília. Cada agendamento roda UMA vez;
+máximo de 30 dias à frente e 10 ativos. **Atrasado mais de 15 minutos (servidor fora do
+ar no horário), NÃO executa** — marca como perdido e avisa, porque um reinício fora de
+hora é pior que nenhum.
+
+Quem executa é um timer que confere a cada minuto. **Instalar (uma vez), no servidor:**
+
+```bash
+cd ~/validador-hangares && git pull
+sudo cp infra/executar-agendamentos.service infra/executar-agendamentos.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now executar-agendamentos.timer
+systemctl list-timers executar-agendamentos.timer --no-pager   # mostra a próxima execução (dentro de 1 min)
+```
+
+Não precisa de permissão nova: usa as mesmas unidades `reiniciar-servicos`,
+`reiniciar-servidor` e `atualizar-servidor` já liberadas no `sudoers`.
+
+Ver o que o executor fez: `journalctl -u executar-agendamentos -n 20 --no-pager`
+(só imprime quando avisa, executa ou perde algo). Os agendamentos ficam em
+`data/agendamentos.json` (o histórico de mais de 30 dias é apagado sozinho).

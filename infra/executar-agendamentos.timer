@@ -1,0 +1,11 @@
+[Unit]
+Description=Confere os agendamentos de manutencao a cada minuto
+
+[Timer]
+# 2 min depois do boot (da tempo de tudo subir) e depois a cada minuto.
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

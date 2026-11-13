@@ -1,0 +1,10 @@
+[Unit]
+Description=Executa os agendamentos de manutencao marcados pela administracao
+After=network-online.target n8n.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/validador-hangares
+ExecStart=/usr/bin/node /home/ubuntu/validador-hangares/scripts/executar-agendamentos.js

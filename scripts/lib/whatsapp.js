@@ -407,6 +407,74 @@ function interpretarPedidoAjuda(texto) {
 }
 
 /**
+ * Lê um HORÁRIO e um DIA de uma frase: "03:00", "3h30", "às 3 da manhã", "amanhã
+ * 04:30", "domingo 3h", "15/11 02:00". Devolve {hora, minuto, dia}; `hora` é null
+ * quando não há horário, `dia` é null | 'hoje' | 'amanha' | 'depois' | {dow} |
+ * {dia, mes, ano}. Não valida a faixa (25:00 volta 25): quem calcula recusa.
+ */
+function interpretarHorario(texto) {
+  let t = normalizar(texto || '');
+  let dia = null;
+  const data = t.match(/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/);
+  if (data) { dia = { dia: Number(data[1]), mes: Number(data[2]), ano: data[3] ? Number(data[3]) : null }; t = t.replace(data[0], ' '); }
+  else if (/\bdepois de amanha\b/.test(t)) dia = 'depois';
+  else if (/\bamanha\b/.test(t)) dia = 'amanha';
+  else if (/\bhoje\b/.test(t)) dia = 'hoje';
+  else {
+    const semana = t.match(/\b(domingo|segunda|terca|quarta|quinta|sexta|sabado)\b/);
+    if (semana) dia = { dow: ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado'].indexOf(semana[1]) };
+  }
+
+  let hora = null;
+  let minuto = 0;
+  let m;
+  if (/\bmeia[- ]noite\b/.test(t)) hora = 0;
+  else if (/\bmeio[- ]dia\b/.test(t)) hora = 12;
+  else if ((m = t.match(/\b(\d{1,2}):(\d{2})\b/))) { hora = Number(m[1]); minuto = Number(m[2]); }
+  else if ((m = t.match(/\b(\d{1,2})\s*h(?:oras?)?\s*(\d{2})?\b/))) { hora = Number(m[1]); minuto = m[2] ? Number(m[2]) : 0; }
+  else if ((m = t.match(/\bas\s+(\d{1,2})\b/))) hora = Number(m[1]);
+  else if ((m = t.match(/\b(\d{1,2})\s+da\s+(manha|madrugada|tarde|noite)\b/))) hora = Number(m[1]);
+  if (hora !== null && /\bda\s+(tarde|noite)\b/.test(t) && hora < 12) hora += 12;
+  if (hora !== null && /\b(meia|meio)[- ](noite|dia)\b/.test(t)) minuto = 0;
+  return { hora, minuto: hora === null ? null : minuto, dia };
+}
+
+/**
+ * Comando da administração para AGENDAR uma ação de manutenção:
+ * "agendar reiniciar servidor 03:00", "programar atualizar servidor domingo 2h",
+ * "agendar reiniciar serviços amanhã 04:30". Exige o verbo de agendar E uma ação.
+ * Devolve {acao, hora, minuto, dia} — `acao`: 'servidor' | 'servicos' | 'atualizar',
+ * ou null quando disse "reiniciar" sem dizer o quê (o bot pergunta) — ou null se
+ * não é o comando.
+ */
+function interpretarComandoAgendar(texto) {
+  const t = normalizar(texto || '').trim();
+  if (!t || t.length > 100) return null;
+  if (!/\b(agend\w+|program\w+|marc\w+)\b/.test(t)) return null;
+  let acao;
+  if (/\b(reinici\w+|reboot)\b/.test(t)) {
+    if (/\bservic\w*/.test(t)) acao = 'servicos';
+    else if (/\b(servidor|maquina)\b/.test(t)) acao = 'servidor';
+    else acao = null;
+  } else if (/\b(atualiz\w+|instal\w+)\b/.test(t)) acao = 'atualizar';
+  else return null;
+  return { acao, ...interpretarHorario(texto) };
+}
+
+/**
+ * Pedido da administração para VER ou CANCELAR o que está agendado: "agendamentos",
+ * "o que está agendado", "cancelar agendamento". Devolve {tipo: 'listar'|'cancelar'}
+ * ou null (inclusive quando é o comando de agendar, que tem precedência).
+ */
+function interpretarPedidoAgendamentos(texto) {
+  const t = normalizar(texto || '').trim();
+  if (!t || t.length > 60) return null;
+  if (interpretarComandoAgendar(texto)) return null;
+  if (!/\b(agendamentos?|agendad[oa]s?|programad[oa]s?)\b/.test(t)) return null;
+  return { tipo: /\b(cancel\w+|desmarc\w+|remov\w+|apag\w+|exclu\w+)\b/.test(t) ? 'cancelar' : 'listar' };
+}
+
+/**
  * Comando da administração para CRIAR um pátio novo ("criar pátio", "cadastrar
  * um novo pátio", "novo hangar"). Devolve true/false.
  *
@@ -698,4 +766,4 @@ function interpretarMensagem(body) {
   };
 }
 
-module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus, interpretarPedidoPatio, interpretarEscolhaPatio, interpretarConsultaValidacao, interpretarComandoIdentificacao, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoAntifraude, interpretarConsultaAntifraude, interpretarComandoFotosPatio, interpretarPedidoPendencias, interpretarPedidoAjuda, interpretarComandoCriarPatio, interpretarComandoAdicionarCota, interpretarPedidoRelatorioCota, formatarTelefone, interpretarPedidoCotaDisponivel, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoReiniciar, interpretarPedidoAtualizar, interpretarCreditoAws, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar };
+module.exports = { interpretarMensagem, extrairPlaca, ehGrupo, interpretarResposta, ehPedidoDeStatus, interpretarPedidoPatio, interpretarEscolhaPatio, interpretarConsultaValidacao, interpretarComandoIdentificacao, interpretarComandoContingencia, interpretarComandoFaturamento, interpretarComandoAntifraude, interpretarConsultaAntifraude, interpretarComandoFotosPatio, interpretarPedidoPendencias, interpretarPedidoAjuda, interpretarHorario, interpretarComandoAgendar, interpretarPedidoAgendamentos, interpretarComandoCriarPatio, interpretarComandoAdicionarCota, interpretarPedidoRelatorioCota, formatarTelefone, interpretarPedidoCotaDisponivel, interpretarComandoBroadcast, interpretarPedidoDiagnostico, interpretarPedidoRecargaAnthropic, interpretarPedidoConserto, interpretarPedidoReiniciar, interpretarPedidoAtualizar, interpretarCreditoAws, interpretarPedidoInvestigar, interpretarPedidoMovimentacao, normalizar };

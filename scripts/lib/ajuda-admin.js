@@ -58,6 +58,20 @@ const COMANDOS = [
     detalhe: 'Menu: *1* procura o que há para atualizar (só mostra, não altera nada) e *2* instala (pede SIM). Pacotes em liberação gradual do Ubuntu ficam de fora. Uma vez por mês o bot avisa sozinho se houver pendência. Depois de instalar, ele sugere reiniciar se for preciso.',
   },
   {
+    categoria: 'sistema', titulo: 'Agendar', chaves: ['agendar', 'programar', 'agendamento', 'marcar'],
+    descricao: 'marcar um reinício ou atualização para um horário',
+    exemplos: ['agendar reiniciar servidor 03:00', 'agendar reiniciar serviços amanhã 04:30', 'agendar atualizar servidor domingo 2h'],
+    parsers: ['interpretarComandoAgendar', 'interpretarHorario'], reconhece: (t, w) => w.interpretarComandoAgendar(t) !== null,
+    detalhe: 'Marca uma manutenção para um horário (horário de Brasília): *reiniciar servidor*, *reiniciar serviços* ou *atualizar servidor* (instala as atualizações). Aceita *03:00*, *3h30*, *às 3 da manhã*, e o dia: *amanhã*, *domingo*, *15/11*. O bot mostra a data por extenso e pede SIM antes de guardar, e avisa aqui 10 minutos antes. Roda uma vez; se o servidor estiver fora do ar no horário (atraso de mais de 15 min), não executa e avisa. Máximo 30 dias à frente e 10 agendamentos.',
+  },
+  {
+    categoria: 'sistema', titulo: 'Agendamentos', chaves: ['agendamentos', 'agendado', 'cancelar agendamento', 'desmarcar'],
+    descricao: 'ver e cancelar o que está agendado',
+    exemplos: ['agendamentos', 'cancelar agendamento'],
+    parsers: ['interpretarPedidoAgendamentos'], reconhece: (t, w) => w.interpretarPedidoAgendamentos(t) !== null,
+    detalhe: '*agendamentos* lista o que está marcado, com data e horário. *cancelar agendamento* mostra a lista: responda o *número* para cancelar um, ou *TODOS*.',
+  },
+  {
     categoria: 'creditos', titulo: 'Créditos da Anthropic', chaves: ['recarregar', 'anthropic', 'credito', 'creditos', 'ocr', 'saldo'],
     descricao: 'saldo estimado e como recarregar',
     exemplos: ['recarregar sistema'],
